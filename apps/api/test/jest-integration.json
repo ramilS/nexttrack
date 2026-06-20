@@ -1,0 +1,31 @@
+{
+  "moduleFileExtensions": ["js", "json", "ts"],
+  "rootDir": ".",
+  "testEnvironment": "node",
+  "testRegex": ".integration-spec.ts$",
+  "globalSetup": "./support/global-setup.ts",
+  "globalTeardown": "./support/global-teardown.ts",
+  "maxWorkers": 1,
+  "transform": {
+    "^.+\\.(t|j)s$": ["ts-jest", {
+      "tsconfig": {
+        "esModuleInterop": true
+      }
+    }]
+  },
+  "moduleNameMapper": {
+    "^@/(.*)$": "<rootDir>/../src/$1",
+    "^@test/(.*)$": "<rootDir>/$1",
+    "^@repo/test-support$": "<rootDir>/../../../packages/test-support/src/index",
+    "^@repo/test-support/containers$": "<rootDir>/../../../packages/test-support/src/containers",
+    "^@repo/shared/error-codes$": "<rootDir>/../../../packages/shared/src/enums/error-codes.enum",
+    "^@repo/shared/roles$": "<rootDir>/../../../packages/shared/src/enums/roles.enum",
+    "^@repo/shared/pagination$": "<rootDir>/../../../packages/shared/src/constants/pagination",
+    "^@repo/shared/invite$": "<rootDir>/../../../packages/shared/src/constants/invite",
+    "^@repo/shared/auth-methods$": "<rootDir>/../../../packages/shared/src/contracts/auth-methods",
+    "^@repo/shared/schemas$": "<rootDir>/../../../packages/shared/src/schemas/index",
+    "^@repo/shared/schemas/(.*)$": "<rootDir>/../../../packages/shared/src/schemas/$1",
+    "^@repo/shared$": "<rootDir>/../../../packages/shared/src/index"
+  },
+  "testTimeout": 60000
+}

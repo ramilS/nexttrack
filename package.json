@@ -1,0 +1,33 @@
+{
+  "name": "next_track",
+  "private": true,
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\"",
+    "check-types": "turbo run check-types",
+    "test": "pnpm --filter api test && pnpm --filter web test",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "pnpm --filter api test:integration",
+    "test:e2e": "pnpm --filter e2e test:e2e",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7",
+    "prettier": "^3.8.4",
+    "turbo": "^2.9.14",
+    "typescript": "5.9.3"
+  },
+  "packageManager": "pnpm@10.34.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "pnpm": {
+    "overrides": {
+      "socket.io-adapter": "2.5.8",
+      "@types/react": "19.2.17",
+      "@types/react-dom": "19.2.3"
+    }
+  }
+}

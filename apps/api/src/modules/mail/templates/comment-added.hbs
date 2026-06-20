@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h3>New Comment</h3>
+  <p><strong>{{actorName}}</strong> commented on <strong>{{issueKey}}</strong>: {{issueTitle}}</p>
+  {{#if message}}<blockquote>{{message}}</blockquote>{{/if}}
+  {{#if actionUrl}}<p><a href="{{actionUrl}}">View Comment</a></p>{{/if}}
+  <hr>
+  <small>You received this email because of your notification settings.</small>
+</body>
+</html>

@@ -1,0 +1,2 @@
+echo "🔒 pre-push: type-check + unit tests"
+pnpm check-types && pnpm test:unit
