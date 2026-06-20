@@ -1,0 +1,131 @@
+# ──────────────────────────────────────────────────────────────
+# Production docker-compose
+#
+# Usage:
+#   cp .env.prod.example .env.prod   # fill in real values
+#   docker compose -f infra/docker-compose.prod.yml up -d
+#
+# First-time SSL certificate:
+#   docker compose -f infra/docker-compose.prod.yml run --rm certbot \
+#     certonly --webroot -w /var/www/certbot -d $DOMAIN --agree-tos -m admin@$DOMAIN
+# ──────────────────────────────────────────────────────────────
+
+services:
+  # ── Database ─────────────────────────────────────────────
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nexttrack}
+      POSTGRES_USER: ${POSTGRES_USER:-nexttrack}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres_data:/var/lib/postgresql
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexttrack}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Cache / Queue ────────────────────────────────────────
+  redis:
+    image: valkey/valkey:9.1.0-alpine
+    restart: unless-stopped
+    command: valkey-server --requirepass ${VALKEY_PASSWORD:?VALKEY_PASSWORD is required}
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${VALKEY_PASSWORD}", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ── Search ───────────────────────────────────────────────
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Object storage ───────────────────────────────────────
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio_data:/data
+
+  # ── API (NestJS) ─────────────────────────────────────────
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: ../.env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
+      minio:
+        condition: service_started
+
+  # ── Web (Next.js) ────────────────────────────────────────
+  web:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://api:3001/api
+    depends_on:
+      - api
+
+  # ── Reverse proxy ────────────────────────────────────────
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/ssl-params.conf:/etc/nginx/conf.d/ssl-params.conf:ro
+      - letsencrypt:/etc/letsencrypt:ro
+      - certbot_webroot:/var/www/certbot:ro
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN is required}
+    depends_on:
+      - api
+      - web
+
+  # ── SSL certificate renewal ──────────────────────────────
+  certbot:
+    image: certbot/certbot
+    volumes:
+      - letsencrypt:/etc/letsencrypt
+      - certbot_webroot:/var/www/certbot
+    entrypoint: /bin/sh -c 'trap exit TERM; while :; do certbot renew --webroot -w /var/www/certbot; sleep 12h & wait $${!}; done'
+
+volumes:
+  postgres_data:
+  valkey_data:
+  es_data:
+  minio_data:
+  letsencrypt:
+  certbot_webroot:

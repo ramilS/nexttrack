@@ -1,0 +1,1222 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  extensions = [citext, pg_trgm, uuidOssp(map: "uuid-ossp")]
+}
+
+model User {
+  id           String  @id @default(uuid())
+  email        String  @unique @db.Citext
+  name         String
+  avatarUrl    String? @map("avatar_url")
+  passwordHash String? @map("password_hash")
+
+  isBlocked   Boolean   @default(false) @map("is_blocked")
+  blockedAt   DateTime? @map("blocked_at") @db.Timestamptz(3)
+  blockedById String?   @map("blocked_by_id")
+  blockReason String?   @map("block_reason")
+
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by_id")
+
+  role         GlobalRole @default(USER)
+  migratedFrom String?    @map("migrated_from") @db.VarChar(50)
+  ytId         String?    @unique @map("yt_id")
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  blockedBy    User?   @relation("BlockedBy", fields: [blockedById], references: [id])
+  blockedUsers User[]  @relation("BlockedBy")
+  deletedBy    User?   @relation("DeletedBy", fields: [deletedById], references: [id])
+  deletedUsers User[]  @relation("DeletedBy")
+  hasPassword  Boolean @default(false) @map("has_password")
+
+  refreshTokens           RefreshToken[]
+  invitesSent             Invite[]                 @relation("InviteSender")
+  ssoConnections          SsoConnection[]
+  projectMembers          ProjectMember[]
+  createdProjects         Project[]                @relation("ProjectCreator")
+  deletedProjects         Project[]                @relation("ProjectDeleter")
+  archivedProjects        Project[]                @relation("ProjectArchiver")
+  reportedIssues          Issue[]                  @relation("IssueReporter")
+  assignedIssues          Issue[]                  @relation("IssueAssignee")
+  comments                Comment[]
+  activities              Activity[]
+  watchedIssues           IssueWatcher[]
+  attachments             Attachment[]
+  timeLogs                TimeLog[]
+  notifications           Notification[]
+  notificationPreferences NotificationPreferences?
+  createdWebhooks         ProjectWebhook[]         @relation("WebhookCreator")
+  createdTelegramConfigs  ProjectTelegramConfig[]  @relation("TelegramConfigCreator")
+  createdIssueLinks       IssueLink[]              @relation("IssueLinkCreator")
+  ledTeams                Team[]                   @relation("TeamLead")
+  teamMemberships         TeamMember[]
+  dashboards              Dashboard[]
+  createdArticles         Article[]                @relation("ArticleCreatedBy")
+  updatedArticles         Article[]                @relation("ArticleUpdatedBy")
+  articleComments         ArticleComment[]         @relation("ArticleCommentAuthor")
+  createdWorkflowRules    WorkflowRule[]           @relation("workflowRuleCreator")
+  autoAssignRules         AutoAssignRule[]         @relation("AutoAssignRuleAssignee")
+  createdSsoProviders     SsoProvider[]            @relation("SsoProviderCreator")
+
+  @@index([email])
+  @@index([deletedAt])
+  @@index([isBlocked])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  token     String    @unique
+  userAgent String?   @map("user_agent")
+  ipAddress String?   @map("ip_address")
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, token])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Invite {
+  id       String     @id @default(uuid())
+  email    String     @db.Citext
+  token    String     @unique @default(uuid())
+  role     GlobalRole @default(USER)
+  senderId String     @map("sender_id")
+
+  status     InviteStatus @default(PENDING)
+  expiresAt  DateTime     @map("expires_at") @db.Timestamptz(3)
+  acceptedAt DateTime?    @map("accepted_at") @db.Timestamptz(3)
+  acceptedBy String?      @map("accepted_by")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sender User @relation("InviteSender", fields: [senderId], references: [id])
+
+  @@index([token])
+  @@index([email])
+  @@index([status])
+  @@index([status, expiresAt])
+  @@index([senderId])
+  @@map("invites")
+}
+
+enum GlobalRole {
+  ADMIN
+  USER
+
+  @@map("global_role")
+}
+
+enum InviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+
+  @@map("invite_status")
+}
+
+model SsoProvider {
+  id        String          @id @default(uuid())
+  name      String          @db.VarChar(100)
+  type      SsoProviderType
+  isEnabled Boolean         @default(false) @map("is_enabled")
+
+  clientId     String @map("client_id")
+  clientSecret String @map("client_secret")
+
+  allowedDomain String @map("allowed_domain")
+
+  provisioningPolicy ProvisioningPolicy @default(INVITE_ONLY) @map("provisioning_policy")
+  defaultRole        GlobalRole         @default(USER) @map("default_role")
+
+  attributeMapping Json? @map("attribute_mapping")
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String   @map("created_by_id")
+
+  createdBy   User            @relation("SsoProviderCreator", fields: [createdById], references: [id])
+  connections SsoConnection[]
+
+  @@index([allowedDomain])
+  @@index([type, isEnabled])
+  @@map("sso_providers")
+}
+
+model SsoConnection {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  providerId String   @map("provider_id")
+  externalId String   @map("external_id")
+  email      String
+  lastUsedAt DateTime @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider SsoProvider @relation(fields: [providerId], references: [id])
+
+  @@unique([providerId, externalId])
+  @@unique([providerId, userId])
+  @@index([userId])
+  @@map("sso_connections")
+}
+
+enum SsoProviderType {
+  GOOGLE
+  MICROSOFT
+  OKTA
+  SAML
+
+  @@map("sso_provider_type")
+}
+
+enum ProvisioningPolicy {
+  INVITE_ONLY
+  AUTO_PROVISION
+
+  @@map("provisioning_policy")
+}
+
+// ─── Phase 2: Projects + Workflows + Tags ────────────────────────────
+
+model Project {
+  id          String  @id @default(uuid())
+  key         String  @unique @db.Citext
+  name        String  @db.VarChar(100)
+  description String? @db.VarChar(1000)
+  iconUrl     String? @map("icon_url")
+  color       String?
+
+  isPrivate Boolean @default(false) @map("is_private")
+
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById  String?   @map("deleted_by_id")
+  archivedAt   DateTime? @map("archived_at") @db.Timestamptz(3)
+  archivedById String?   @map("archived_by_id")
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String   @map("created_by_id")
+
+  createdBy  User  @relation("ProjectCreator", fields: [createdById], references: [id])
+  deletedBy  User? @relation("ProjectDeleter", fields: [deletedById], references: [id])
+  archivedBy User? @relation("ProjectArchiver", fields: [archivedById], references: [id])
+
+  members         ProjectMember[]
+  workflows       Workflow[]
+  tags            Tag[]
+  issues          Issue[]
+  customFields    CustomField[]
+  versions        ProjectVersion[]
+  issueCounter    ProjectIssueCounter?
+  boards          AgileBoard[]
+  notifications   Notification[]
+  webhooks        ProjectWebhook[]
+  telegramConfig  ProjectTelegramConfig?
+  teams           Team[]
+  autoAssignRules AutoAssignRule[]
+  articles        Article[]
+  workflowRules   WorkflowRule[]
+
+  @@index([key])
+  @@index([deletedAt])
+  @@index([archivedAt])
+  @@map("projects")
+}
+
+model ProjectMember {
+  userId    String   @map("user_id")
+  projectId String   @map("project_id")
+  roleId    String   @map("role_id")
+  joinedAt  DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
+  invitedBy String?  @map("invited_by")
+
+  user    User    @relation(fields: [userId], references: [id])
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roleRef Role    @relation(fields: [roleId], references: [id])
+
+  @@id([userId, projectId])
+  @@index([userId])
+  @@index([projectId])
+  @@index([roleId])
+  @@map("project_members")
+}
+
+model Workflow {
+  id          String   @id @default(uuid())
+  projectId   String   @map("project_id")
+  name        String   @db.VarChar(100)
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project     Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  rules       WorkflowRule[]
+  statuses    WorkflowStatus[]
+  transitions WorkflowTransition[]
+
+  @@index([projectId])
+  @@map("workflows")
+}
+
+model WorkflowStatus {
+  id         String         @id @default(uuid())
+  workflowId String         @map("workflow_id")
+  name       String         @db.VarChar(50)
+  color      String
+  category   StatusCategory
+  isInitial  Boolean        @map("is_initial")
+  isResolved Boolean        @map("is_resolved")
+  ordinal    Int
+
+  workflow        Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  issues          Issue[]
+  fromTransitions WorkflowTransition[] @relation("FromStatus")
+  toTransitions   WorkflowTransition[] @relation("ToStatus")
+
+  @@unique([workflowId, ordinal])
+  @@index([workflowId])
+  @@map("workflow_statuses")
+}
+
+model WorkflowTransition {
+  id           String                  @id @default(uuid())
+  workflowId   String                  @map("workflow_id")
+  name         String                  @db.VarChar(100)
+  fromStatusId String?                 @map("from_status_id")
+  toStatusId   String                  @map("to_status_id")
+  requiredRole WorkflowTransitionRole?
+
+  workflow   Workflow        @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  fromStatus WorkflowStatus? @relation("FromStatus", fields: [fromStatusId], references: [id], onDelete: Cascade)
+  toStatus   WorkflowStatus  @relation("ToStatus", fields: [toStatusId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@map("workflow_transitions")
+}
+
+model Tag {
+  id        String   @id @default(uuid())
+  projectId String   @map("project_id")
+  name      String   @db.VarChar(50)
+  color     String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  project Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  issues  IssueTag[]
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("tags")
+}
+
+model ProjectIssueCounter {
+  projectId  String @id @map("project_id")
+  lastNumber Int    @default(0) @map("last_number")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("project_issue_counters")
+}
+
+// ─── Permission-based Role System ────────────────────────────────────
+
+model Role {
+  id          String   @id @default(uuid())
+  name        String   @unique @db.VarChar(100)
+  description String?  @db.VarChar(500)
+  permissions Json // string[] of Permission values
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  members ProjectMember[]
+
+  @@map("roles")
+}
+
+enum StatusCategory {
+  UNSTARTED
+  STARTED
+  DONE
+
+  @@map("status_category")
+}
+
+enum WorkflowTransitionRole {
+  OWNER
+  DEVELOPER
+  VIEWER
+
+  @@map("workflow_transition_role")
+}
+
+// ─── Phase 3: Issues + Comments + Activities ──────────────────────────
+
+model Issue {
+  id          String @id @default(uuid())
+  number      Int
+  title       String @db.VarChar(500)
+  description Json?
+
+  type     IssueType @default(TASK)
+  priority Priority  @default(MEDIUM)
+  statusId String    @map("status_id")
+
+  projectId  String  @map("project_id")
+  reporterId String  @map("reporter_id")
+  assigneeId String? @map("assignee_id")
+
+  parentId String? @map("parent_id")
+  sprintId String? @map("sprint_id")
+
+  estimate Int?
+  spent    Int  @default(0)
+  version  Int  @default(1)
+
+  startDate  DateTime? @map("start_date") @db.Timestamptz(3)
+  dueDate    DateTime? @map("due_date") @db.Timestamptz(3)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by_id")
+
+  ytId String? @unique @map("yt_id")
+
+  project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  status   WorkflowStatus @relation(fields: [statusId], references: [id], onDelete: Restrict)
+  reporter User           @relation("IssueReporter", fields: [reporterId], references: [id])
+  assignee User?   @relation("IssueAssignee", fields: [assigneeId], references: [id])
+  parent   Issue?  @relation("SubIssues", fields: [parentId], references: [id])
+  children Issue[] @relation("SubIssues")
+  sprint   Sprint? @relation(fields: [sprintId], references: [id])
+
+  comments          Comment[]
+  attachments       Attachment[]
+  tags              IssueTag[]
+  activities        Activity[]
+  watchers          IssueWatcher[]
+  customFieldValues CustomFieldValue[]
+  timeLogs          TimeLog[]
+  notifications     Notification[]
+  linksFrom         IssueLink[]        @relation("linksFrom")
+  linksTo           IssueLink[]        @relation("linksTo")
+
+  @@unique([projectId, number])
+  @@index([projectId, statusId])
+  @@index([projectId, assigneeId])
+  @@index([projectId, priority])
+  @@index([projectId, createdAt])
+  @@index([projectId, updatedAt])
+  @@index([parentId])
+  @@index([sprintId])
+  @@index([deletedAt])
+  @@index([projectId, type])
+  @@map("issues")
+}
+
+model IssueTag {
+  issueId String @map("issue_id")
+  tagId   String @map("tag_id")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  tag   Tag   @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([issueId, tagId])
+  @@index([tagId])
+  @@map("issue_tags")
+}
+
+model Comment {
+  id       String  @id @default(uuid())
+  issueId  String  @map("issue_id")
+  authorId String  @map("author_id")
+  parentId String? @map("parent_id")
+  body     Json
+
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by_id")
+
+  editedAt  DateTime? @map("edited_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  issue   Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  author  User      @relation(fields: [authorId], references: [id])
+  parent  Comment?  @relation("CommentThread", fields: [parentId], references: [id], onDelete: Cascade)
+  replies Comment[] @relation("CommentThread")
+
+  @@index([issueId, createdAt])
+  @@index([authorId])
+  @@index([parentId])
+  @@index([deletedAt])
+  @@map("comments")
+}
+
+model Attachment {
+  id           String @id @default(uuid())
+  issueId      String @map("issue_id")
+  uploadedById String @map("uploaded_by_id")
+
+  filename    String
+  storagePath String @map("storage_path")
+  mimeType    String @map("mime_type")
+  size        Int
+
+  thumbnailPath String? @map("thumbnail_path")
+  width         Int?
+  height        Int?
+
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  issue      Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  uploadedBy User  @relation(fields: [uploadedById], references: [id])
+
+  @@index([issueId])
+  @@index([uploadedById])
+  @@map("attachments")
+}
+
+model Activity {
+  id        String       @id @default(uuid())
+  issueId   String       @map("issue_id")
+  actorId   String       @map("actor_id")
+  type      ActivityType
+  payload   Json
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  actor User  @relation(fields: [actorId], references: [id])
+
+  @@index([issueId, createdAt])
+  @@index([actorId])
+  @@index([actorId, createdAt])
+  @@index([type])
+  @@map("activities")
+}
+
+model IssueWatcher {
+  issueId String @map("issue_id")
+  userId  String @map("user_id")
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@id([issueId, userId])
+  @@index([userId])
+  @@map("issue_watchers")
+}
+
+enum IssueType {
+  TASK
+  BUG
+  STORY
+  EPIC
+  FEATURE
+
+  @@map("issue_type")
+}
+
+enum Priority {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+
+  @@map("priority")
+}
+
+enum ActivityType {
+  STATUS_CHANGE
+  ASSIGNEE_CHANGE
+  PRIORITY_CHANGE
+  TYPE_CHANGE
+  TITLE_CHANGE
+  DESCRIPTION_CHANGE
+  TAG_ADD
+  TAG_REMOVE
+  COMMENT_ADD
+  COMMENT_EDIT
+  COMMENT_DELETE
+  ATTACHMENT_ADD
+  ATTACHMENT_DELETE
+  SPRINT_CHANGE
+  ESTIMATE_CHANGE
+  DUE_DATE_CHANGE
+  PARENT_CHANGE
+  WATCHER_ADD
+  WATCHER_REMOVE
+  ISSUE_CREATED
+  ISSUE_DELETED
+  ISSUE_RESTORED
+  FIELD_VALUE_CHANGE
+  TIME_LOG_ADD
+  TIME_LOG_EDIT
+  TIME_LOG_DELETE
+  LINK_ADD
+  LINK_REMOVE
+
+  @@map("activity_type")
+}
+
+// ─── Issue Links ─────────────────────────────────────────────────────
+
+model IssueLink {
+  id            String        @id @default(uuid())
+  type          IssueLinkType
+  sourceIssueId String        @map("source_issue_id")
+  targetIssueId String        @map("target_issue_id")
+  createdById   String        @map("created_by_id")
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  sourceIssue Issue @relation("linksFrom", fields: [sourceIssueId], references: [id], onDelete: Cascade)
+  targetIssue Issue @relation("linksTo", fields: [targetIssueId], references: [id], onDelete: Cascade)
+  createdBy   User  @relation("IssueLinkCreator", fields: [createdById], references: [id])
+
+  @@unique([sourceIssueId, targetIssueId, type])
+  @@index([sourceIssueId])
+  @@index([targetIssueId])
+  @@map("issue_links")
+}
+
+enum IssueLinkType {
+  DEPENDS_ON
+  BLOCKS
+  DUPLICATES
+  RELATES_TO
+  IS_CLONED_FROM
+
+  @@map("issue_link_type")
+}
+
+// ─── Teams ──────────────────────────────────────────────────────────
+
+model Team {
+  id          String   @id @default(uuid())
+  name        String   @db.VarChar(100)
+  description String?
+  projectId   String   @map("project_id")
+  leadId      String?  @map("lead_id")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  lead            User?            @relation("TeamLead", fields: [leadId], references: [id])
+  members         TeamMember[]
+  autoAssignRules AutoAssignRule[] @relation("AutoAssignRuleTeam")
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("teams")
+}
+
+model TeamMember {
+  teamId   String   @map("team_id")
+  userId   String   @map("user_id")
+  joinedAt DateTime @default(now()) @map("joined_at") @db.Timestamptz(3)
+
+  team Team @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([teamId, userId])
+  @@index([userId])
+  @@map("team_members")
+}
+
+// ─── Knowledge Base ─────────────────────────────────────────────────
+
+model Article {
+  id          String    @id @default(uuid())
+  projectId   String    @map("project_id")
+  parentId    String?   @map("parent_id")
+  title       String    @db.VarChar(500)
+  content     Json
+  slug        String
+  sortOrder   Int       @default(0) @map("sort_order")
+  createdById String    @map("created_by_id")
+  updatedById String?   @map("updated_by_id")
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(3)
+  archivedAt  DateTime? @map("archived_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project   Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent    Article?         @relation("ArticleTree", fields: [parentId], references: [id])
+  children  Article[]        @relation("ArticleTree")
+  createdBy User             @relation("ArticleCreatedBy", fields: [createdById], references: [id])
+  updatedBy User?            @relation("ArticleUpdatedBy", fields: [updatedById], references: [id])
+  comments  ArticleComment[]
+
+  @@unique([projectId, slug])
+  @@index([projectId, parentId, sortOrder])
+  @@map("articles")
+}
+
+model ArticleComment {
+  id        String   @id @default(uuid())
+  articleId String   @map("article_id")
+  authorId  String   @map("author_id")
+  body      Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  article Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  author  User    @relation("ArticleCommentAuthor", fields: [authorId], references: [id])
+
+  @@index([articleId, createdAt])
+  @@map("article_comments")
+}
+
+// ─── Dashboards ─────────────────────────────────────────────────────
+
+model Dashboard {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  name      String   @db.VarChar(100)
+  isDefault Boolean  @default(false) @map("is_default")
+  layout    Json
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user    User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  widgets DashboardWidget[]
+
+  @@index([userId])
+  @@map("dashboards")
+}
+
+model DashboardWidget {
+  id          String     @id @default(uuid())
+  dashboardId String     @map("dashboard_id")
+  type        WidgetType
+  title       String     @db.VarChar(100)
+  config      Json
+
+  dashboard Dashboard @relation(fields: [dashboardId], references: [id], onDelete: Cascade)
+
+  @@map("dashboard_widgets")
+}
+
+enum WidgetType {
+  MY_ISSUES
+  ASSIGNED_TO_ME
+  RECENT_ACTIVITY
+  PROJECT_PROGRESS
+  SPRINT_BURNDOWN
+  CFD_MINI
+  VELOCITY_MINI
+  ISSUES_BY_STATUS
+  ISSUES_BY_PRIORITY
+  ISSUES_BY_TYPE
+  WATCHED_ISSUES
+  TIME_SPENT_TODAY
+  OVERDUE_ISSUES
+  CUSTOM_FILTER
+
+  @@map("widget_type")
+}
+
+// ─── Auto-assign Rules ──────────────────────────────────────────────
+
+model AutoAssignRule {
+  id         String         @id @default(uuid())
+  projectId  String         @map("project_id")
+  name       String         @db.VarChar(100)
+  isEnabled  Boolean        @default(true) @map("is_enabled")
+  priority   Int            @default(0)
+  conditions Json
+  strategy   AssignStrategy
+  assigneeId String?        @map("assignee_id")
+  teamId     String?        @map("team_id")
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assignee User?   @relation("AutoAssignRuleAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  team     Team?   @relation("AutoAssignRuleTeam", fields: [teamId], references: [id], onDelete: SetNull)
+
+  @@index([projectId, isEnabled, priority])
+  @@map("auto_assign_rules")
+}
+
+enum AssignStrategy {
+  SPECIFIC_USER
+  ROUND_ROBIN_TEAM
+  LEAST_LOADED_TEAM
+  PROJECT_LEAD
+
+  @@map("assign_strategy")
+}
+
+// ─── Phase 5: Custom Fields + Versions ────────────────────────────────
+
+model CustomField {
+  id          String          @id @default(uuid())
+  projectId   String          @map("project_id")
+  name        String          @db.VarChar(100)
+  type        CustomFieldType
+  description String?         @db.VarChar(500)
+  isRequired  Boolean         @default(false) @map("is_required")
+  ordinal     Int
+  config      Json
+
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project Project            @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  values  CustomFieldValue[]
+
+  @@unique([projectId, name])
+  @@index([projectId, ordinal])
+  @@index([deletedAt])
+  @@map("custom_fields")
+}
+
+model CustomFieldValue {
+  id            String @id @default(uuid())
+  issueId       String @map("issue_id")
+  customFieldId String @map("custom_field_id")
+  value         Json
+
+  issue       Issue       @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([issueId, customFieldId])
+  @@index([customFieldId])
+  @@index([issueId])
+  @@map("custom_field_values")
+}
+
+model ProjectVersion {
+  id          String        @id @default(uuid())
+  projectId   String        @map("project_id")
+  name        String        @db.VarChar(100)
+  description String?
+  status      VersionStatus @default(UNRELEASED)
+  releaseDate DateTime?     @map("release_date") @db.Timestamptz(3)
+  ordinal     Int
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@index([projectId, status])
+  @@map("project_versions")
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  DATETIME
+  ENUM
+  MULTI_ENUM
+  USER
+  MULTI_USER
+  VERSION
+  MULTI_VERSION
+  PERIOD
+  URL
+
+  @@map("custom_field_type")
+}
+
+enum VersionStatus {
+  UNRELEASED
+  RELEASED
+  ARCHIVED
+
+  @@map("version_status")
+}
+
+// ─── Phase 7: Agile Boards + Sprints ─────────────────────────────────
+
+model AgileBoard {
+  id        String    @id @default(uuid())
+  projectId String    @map("project_id")
+  name      String    @db.VarChar(100)
+  type      BoardType @default(KANBAN)
+
+  columns     Json
+  swimlaneBy  SwimlaneBy @default(NONE) @map("swimlane_by")
+  wipLimits   Json?      @map("wip_limits")
+  filterQuery String?    @map("filter_query")
+
+  autoCloseOnDone Boolean @default(true) @map("auto_close_on_done")
+  isDefault       Boolean @default(false) @map("is_default")
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String   @map("created_by_id")
+
+  project Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sprints Sprint[]
+
+  @@index([projectId])
+  @@map("agile_boards")
+}
+
+model Sprint {
+  id        String       @id @default(uuid())
+  boardId   String       @map("board_id")
+  name      String       @db.VarChar(100)
+  goal      String?      @db.VarChar(1000)
+  startDate DateTime?    @map("start_date") @db.Timestamptz(3)
+  endDate   DateTime?    @map("end_date") @db.Timestamptz(3)
+  status    SprintStatus @default(PLANNING)
+  ordinal   Int
+
+  totalIssues     Int @default(0) @map("total_issues")
+  completedIssues Int @default(0) @map("completed_issues")
+
+  startedAt DateTime? @map("started_at") @db.Timestamptz(3)
+  closedAt  DateTime? @map("closed_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  board  AgileBoard @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  issues Issue[]
+
+  @@index([boardId, status])
+  @@index([boardId, ordinal])
+  @@map("sprints")
+}
+
+enum BoardType {
+  KANBAN
+  SCRUM
+
+  @@map("board_type")
+}
+
+enum SprintStatus {
+  PLANNING
+  ACTIVE
+  CLOSED
+
+  @@map("sprint_status")
+}
+
+enum SwimlaneBy {
+  NONE
+  ASSIGNEE
+  EPIC
+  PRIORITY
+  TYPE
+
+  @@map("swimlane_by")
+}
+
+// ─── Phase 8: Time Tracking ──────────────────────────────────────────
+
+model TimeLog {
+  id          String        @id @default(uuid())
+  issueId     String        @map("issue_id")
+  userId      String        @map("user_id")
+  duration    Int
+  date        DateTime      @db.Date
+  description String?       @db.VarChar(1000)
+  source      TimeLogSource @default(MANUAL)
+
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(3)
+  deletedById String?   @map("deleted_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  issue Issue @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@index([issueId])
+  @@index([userId, date])
+  @@index([date])
+  @@index([deletedAt])
+  @@map("time_logs")
+}
+
+enum TimeLogSource {
+  MANUAL
+  TIMER
+  IMPORT
+
+  @@map("time_log_source")
+}
+
+// ─── Phase 9: Notifications + Real-time + Outbox ──────────────────────
+
+model Notification {
+  id         String           @id @default(uuid())
+  userId     String           @map("user_id")
+  type       NotificationType
+  payload    Json
+  isRead     Boolean          @default(false) @map("is_read")
+  groupKey   String?          @map("group_key")
+  groupCount Int              @default(1) @map("group_count")
+
+  issueId   String? @map("issue_id")
+  projectId String? @map("project_id")
+
+  emailSent        Boolean   @default(false) @map("email_sent")
+  emailSentAt      DateTime? @map("email_sent_at") @db.Timestamptz(3)
+  emailScheduledAt DateTime? @map("email_scheduled_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  issue   Issue?   @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead, createdAt])
+  @@index([userId, createdAt])
+  @@index([groupKey])
+  @@index([issueId])
+  @@index([projectId])
+  @@index([emailSent, emailScheduledAt])
+  @@index([type])
+  @@map("notifications")
+}
+
+model NotificationPreferences {
+  id     String @id @default(uuid())
+  userId String @unique @map("user_id")
+
+  emailMode    EmailMode @default(INSTANT) @map("email_mode")
+  emailEnabled Boolean   @default(true) @map("email_enabled")
+
+  // Per-type channel toggles: { "ISSUE_ASSIGNED": { "inApp": true, "email": true }, ... }
+  // Missing keys = disabled (opt-in). New types are off by default.
+  channelSettings Json @default("{}") @map("channel_settings")
+
+  mutedProjectIds String[] @default([]) @map("muted_project_ids")
+  mutedIssueIds   String[] @default([]) @map("muted_issue_ids")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_preferences")
+}
+
+model OutboxEvent {
+  id            String          @id @default(uuid())
+  aggregateType String          @map("aggregate_type") @db.VarChar(50)
+  aggregateId   String          @map("aggregate_id")
+  eventType     String          @map("event_type") @db.VarChar(100)
+  channel       DeliveryChannel
+  payload       Json
+  status        OutboxStatus    @default(PENDING)
+  attempts      Int             @default(0)
+  maxAttempts   Int             @default(5) @map("max_attempts")
+  lastError     String?         @map("last_error") @db.VarChar(2000)
+  traceparent   String?         @map("traceparent") @db.VarChar(64)
+  nextRetryAt   DateTime?       @map("next_retry_at") @db.Timestamptz(3)
+  processedAt   DateTime?       @map("processed_at") @db.Timestamptz(3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([status, nextRetryAt])
+  @@index([status])
+  @@index([aggregateType, aggregateId])
+  @@index([createdAt])
+  @@index([status, processedAt])
+  @@map("outbox_events")
+}
+
+/// Claimed inside the same transaction as an event-listener side effect so
+/// redelivered domain events (at-least-once) cannot duplicate it.
+model IdempotencyKey {
+  key       String   @id @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@index([createdAt])
+  @@map("idempotency_keys")
+}
+
+model ProjectWebhook {
+  id         String   @id @default(uuid())
+  projectId  String   @map("project_id")
+  name       String   @db.VarChar(100)
+  url        String
+  secret     String
+  eventTypes String[] @map("event_types")
+  isEnabled  Boolean  @default(true) @map("is_enabled")
+
+  lastDeliveryAt      DateTime? @map("last_delivery_at") @db.Timestamptz(3)
+  lastStatusCode      Int?      @map("last_status_code")
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  disabledAt          DateTime? @map("disabled_at") @db.Timestamptz(3)
+  disabledReason      String?   @map("disabled_reason")
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String   @map("created_by_id")
+
+  project    Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy  User                 @relation("WebhookCreator", fields: [createdById], references: [id])
+  deliveries WebhookDeliveryLog[]
+
+  @@index([projectId, isEnabled])
+  @@map("project_webhooks")
+}
+
+model WebhookDeliveryLog {
+  id            String   @id @default(uuid())
+  webhookId     String   @map("webhook_id")
+  outboxEventId String   @map("outbox_event_id")
+  eventType     String   @map("event_type") @db.VarChar(100)
+  statusCode    Int?     @map("status_code")
+  success       Boolean
+  error         String?  @db.VarChar(2000)
+  durationMs    Int      @map("duration_ms")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  webhook ProjectWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@index([webhookId, createdAt])
+  @@index([outboxEventId])
+  @@map("webhook_delivery_logs")
+}
+
+model ProjectTelegramConfig {
+  id              String   @id @default(uuid())
+  projectId       String   @map("project_id")
+  name            String   @db.VarChar(100)
+  botToken        String   @map("bot_token")
+  chatId          String   @map("chat_id")
+  messageTemplate String?  @map("message_template") @db.Text
+  eventTypes      String[] @map("event_types")
+  isEnabled       Boolean  @default(true) @map("is_enabled")
+  parseMode       String   @default("HTML") @map("parse_mode")
+
+  lastDeliveryAt      DateTime? @map("last_delivery_at") @db.Timestamptz(3)
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  disabledAt          DateTime? @map("disabled_at") @db.Timestamptz(3)
+  disabledReason      String?   @map("disabled_reason")
+
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdById String   @map("created_by_id")
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  createdBy User    @relation("TelegramConfigCreator", fields: [createdById], references: [id])
+
+  @@unique([projectId])
+  @@map("project_telegram_configs")
+}
+
+enum NotificationType {
+  ISSUE_ASSIGNED
+  STATUS_CHANGE
+  COMMENT_ADD
+  MENTION
+  ISSUE_RESOLVED
+  DUE_DATE
+  SPRINT_STARTED
+  SPRINT_CLOSED
+  ADDED_TO_PROJECT
+  INVITE_ACCEPTED
+
+  @@map("notification_type")
+}
+
+enum EmailMode {
+  INSTANT
+  DIGEST
+  OFF
+
+  @@map("email_mode")
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+
+  @@map("outbox_status")
+}
+
+enum DeliveryChannel {
+  EMAIL
+  WEBHOOK
+  TELEGRAM
+  INTERNAL
+
+  @@map("delivery_channel")
+}
+
+// ─── Phase 6B: Workflow Automation ─────────────────────────────────
+
+model WorkflowRule {
+  id          String          @id @default(uuid())
+  projectId   String          @map("project_id")
+  workflowId  String          @map("workflow_id")
+  name        String          @db.VarChar(200)
+  description String?
+  isEnabled   Boolean         @default(true) @map("is_enabled")
+  trigger     WorkflowTrigger
+  conditions  Json
+  actions     Json
+  priority    Int             @default(0)
+  createdById String          @map("created_by_id")
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project    Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  workflow   Workflow                @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  createdBy  User                    @relation("workflowRuleCreator", fields: [createdById], references: [id])
+  executions WorkflowRuleExecution[]
+
+  @@index([projectId, isEnabled, trigger])
+  @@map("workflow_rules")
+}
+
+model WorkflowRuleExecution {
+  id          String   @id @default(uuid())
+  ruleId      String   @map("rule_id")
+  issueId     String   @map("issue_id")
+  triggeredBy String   @map("triggered_by")
+  success     Boolean
+  error       String?  @db.VarChar(2000)
+  duration    Int
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  rule WorkflowRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, createdAt])
+  @@index([issueId])
+  @@map("workflow_rule_executions")
+}
+
+enum WorkflowTrigger {
+  ON_CREATE
+  ON_STATUS_CHANGE
+  ON_FIELD_CHANGE
+  ON_COMMENT
+  ON_SCHEDULE
+  ON_DUE_DATE
+
+  @@map("workflow_trigger")
+}

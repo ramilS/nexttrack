@@ -1,0 +1,5 @@
+playwright-report/
+test-results/
+fixtures/.auth/
+.env.e2e
+.e2e-state.json

@@ -1,0 +1,29 @@
+{
+  "name": "@repo/test-support",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./containers": {
+      "types": "./src/containers.ts",
+      "default": "./src/containers.ts"
+    }
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@testcontainers/elasticsearch": "^11.13.0",
+    "@testcontainers/postgresql": "^11.13.0",
+    "@testcontainers/redis": "^11.13.0",
+    "testcontainers": "^11.12.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2"
+  }
+}
