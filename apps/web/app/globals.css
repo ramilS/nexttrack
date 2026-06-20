@@ -1,0 +1,464 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ============================================================
+   NextTrack Design System — Linear x Notion
+   ============================================================ */
+
+:root {
+  /* Base: warm white (Notion feel, not pure white) */
+  --background: oklch(0.995 0 0);
+  --foreground: oklch(0.145 0 0);
+
+  /* Cards & Popovers */
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+
+  /* Primary: indigo-violet (Linear-inspired) */
+  --primary: oklch(0.52 0.2 285);
+  --primary-foreground: oklch(0.99 0 0);
+
+  /* Secondary: subtle gray surface */
+  --secondary: oklch(0.965 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+
+  /* Muted: backgrounds for inactive states */
+  --muted: oklch(0.965 0 0);
+  --muted-foreground: oklch(0.45 0 0);
+
+  /* Accent: hover & active backgrounds */
+  --accent: oklch(0.94 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+
+  /* Destructive */
+  --destructive: oklch(0.55 0.22 27);
+
+  /* Borders & Input (subtle, Linear-style) */
+  --border: oklch(0.91 0 0);
+  --input: oklch(0.91 0 0);
+  --ring: oklch(0.52 0.2 285);
+
+  /* Radius: between Linear sharp and Notion round */
+  --radius: 0.5rem;
+
+  /* Sidebar */
+  --sidebar: oklch(0.975 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.52 0.2 285);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.94 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.91 0 0);
+  --sidebar-ring: oklch(0.52 0.2 285);
+
+  /* Charts */
+  --chart-1: oklch(0.52 0.2 285);
+  --chart-2: oklch(0.6 0.17 145);
+  --chart-3: oklch(0.65 0.18 45);
+  --chart-4: oklch(0.55 0.22 27);
+  --chart-5: oklch(0.58 0.16 230);
+
+  /* === NextTrack Semantic Tokens === */
+
+  /* Status colors */
+  --status-backlog: oklch(0.65 0 0);
+  --status-todo: oklch(0.55 0.02 260);
+  --status-in-progress: oklch(0.75 0.17 65);
+  --status-in-review: oklch(0.55 0.17 285);
+  --status-done: oklch(0.6 0.17 145);
+  --status-cancelled: oklch(0.65 0 0);
+
+  /* Priority colors */
+  --priority-urgent: oklch(0.55 0.22 27);
+  --priority-high: oklch(0.7 0.18 45);
+  --priority-medium: oklch(0.75 0.17 65);
+  --priority-low: oklch(0.58 0.16 230);
+  --priority-none: oklch(0.65 0 0);
+
+  /* Success / Warning / Info */
+  --success: oklch(0.6 0.17 145);
+  --warning: oklch(0.75 0.17 65);
+  --info: oklch(0.58 0.16 230);
+
+  /* Issue-type chart accents */
+  --chart-epic: oklch(0.58 0.18 265);
+  --chart-feature: oklch(0.55 0.2 300);
+
+  /* Shadows (Notion-style: soft, layered) */
+  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 4%);
+  --shadow-md: 0 2px 8px -2px oklch(0 0 0 / 8%), 0 1px 2px -1px oklch(0 0 0 / 4%);
+  --shadow-lg: 0 8px 24px -4px oklch(0 0 0 / 10%), 0 2px 6px -2px oklch(0 0 0 / 4%);
+  --shadow-popover: 0 8px 30px oklch(0 0 0 / 12%);
+
+  /* Animations (Linear-style: fast, purposeful) */
+  --duration-fast: 100ms;
+  --duration-normal: 150ms;
+  --duration-slow: 200ms;
+  --duration-slower: 300ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+}
+
+.dark {
+  --background: oklch(0.13 0 0);
+  --foreground: oklch(0.93 0 0);
+
+  --card: oklch(0.16 0 0);
+  --card-foreground: oklch(0.93 0 0);
+  --popover: oklch(0.16 0 0);
+  --popover-foreground: oklch(0.93 0 0);
+
+  --primary: oklch(0.65 0.18 285);
+  --primary-foreground: oklch(0.99 0 0);
+
+  --secondary: oklch(0.2 0 0);
+  --secondary-foreground: oklch(0.93 0 0);
+
+  --muted: oklch(0.2 0 0);
+  --muted-foreground: oklch(0.6 0 0);
+
+  --accent: oklch(0.22 0 0);
+  --accent-foreground: oklch(0.93 0 0);
+
+  --destructive: oklch(0.65 0.2 25);
+
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.65 0.18 285);
+
+  --sidebar: oklch(0.15 0 0);
+  --sidebar-foreground: oklch(0.93 0 0);
+  --sidebar-primary: oklch(0.65 0.18 285);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.2 0 0);
+  --sidebar-accent-foreground: oklch(0.93 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.65 0.18 285);
+
+  --chart-1: oklch(0.65 0.18 285);
+  --chart-2: oklch(0.65 0.17 145);
+  --chart-3: oklch(0.7 0.16 55);
+  --chart-4: oklch(0.65 0.2 25);
+  --chart-5: oklch(0.62 0.16 230);
+
+  /* Semantic stay same or adjust for dark */
+  --status-backlog: oklch(0.55 0 0);
+  --status-todo: oklch(0.6 0.02 260);
+  --status-in-progress: oklch(0.75 0.15 65);
+  --status-in-review: oklch(0.65 0.17 285);
+  --status-done: oklch(0.65 0.17 145);
+  --status-cancelled: oklch(0.55 0 0);
+
+  --priority-urgent: oklch(0.65 0.2 25);
+  --priority-high: oklch(0.7 0.16 55);
+  --priority-medium: oklch(0.75 0.15 65);
+  --priority-low: oklch(0.62 0.16 230);
+  --priority-none: oklch(0.55 0 0);
+
+  --success: oklch(0.65 0.17 145);
+  --warning: oklch(0.75 0.15 65);
+  --info: oklch(0.62 0.16 230);
+
+  --chart-epic: oklch(0.65 0.17 265);
+  --chart-feature: oklch(0.62 0.19 300);
+
+  --shadow-sm: 0 1px 2px 0 oklch(0 0 0 / 20%);
+  --shadow-md: 0 2px 8px -2px oklch(0 0 0 / 30%);
+  --shadow-lg: 0 8px 24px -4px oklch(0 0 0 / 40%);
+  --shadow-popover: 0 8px 30px oklch(0 0 0 / 50%);
+}
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  /* Semantic colors exposed to Tailwind */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-chart-epic: var(--chart-epic);
+  --color-chart-feature: var(--chart-feature);
+
+  --color-status-backlog: var(--status-backlog);
+  --color-status-todo: var(--status-todo);
+  --color-status-in-progress: var(--status-in-progress);
+  --color-status-in-review: var(--status-in-review);
+  --color-status-done: var(--status-done);
+  --color-status-cancelled: var(--status-cancelled);
+
+  --color-priority-urgent: var(--priority-urgent);
+  --color-priority-high: var(--priority-high);
+  --color-priority-medium: var(--priority-medium);
+  --color-priority-low: var(--priority-low);
+  --color-priority-none: var(--priority-none);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html,
+  body {
+    height: 100%;
+    overflow: hidden;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  html {
+    @apply font-sans;
+  }
+  /* Tailwind v4 dropped Preflight's default cursor:pointer on buttons; restore it. */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+@layer components {
+  .tag-badge {
+    background: color-mix(in oklch, var(--tag) 18%, white);
+    color: color-mix(in oklch, var(--tag) 75%, black);
+  }
+  .dark .tag-badge {
+    background: color-mix(in oklch, var(--tag) 25%, transparent);
+    color: color-mix(in oklch, var(--tag) 55%, white);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Tiptap Editor */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--muted-foreground);
+  pointer-events: none;
+  height: 0;
+}
+
+.tiptap .mention {
+  color: var(--primary);
+  font-weight: 500;
+  background: oklch(from var(--primary) l c h / 0.1);
+  border-radius: 0.25rem;
+  padding: 0.1rem 0.3rem;
+}
+
+.tiptap ul[data-type="taskList"] {
+  list-style: none;
+  padding: 0;
+}
+
+.tiptap ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.tiptap ul[data-type="taskList"] li label {
+  margin-top: 0.15rem;
+}
+
+.tiptap pre {
+  background: var(--muted);
+  border-radius: 0.5rem;
+  padding: 0.75rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.tiptap pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+}
+
+.tiptap img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+.tiptap a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+}
+
+/* ============================================================
+   SVAR Gantt — Theme overrides (synced with NextTrack tokens)
+   ============================================================ */
+.gantt-container .wx-willow-theme {
+  --wx-background: var(--background);
+  --wx-color-font: var(--foreground);
+  --wx-color-primary: var(--primary);
+  --wx-border: 1px solid var(--border);
+  --wx-gantt-border: 1px solid var(--border);
+  --wx-gantt-border-color: var(--border);
+  --wx-font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-font-size: 13px;
+  --wx-font-size-sm: 11px;
+  --wx-icon-size: 14px;
+
+  --wx-gantt-task-color: var(--primary);
+  --wx-gantt-task-font-color: var(--primary-foreground);
+  --wx-gantt-task-fill-color: oklch(from var(--primary) calc(l - 0.1) c h);
+  --wx-gantt-task-border-color: var(--primary);
+  --wx-gantt-task-border: 1px solid transparent;
+
+  --wx-gantt-summary-color: var(--muted-foreground);
+  --wx-gantt-summary-font-color: var(--background);
+  --wx-gantt-summary-fill-color: oklch(from var(--muted-foreground) calc(l - 0.1) c h);
+  --wx-gantt-summary-border: 1px solid transparent;
+
+  --wx-gantt-milestone-color: var(--chart-4);
+  --wx-gantt-select-color: oklch(from var(--primary) l c h / 0.08);
+  --wx-gantt-link-color: var(--muted-foreground);
+  --wx-gantt-link-marker-background: var(--background);
+  --wx-gantt-link-marker-color: var(--muted-foreground);
+  --wx-gantt-icon-color: var(--muted-foreground);
+
+  --wx-gantt-bar-border-radius: 4px;
+  --wx-gantt-bar-shadow: var(--shadow-sm);
+  --wx-gantt-marker-color: oklch(from var(--primary) l c h / 0.6);
+  --wx-gantt-marker-font-color: var(--primary-foreground);
+  --wx-gantt-holiday-background: oklch(from var(--muted) l c h / 0.5);
+  --wx-gantt-holiday-color: var(--muted-foreground);
+
+  --wx-grid-header-font: 500 13px var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-grid-header-font-color: var(--muted-foreground);
+  --wx-grid-body-font: 400 13px var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-grid-body-font-color: var(--foreground);
+  --wx-grid-body-row-border: 1px solid var(--border);
+
+  --wx-timescale-font: 500 11px var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-timescale-font-color: var(--muted-foreground);
+  --wx-timescale-border: 1px solid var(--border);
+  --wx-timescale-shadow: none;
+
+  --wx-tooltip-background: var(--popover);
+  --wx-tooltip-font-color: var(--popover-foreground);
+
+  --wx-gantt-progress-border-color: var(--border);
+}
+
+.gantt-container .wx-willow-dark-theme {
+  --wx-background: var(--background);
+  --wx-background-alt: var(--card);
+  --wx-color-font: var(--foreground);
+  --wx-color-primary: var(--primary);
+  --wx-border: 1px solid var(--border);
+  --wx-gantt-border: 1px solid var(--border);
+  --wx-gantt-border-color: var(--border);
+  --wx-font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-font-size: 13px;
+  --wx-font-size-sm: 11px;
+  --wx-icon-size: 14px;
+
+  --wx-gantt-task-color: var(--primary);
+  --wx-gantt-task-font-color: var(--primary-foreground);
+  --wx-gantt-task-fill-color: oklch(from var(--primary) calc(l - 0.1) c h);
+  --wx-gantt-task-border-color: var(--primary);
+  --wx-gantt-task-border: 1px solid transparent;
+
+  --wx-gantt-summary-color: var(--muted-foreground);
+  --wx-gantt-summary-font-color: var(--foreground);
+  --wx-gantt-summary-fill-color: oklch(from var(--muted-foreground) calc(l - 0.1) c h);
+  --wx-gantt-summary-border: 1px solid transparent;
+
+  --wx-gantt-milestone-color: var(--chart-4);
+  --wx-gantt-select-color: oklch(from var(--primary) l c h / 0.1);
+  --wx-gantt-link-color: var(--muted-foreground);
+  --wx-gantt-link-marker-background: var(--card);
+  --wx-gantt-link-marker-color: var(--muted-foreground);
+  --wx-gantt-icon-color: var(--muted-foreground);
+
+  --wx-gantt-bar-border-radius: 4px;
+  --wx-gantt-bar-shadow: var(--shadow-sm);
+  --wx-gantt-marker-color: oklch(from var(--primary) l c h / 0.6);
+  --wx-gantt-marker-font-color: var(--primary-foreground);
+  --wx-gantt-holiday-background: oklch(from var(--muted) l c h / 0.5);
+  --wx-gantt-holiday-color: var(--muted-foreground);
+
+  --wx-grid-header-font: 500 13px var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-grid-header-font-color: var(--muted-foreground);
+  --wx-grid-body-font: 400 13px var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-grid-body-font-color: var(--foreground);
+  --wx-grid-body-row-border: 1px solid var(--border);
+
+  --wx-timescale-font: 500 11px var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --wx-timescale-font-color: var(--muted-foreground);
+  --wx-timescale-border: 1px solid var(--border);
+  --wx-timescale-shadow: none;
+
+  --wx-tooltip-background: var(--popover);
+  --wx-tooltip-font-color: var(--popover-foreground);
+
+  --wx-gantt-progress-border-color: var(--border);
+}

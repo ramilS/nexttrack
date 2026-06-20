@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h3>You Were Mentioned</h3>
+  <p><strong>{{actorName}}</strong> mentioned you in <strong>{{issueKey}}</strong>: {{issueTitle}}</p>
+  {{#if message}}<blockquote>{{message}}</blockquote>{{/if}}
+  {{#if actionUrl}}<p><a href="{{actionUrl}}">View</a></p>{{/if}}
+  <hr>
+  <small>You received this email because of your notification settings.</small>
+</body>
+</html>

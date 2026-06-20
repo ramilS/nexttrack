@@ -1,0 +1,59 @@
+{
+  "name": "@repo/shared",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    "./error-codes": {
+      "types": "./src/enums/error-codes.enum.ts",
+      "default": "./dist/enums/error-codes.enum.js"
+    },
+    "./roles": {
+      "types": "./src/enums/roles.enum.ts",
+      "default": "./dist/enums/roles.enum.js"
+    },
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./pagination": {
+      "types": "./src/constants/pagination.ts",
+      "default": "./dist/constants/pagination.js"
+    },
+    "./invite": {
+      "types": "./src/constants/invite.ts",
+      "default": "./dist/constants/invite.js"
+    },
+    "./auth-methods": {
+      "types": "./src/contracts/auth-methods.ts",
+      "default": "./dist/contracts/auth-methods.js"
+    },
+    "./dto": {
+      "types": "./src/dto/index.ts",
+      "default": "./dist/dto/index.js"
+    },
+    "./schemas": {
+      "types": "./src/schemas/index.ts",
+      "default": "./dist/schemas/index.js"
+    },
+    "./schemas/*": {
+      "types": "./src/schemas/*.ts",
+      "default": "./dist/schemas/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc --watch",
+    "check-types": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "pnpm run check-types && pnpm run lint && pnpm run test:unit",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "5.9.2",
+    "vitest": "^4.1.9"
+  }
+}

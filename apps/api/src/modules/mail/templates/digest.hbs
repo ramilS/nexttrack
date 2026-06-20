@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h3>NextTrack Digest</h3>
+  <p>Hi {{userName}}, here are your recent notifications:</p>
+  <ul>
+    {{#each notifications}}
+    <li>
+      <strong>{{this.type}}</strong>
+      {{#if this.issueKey}} — {{this.issueKey}}: {{this.issueTitle}}{{/if}}
+      {{#if this.actorName}} (by {{this.actorName}}){{/if}}
+    </li>
+    {{/each}}
+  </ul>
+  <p><a href="{{webUrl}}/notifications">View all notifications</a></p>
+  <hr>
+  <small>You received this email because of your notification settings.</small>
+</body>
+</html>

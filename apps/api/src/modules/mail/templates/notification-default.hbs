@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <h3>NextTrack Notification</h3>
+  {{#if actorName}}<p><strong>{{actorName}}</strong> triggered an event.</p>{{/if}}
+  {{#if issueKey}}<p>Issue: <strong>{{issueKey}}</strong> {{issueTitle}}</p>{{/if}}
+  {{#if message}}<p>{{message}}</p>{{/if}}
+  {{#if actionUrl}}<p><a href="{{actionUrl}}">View in NextTrack</a></p>{{/if}}
+  <hr>
+  <small>You received this email because of your notification settings.</small>
+</body>
+</html>

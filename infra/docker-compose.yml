@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: nexttrack
+      POSTGRES_USER: nexttrack
+      POSTGRES_PASSWORD: nexttrack_secret
+    ports: ["5432:5432"]
+    volumes:
+      - .docker/volumes/postgresql:/var/lib/postgresql
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nexttrack"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  valkey:
+    image: valkey/valkey:9.1.0-alpine
+    restart: unless-stopped
+    ports: ["6379:6379"]
+    volumes: [.docker/volumes/valkey:/data]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+    ports: ["9200:9200"]
+    volumes: [.docker/volumes/es:/usr/share/elasticsearch/data]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes: [.docker/volumes/minio:/data]
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  # Distributed tracing backend.
+  # OTEL_ENABLED=true; view them at http://localhost:16686.
+#  jaeger:
+#    image: jaegertracing/all-in-one:1.76.0
+#    restart: unless-stopped
+#    environment:
+#      COLLECTOR_OTLP_ENABLED: "true"
+#    ports:
+#      - "16686:16686"   # Jaeger UI
+#      - "4318:4318"     # OTLP/HTTP receiver
