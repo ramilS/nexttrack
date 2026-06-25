@@ -11,6 +11,8 @@ import {
 } from '@/modules/search/search.repository';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { AppLogger } from '@/common/logging/app-logger';
+import { NotFoundError } from '@/common/errors/domain.errors';
+import { ErrorCode } from '@repo/shared/error-codes';
 
 interface BulkResponse {
   items?: { index?: { error?: unknown } }[];
@@ -28,12 +30,12 @@ export class IssueIndexerService {
     private config: ConfigType<typeof elasticsearchConfig>,
   ) {}
 
-  async indexIssue(issueId: string): Promise<void> {
+  async indexIssue(issueId: string): Promise<'indexed' | 'removed'> {
     const issue = await this.searchRepo.findForIndex(issueId);
 
     if (!issue) {
       await this.deleteFromIndex(issueId);
-      return;
+      return 'removed';
     }
 
     const doc = this.buildDocument(issue);
@@ -45,6 +47,7 @@ export class IssueIndexerService {
       refresh: 'wait_for',
       document: doc,
     });
+    return 'indexed';
   }
 
   async deleteFromIndex(issueId: string): Promise<void> {
@@ -96,6 +99,20 @@ export class IssueIndexerService {
 
     this.logger.log('Project reindex finished', { projectId, indexed, errors });
     return { indexed, errors };
+  }
+
+  async reindexProjectByKey(
+    projectKey: string,
+  ): Promise<{ indexed: number; errors: number; projectId: string }> {
+    const project = await this.projectsRepo.findEntityByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    const result = await this.reindexProject(project.id);
+    return { ...result, projectId: project.id };
   }
 
   async reindexAll(): Promise<{ indexed: number; errors: number }> {

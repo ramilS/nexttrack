@@ -7,6 +7,7 @@ import {
   INDEX_ISSUE_JOB,
   SearchIndexingJobData,
 } from './indexing-queue';
+import { AppLogger } from '@/common/logging/app-logger';
 
 describe('IssueIndexingProcessor', () => {
   let processor: IssueIndexingProcessor;
@@ -25,7 +26,7 @@ describe('IssueIndexingProcessor', () => {
 
   beforeEach(async () => {
     indexer = {
-      indexIssue: jest.fn().mockResolvedValue(undefined),
+      indexIssue: jest.fn().mockResolvedValue('indexed'),
       deleteFromIndex: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -46,6 +47,26 @@ describe('IssueIndexingProcessor', () => {
 
     expect(indexer.indexIssue).toHaveBeenCalledWith('issue-1');
     expect(indexer.deleteFromIndex).not.toHaveBeenCalled();
+  });
+
+  it('logs the indexing outcome on success so the create path is traceable end-to-end', async () => {
+    const logSpy = jest
+      .spyOn(AppLogger.prototype, 'log')
+      .mockImplementation(() => {});
+
+    await processor.process(
+      buildJob(INDEX_ISSUE_JOB, { issueId: 'issue-1', reason: 'issue_created' }),
+    );
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'Issue indexed',
+      expect.objectContaining({
+        issueId: 'issue-1',
+        reason: 'issue_created',
+        outcome: 'indexed',
+      }),
+    );
+    logSpy.mockRestore();
   });
 
   it('dispatches delete jobs to deleteFromIndex', async () => {

@@ -4,6 +4,7 @@ import { SearchRepository, IndexerIssue } from '@/modules/search/search.reposito
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
 import { elasticsearchConfig } from '@/config';
+import { NotFoundError } from '@/common/errors/domain.errors';
 
 const page = (items: IndexerIssue[], nextCursor: string | null = null) => ({
   items,
@@ -15,7 +16,7 @@ const emptyPage = () => page([]);
 describe('IssueIndexerService', () => {
   let service: IssueIndexerService;
   let searchRepo: { findForIndex: jest.Mock; findManyForIndex: jest.Mock };
-  let projectsRepo: { findAllActiveIds: jest.Mock };
+  let projectsRepo: { findAllActiveIds: jest.Mock; findEntityByKey: jest.Mock };
   let es: Record<string, jest.Mock | string>;
 
   beforeEach(async () => {
@@ -33,6 +34,7 @@ describe('IssueIndexerService', () => {
 
     projectsRepo = {
       findAllActiveIds: jest.fn().mockResolvedValue([]),
+      findEntityByKey: jest.fn().mockResolvedValue(null),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -94,8 +96,9 @@ describe('IssueIndexerService', () => {
     it('should index a found issue', async () => {
       searchRepo.findForIndex.mockResolvedValue(makeIssue());
 
-      await service.indexIssue('issue-1');
+      const outcome = await service.indexIssue('issue-1');
 
+      expect(outcome).toBe('indexed');
       expect(es.index).toHaveBeenCalledWith(
         expect.objectContaining({
           index: 'test-issues',
@@ -115,8 +118,9 @@ describe('IssueIndexerService', () => {
     it('should delete from index when issue not found', async () => {
       searchRepo.findForIndex.mockResolvedValue(null);
 
-      await service.indexIssue('issue-1');
+      const outcome = await service.indexIssue('issue-1');
 
+      expect(outcome).toBe('removed');
       expect(es.delete).toHaveBeenCalledWith({
         index: 'test-issues',
         id: 'issue-1',
@@ -260,6 +264,26 @@ describe('IssueIndexerService', () => {
 
       expect(projectsRepo.findAllActiveIds).toHaveBeenCalled();
       expect(result).toEqual({ indexed: 0, errors: 0 });
+    });
+  });
+
+  describe('reindexProjectByKey', () => {
+    it('resolves the project key to an id and reindexes that project', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+      searchRepo.findManyForIndex.mockResolvedValueOnce(page([makeIssue({ id: 'i1' })]));
+      (es.bulk as jest.Mock).mockResolvedValue({ items: [{ index: { _id: 'i1' } }] });
+
+      const result = await service.reindexProjectByKey('DEVX');
+
+      expect(projectsRepo.findEntityByKey).toHaveBeenCalledWith('DEVX');
+      expect(result).toEqual({ indexed: 1, errors: 0, projectId: 'proj-1' });
+    });
+
+    it('throws NotFoundError for an unknown project key and indexes nothing', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+
+      await expect(service.reindexProjectByKey('NOPE')).rejects.toThrow(NotFoundError);
+      expect(es.bulk).not.toHaveBeenCalled();
     });
   });
 });

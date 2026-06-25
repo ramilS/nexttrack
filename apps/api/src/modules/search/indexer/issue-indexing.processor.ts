@@ -30,11 +30,28 @@ export class IssueIndexingProcessor extends WorkerHost {
 
     try {
       switch (job.name) {
-        case INDEX_ISSUE_JOB:
-          await this.issueIndexer.indexIssue(issueId);
+        case INDEX_ISSUE_JOB: {
+          const outcome = await this.issueIndexer.indexIssue(issueId);
+          // End of the create/update -> ES path: confirms the document actually
+          // landed (or was removed). Without this the chain went silent here on
+          // success, so an indexing failure was invisible until you dug into the
+          // BullMQ failed set.
+          this.logger.log('Issue indexed', {
+            issueId,
+            reason: 'reason' in job.data ? job.data.reason : undefined,
+            outcome,
+            jobId: job.id,
+            attempt,
+          });
           break;
+        }
         case DELETE_ISSUE_JOB:
           await this.issueIndexer.deleteFromIndex(issueId);
+          this.logger.log('Issue de-indexed', {
+            issueId,
+            jobId: job.id,
+            attempt,
+          });
           break;
         default:
           this.logger.warn('Unknown search-indexing job — skipping', {

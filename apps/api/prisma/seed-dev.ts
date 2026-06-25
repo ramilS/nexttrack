@@ -1664,6 +1664,10 @@ function printReindexBanner(): void {
     # 2) trigger a full reindex (admin only)
     curl -b /tmp/nt-cookies.txt -X POST ${base}/search/reindex \\
       -H 'Content-Type: application/json' -d '{}'
+
+    # ...or reindex a single project by its key (e.g. DEVX):
+    curl -b /tmp/nt-cookies.txt -X POST ${base}/search/reindex \\
+      -H 'Content-Type: application/json' -d '{"projectKey":"DEVX"}'
 ────────────────────────────────────────────────────────────────────`);
 }
 
