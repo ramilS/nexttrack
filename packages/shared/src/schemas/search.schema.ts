@@ -2,7 +2,12 @@ import { z } from 'zod';
 import { userSummarySchema } from './common.schema';
 import { tagSchema } from './tag.schema';
 import { issueTypeSchema, issuePrioritySchema } from './issue.schema';
-import { statusCategorySchema } from './project.schema';
+import {
+  statusCategorySchema,
+  PROJECT_KEY_MIN,
+  PROJECT_KEY_MAX,
+  PROJECT_KEY_REGEX,
+} from './project.schema';
 
 // ─── Request schemas ─────────────────────────────────────────
 
@@ -38,7 +43,14 @@ export const validateQuerySchema = z.object({
 export type ValidateQueryInput = z.infer<typeof validateQuerySchema>;
 
 export const reindexSchema = z.object({
-  projectId: z.guid().optional(),
+  // Human-friendly project identifier (e.g. "DEVX"), case-insensitive. Omit to
+  // reindex every project.
+  projectKey: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .pipe(z.string().min(PROJECT_KEY_MIN).max(PROJECT_KEY_MAX).regex(PROJECT_KEY_REGEX))
+    .optional(),
 });
 export type ReindexInput = z.infer<typeof reindexSchema>;
 

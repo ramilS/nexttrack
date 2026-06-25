@@ -76,9 +76,8 @@ export class SearchController {
   @HttpCode(HttpStatus.OK)
   @ApiEnvelope(ReindexResponseDto)
   async reindex(@Body() dto: ReindexDto) {
-    if (dto.projectId) {
-      const result = await this.issueIndexer.reindexProject(dto.projectId);
-      return { ...result, projectId: dto.projectId };
+    if (dto.projectKey) {
+      return this.issueIndexer.reindexProjectByKey(dto.projectKey);
     }
     return this.issueIndexer.reindexAll();
   }
