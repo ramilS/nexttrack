@@ -2,18 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { Plus } from 'lucide-react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { issuesApi } from '@/lib/api/issues.api';
-import { issueKeys } from '@/lib/hooks/use-issues';
-import { applyCreatedIssueToSearchCache } from '@/lib/hooks/use-search';
-import { boardKeys } from '@/lib/hooks/use-boards';
-import { toast } from 'sonner';
+import { useCreateIssue } from '@/lib/hooks/use-issues';
 import { cn } from '@/lib/utils';
-import type { CreateIssueInput } from '@repo/shared/schemas';
 
 interface InlineCreateIssueProps {
   projectKey: string;
-  boardId: string;
   statusId: string;
   assigneeId?: string | null;
   parentId?: string | null;
@@ -22,7 +15,6 @@ interface InlineCreateIssueProps {
 
 export function InlineCreateIssue({
   projectKey,
-  boardId,
   statusId,
   assigneeId,
   parentId,
@@ -31,22 +23,7 @@ export function InlineCreateIssue({
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const queryClient = useQueryClient();
-
-  const createIssue = useMutation({
-    mutationFn: (data: CreateIssueInput) => issuesApi.create(projectKey, data),
-    onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-      applyCreatedIssueToSearchCache(queryClient, res.data);
-      queryClient.invalidateQueries({ queryKey: boardKeys.dataPrefix(projectKey, boardId) });
-      toast.success(`${projectKey}-${res.data.number} created`);
-      setTitle('');
-      inputRef.current?.focus();
-    },
-    onError: () => {
-      toast.error('Failed to create issue');
-    },
-  });
+  const createIssue = useCreateIssue(projectKey);
 
   useEffect(() => {
     if (isOpen) inputRef.current?.focus();
@@ -56,13 +33,21 @@ export function InlineCreateIssue({
     const trimmed = title.trim();
     if (!trimmed) return;
 
-    createIssue.mutate({
-      title: trimmed,
-      statusId,
-      assigneeId: assigneeId ?? undefined,
-      parentId: parentId ?? undefined,
-      sprintId: sprintId ?? undefined,
-    });
+    createIssue.mutate(
+      {
+        title: trimmed,
+        statusId,
+        assigneeId: assigneeId ?? undefined,
+        parentId: parentId ?? undefined,
+        sprintId: sprintId ?? undefined,
+      },
+      {
+        onSuccess: () => {
+          setTitle('');
+          inputRef.current?.focus();
+        },
+      },
+    );
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {

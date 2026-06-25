@@ -16,7 +16,6 @@ import { cn } from '@/lib/utils';
 interface SwimlaneRowProps {
   swimlane: BoardSwimlaneData;
   projectKey: string;
-  boardId: string;
   sprintId?: string;
   swimlaneBy?: string;
   statusCategoryMap: Map<string, string>;
@@ -51,7 +50,7 @@ function areAllIssuesDone(swimlane: BoardSwimlaneData, categoryMap: Map<string, 
   );
 }
 
-export function SwimlaneRow({ swimlane, projectKey, boardId, sprintId, swimlaneBy, statusCategoryMap }: SwimlaneRowProps) {
+export function SwimlaneRow({ swimlane, projectKey, sprintId, swimlaneBy, statusCategoryMap }: SwimlaneRowProps) {
   const [collapsed, setCollapsed] = useState(false);
 
   const {
@@ -136,7 +135,6 @@ export function SwimlaneRow({ swimlane, projectKey, boardId, sprintId, swimlaneB
                 droppableId={droppableId}
                 issues={colData.issues}
                 projectKey={projectKey}
-                boardId={boardId}
                 sprintId={sprintId}
                 statusId={colData.column.statusIds[0] ?? ''}
                 assigneeId={assigneeId}
@@ -156,7 +154,6 @@ function SwimlaneColumn({
   droppableId,
   issues,
   projectKey,
-  boardId,
   sprintId,
   statusId,
   assigneeId,
@@ -167,7 +164,6 @@ function SwimlaneColumn({
   droppableId: string;
   issues: BoardIssueCard[];
   projectKey: string;
-  boardId: string;
   sprintId?: string;
   statusId: string;
   assigneeId: string | null;
@@ -204,7 +200,6 @@ function SwimlaneColumn({
 
       <InlineCreateIssue
         projectKey={projectKey}
-        boardId={boardId}
         statusId={statusId}
         assigneeId={assigneeId}
         parentId={parentId}

@@ -11,14 +11,13 @@ import { cn } from '@/lib/utils';
 interface KanbanColumnProps {
   columnData: BoardColumnData;
   projectKey: string;
-  boardId: string;
   sprintId?: string;
   statusCategory?: string;
   collapsed: boolean;
   onToggleCollapsed: () => void;
 }
 
-export function KanbanColumn({ columnData, projectKey, boardId, sprintId, statusCategory, collapsed, onToggleCollapsed }: KanbanColumnProps) {
+export function KanbanColumn({ columnData, projectKey, sprintId, statusCategory, collapsed, onToggleCollapsed }: KanbanColumnProps) {
   const { column, issues, totalCount } = columnData;
   const isDone = statusCategory === 'DONE';
 
@@ -110,7 +109,6 @@ export function KanbanColumn({ columnData, projectKey, boardId, sprintId, status
           {column.statusIds[0] && (
             <InlineCreateIssue
               projectKey={projectKey}
-              boardId={boardId}
               statusId={column.statusIds[0]}
               sprintId={sprintId}
             />
