@@ -1,10 +1,10 @@
 'use client';
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import { tagsApi } from '@/lib/api/tags.api';
 import type { CreateTagInput } from '@/lib/api/tags.api';
 import { useMutationWithToast } from './use-mutation-with-toast';
-import { issueKeys } from './use-issues';
+import { issueViews } from './query-invalidation';
 
 export const tagKeys = {
   all: ['tags'] as const,
@@ -47,25 +47,17 @@ export function useDeleteTag(projectKey: string) {
 }
 
 export function useAddTagToIssue() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ issueId, tagId }: { issueId: string; tagId: string }) =>
       tagsApi.addToIssue(issueId, tagId),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-    },
+    meta: { invalidates: issueViews() },
   });
 }
 
 export function useRemoveTagFromIssue() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ issueId, tagId }: { issueId: string; tagId: string }) =>
       tagsApi.removeFromIssue(issueId, tagId),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-    },
+    meta: { invalidates: issueViews() },
   });
 }

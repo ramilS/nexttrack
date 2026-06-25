@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation } from '@tanstack/react-query';
 import { sprintsApi } from '@/lib/api/boards.api';
 import type {
   SprintStatus,
@@ -9,8 +9,8 @@ import type {
   StartSprintInput,
   CloseSprintInput,
 } from '@/lib/api/boards.api';
-import { boardKeys } from './use-boards';
 import { useMutationWithToast } from './use-mutation-with-toast';
+import { sprintViews } from './query-invalidation';
 
 export const sprintKeys = {
   all: ['sprints'] as const,
@@ -77,7 +77,7 @@ export function useCreateSprint(boardId: string) {
     mutationFn: (data: CreateSprintInput) => sprintsApi.create(boardId, data),
     successMessage: 'Sprint created',
     errorMessage: 'Failed to create sprint',
-    invalidateKeys: [sprintKeys.all],
+    invalidateKeys: sprintViews(),
   });
 }
 
@@ -86,7 +86,7 @@ export function useUpdateSprint(boardId: string) {
     mutationFn: ({ sprintId, data }: { sprintId: string; data: UpdateSprintInput }) =>
       sprintsApi.update(boardId, sprintId, data),
     errorMessage: 'Failed to update sprint',
-    invalidateKeys: [sprintKeys.all],
+    invalidateKeys: sprintViews(),
   });
 }
 
@@ -96,7 +96,7 @@ export function useStartSprint(boardId: string) {
       sprintsApi.start(boardId, sprintId, data),
     successMessage: 'Sprint started',
     errorMessage: 'Failed to start sprint',
-    invalidateKeys: [sprintKeys.all],
+    invalidateKeys: sprintViews(),
   });
 }
 
@@ -107,7 +107,7 @@ export function useCloseSprint(boardId: string) {
     successMessage: (result) =>
       `Sprint closed — ${result.data.completedIssues} issues completed, velocity: ${result.data.velocityPoints} pts`,
     errorMessage: 'Failed to close sprint',
-    invalidateKeys: [sprintKeys.all, boardKeys.all],
+    invalidateKeys: sprintViews(),
   });
 }
 
@@ -116,32 +116,22 @@ export function useDeleteSprint(boardId: string) {
     mutationFn: (sprintId: string) => sprintsApi.delete(boardId, sprintId),
     successMessage: 'Sprint deleted',
     errorMessage: 'Failed to delete sprint',
-    invalidateKeys: [sprintKeys.all],
+    invalidateKeys: sprintViews(),
   });
 }
 
 export function useAddIssuesToSprint(boardId: string) {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ sprintId, issueIds }: { sprintId: string; issueIds: string[] }) =>
       sprintsApi.addIssues(boardId, sprintId, issueIds),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: sprintKeys.all });
-      queryClient.invalidateQueries({ queryKey: boardKeys.all });
-    },
+    meta: { invalidates: sprintViews() },
   });
 }
 
 export function useRemoveIssuesFromSprint(boardId: string) {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ sprintId, issueIds }: { sprintId: string; issueIds: string[] }) =>
       sprintsApi.removeIssues(boardId, sprintId, issueIds),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: sprintKeys.all });
-      queryClient.invalidateQueries({ queryKey: boardKeys.all });
-    },
+    meta: { invalidates: sprintViews() },
   });
 }
