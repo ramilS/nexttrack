@@ -31,6 +31,10 @@ export class BoardPage {
     return this.page.locator('[data-testid="board-card"]');
   }
 
+  getCardByText(text: string): Locator {
+    return this.getIssueCards().filter({ hasText: text });
+  }
+
   async expectColumnsVisible(minCount = 2) {
     await expect(async () => {
       expect(await this.getColumns().count()).toBeGreaterThanOrEqual(minCount);

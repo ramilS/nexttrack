@@ -5,6 +5,7 @@ import { boardsApi } from '@/lib/api/boards.api';
 import type { CreateBoardInput, MoveIssueInput, BoardColumn, SwimlaneBy } from '@/lib/api/boards.api';
 import { toast } from 'sonner';
 import { useMutationWithToast } from './use-mutation-with-toast';
+import { issueViews } from './query-invalidation';
 
 export const boardKeys = {
   all: ['boards'] as const,
@@ -93,6 +94,10 @@ export function useMoveIssue(projectKey: string, boardId: string) {
   return useMutation({
     mutationFn: (data: MoveIssueInput) => boardsApi.moveIssue(projectKey, boardId, data),
 
+    // A board move changes the issue's status server-side, so it must refresh
+    // every issue view — not just this board (issueViews covers the board too).
+    meta: { invalidates: issueViews() },
+
     onMutate: async (data) => {
       await queryClient.cancelQueries({ queryKey: boardKeys.dataPrefix(projectKey, boardId) });
 
@@ -174,10 +179,6 @@ export function useMoveIssue(projectKey: string, boardId: string) {
         }
       }
       toast.error('Failed to move issue');
-    },
-
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: boardKeys.dataPrefix(projectKey, boardId) });
     },
   });
 }

@@ -26,6 +26,10 @@ export class IssueDetailPage {
   }
 
   async editTitle(newTitle: string) {
+    // The title is editable only in the page's edit mode; the 'e' shortcut
+    // toggles it (IssueKeyboardShortcuts). Clicking the title before that is a
+    // no-op (readOnly).
+    await this.page.keyboard.press('e');
     await this.title.click();
 
     const input = this.page.locator('[data-testid="issue-title-input"]');

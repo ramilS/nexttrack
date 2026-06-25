@@ -9,7 +9,8 @@ import {
 import { issuesApi } from '@/lib/api/issues.api';
 import type { IssueListParams } from '@/lib/api/issues.api';
 import type { BulkUpdateIssuesInput, CreateIssueInput, UpdateIssueInput } from '@repo/shared/schemas';
-import { searchKeys, applyCreatedIssueToSearchCache } from '@/lib/hooks/use-search';
+import { applyCreatedIssueToSearchCache } from '@/lib/hooks/use-search';
+import { issueViews } from './query-invalidation';
 import { toast } from 'sonner';
 
 export const issueKeys = {
@@ -50,8 +51,8 @@ export function useCreateIssue(projectKey: string) {
 
   return useMutation({
     mutationFn: (data: CreateIssueInput) => issuesApi.create(projectKey, data),
+    meta: { invalidates: issueViews() },
     onSuccess: (res) => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
       applyCreatedIssueToSearchCache(queryClient, res.data);
       toast.success(`${projectKey}-${res.data.number} created`);
     },
@@ -74,6 +75,8 @@ export function useUpdateIssue() {
   return useMutation({
     mutationFn: ({ projectKey, issueNumber, data }: UpdateIssueMutationParams) =>
       issuesApi.update(projectKey, issueNumber, data),
+
+    meta: { invalidates: issueViews() },
 
     onMutate: async ({ issueId, data }) => {
       const listKey = [...issueKeys.all, 'list'] as const;
@@ -133,24 +136,15 @@ export function useUpdateIssue() {
       }
       toast.error('Failed to update issue');
     },
-
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-      queryClient.invalidateQueries({ queryKey: searchKeys.all });
-      queryClient.invalidateQueries({ queryKey: ['gantt'] });
-    },
   });
 }
 
 export function useDeleteIssue() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ projectKey, issueNumber }: { projectKey: string; issueNumber: number }) =>
       issuesApi.delete(projectKey, issueNumber),
+    meta: { invalidates: issueViews() },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-      queryClient.invalidateQueries({ queryKey: searchKeys.all });
       toast.success('Issue deleted');
     },
     onError: () => {
@@ -160,14 +154,11 @@ export function useDeleteIssue() {
 }
 
 export function useBulkUpdateIssues() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ projectKey, ...data }: { projectKey: string } & BulkUpdateIssuesInput) =>
       issuesApi.bulkUpdate(projectKey, data),
+    meta: { invalidates: issueViews() },
     onSuccess: (_res, vars) => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-      queryClient.invalidateQueries({ queryKey: searchKeys.all });
       toast.success(`${vars.issueIds.length} issues updated`);
     },
     onError: () => {
@@ -202,13 +193,9 @@ export function useIssueChildren(projectKey: string, issueNumber: number) {
 }
 
 export function useToggleWatch() {
-  const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ projectKey, issueNumber, isWatching }: { projectKey: string; issueNumber: number; isWatching: boolean }) =>
       isWatching ? issuesApi.unwatch(projectKey, issueNumber) : issuesApi.watch(projectKey, issueNumber),
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: issueKeys.all });
-    },
+    meta: { invalidates: [issueKeys.all] },
   });
 }
