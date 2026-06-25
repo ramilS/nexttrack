@@ -15,8 +15,7 @@ import { Loader2, Plus } from 'lucide-react';
 import { KanbanColumn } from './kanban-column';
 import { SwimlaneRow } from './swimlane-row';
 import { BoardCard } from './board-card';
-import { useQueryClient } from '@tanstack/react-query';
-import { useBoardData, useMoveIssue, boardKeys } from '@/lib/hooks/use-boards';
+import { useBoardData, useMoveIssue } from '@/lib/hooks/use-boards';
 import { useWorkflowStatuses } from '@/lib/hooks/use-projects';
 import { useBoardDnd } from '@/lib/hooks/use-board-dnd';
 import { useCreateIssue } from '@/lib/hooks/use-issues';
@@ -208,7 +207,6 @@ export function KanbanBoard({ projectKey, boardId, sprintId, swimlaneBy }: Kanba
                 key={swimlane.groupKey}
                 swimlane={swimlane}
                 projectKey={projectKey}
-                boardId={boardId}
                 sprintId={sprintId}
                 swimlaneBy={swimlaneBy}
                 statusCategoryMap={statusCategoryMap}
@@ -218,7 +216,7 @@ export function KanbanBoard({ projectKey, boardId, sprintId, swimlaneBy }: Kanba
 
           {/* Inline create swimlane (Story) — only in "By Story" mode */}
           {swimlaneBy === 'EPIC' && (
-            <InlineCreateSwimlane projectKey={projectKey} boardId={boardId} />
+            <InlineCreateSwimlane projectKey={projectKey} />
           )}
         </div>
       ) : (
@@ -228,7 +226,6 @@ export function KanbanBoard({ projectKey, boardId, sprintId, swimlaneBy }: Kanba
               key={columnData.column.id}
               columnData={columnData}
               projectKey={projectKey}
-              boardId={boardId}
               sprintId={sprintId}
               statusCategory={getColumnCategory(columnData.column.statusIds)}
               collapsed={collapsedColumns.has(columnData.column.id)}
@@ -257,11 +254,10 @@ export function KanbanBoard({ projectKey, boardId, sprintId, swimlaneBy }: Kanba
   );
 }
 
-function InlineCreateSwimlane({ projectKey, boardId }: { projectKey: string; boardId: string }) {
+function InlineCreateSwimlane({ projectKey }: { projectKey: string }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState('');
   const createIssue = useCreateIssue(projectKey);
-  const queryClient = useQueryClient();
 
   const handleSubmit = useCallback(() => {
     const trimmed = title.trim();
@@ -275,11 +271,10 @@ function InlineCreateSwimlane({ projectKey, boardId }: { projectKey: string; boa
         onSuccess: () => {
           setTitle('');
           setEditing(false);
-          queryClient.invalidateQueries({ queryKey: boardKeys.dataPrefix(projectKey, boardId) });
         },
       },
     );
-  }, [title, createIssue, queryClient, projectKey, boardId]);
+  }, [title, createIssue]);
 
   if (!editing) {
     return (
