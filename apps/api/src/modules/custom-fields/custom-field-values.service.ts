@@ -21,6 +21,8 @@ import { ActivitiesService } from '@/modules/activities/activities.service';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { UsersReader } from '@/modules/users/users.reader';
 import { VersionsRepository } from '@/modules/versions/versions.repository';
+import { IndexerHooksService } from '@/modules/search/indexer/indexer-hooks.service';
+import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import { normalizeEnumConfig } from './normalize-enum-config';
 import { formatPeriod } from './period-parser';
 
@@ -42,7 +44,27 @@ export class CustomFieldValuesService {
     private validator: CustomFieldValidatorService,
     private activitiesService: ActivitiesService,
     private txService: TransactionService,
+    private indexerHooks: IndexerHooksService,
+    private background: BackgroundTasks,
   ) {}
+
+  /**
+   * Custom field values are part of the ES issue document, so a value change
+   * must re-index — otherwise filtering/sorting by the field returns stale
+   * results. Fire-and-forget after commit (the indexer reads committed data at
+   * job time); the FIELD_VALUE_CHANGE activity is recorded synchronously in the
+   * mutation tx above. No issue.updated event: a field change has no status/
+   * assignee/notification semantics, only re-index — same profile as time logs.
+   */
+  private scheduleReindex(issueId: string): void {
+    this.background.run(
+      () => this.indexerHooks.onIssueChanged(issueId, 'field_value'),
+      (err) =>
+        this.logger.error('Reindex after custom-field change failed', err, {
+          issueId,
+        }),
+    );
+  }
 
   async getFieldsForIssue(
     issueId: string,
@@ -93,6 +115,7 @@ export class CustomFieldValuesService {
         await this.recordFieldActivity(issueId, userId, normalized, oldValue, null, tx);
         await this.issuesRepo.touchUpdatedAt(issueId, tx);
       });
+      this.scheduleReindex(issueId);
 
       this.logger.log('Custom field value cleared', {
         issueId,
@@ -109,6 +132,7 @@ export class CustomFieldValuesService {
       await this.recordFieldActivity(issueId, userId, normalized, oldValue, validatedValue, tx);
       await this.issuesRepo.touchUpdatedAt(issueId, tx);
     });
+    this.scheduleReindex(issueId);
 
     this.logger.log('Custom field value set', {
       issueId,
@@ -143,6 +167,7 @@ export class CustomFieldValuesService {
       await this.recordFieldActivity(issueId, userId, field, existing.value, null, tx);
       await this.issuesRepo.touchUpdatedAt(issueId, tx);
     });
+    this.scheduleReindex(issueId);
 
     this.logger.log('Custom field value cleared', {
       issueId,

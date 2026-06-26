@@ -10,6 +10,8 @@ import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { UsersReader } from '@/modules/users/users.reader';
 import { VersionsRepository } from '@/modules/versions/versions.repository';
 import { TransactionService } from '@/common/repository/transaction.service';
+import { IndexerHooksService } from '@/modules/search/indexer/indexer-hooks.service';
+import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import type { Tx } from '@/common/repository/tx.types';
 import type { CustomField } from '@repo/shared/schemas';
 
@@ -22,6 +24,8 @@ describe('CustomFieldValuesService', () => {
   let issuesRepo: Mocked<IssuesRepository>;
   let validator: { validate: jest.Mock; validateMany: jest.Mock };
   let activities: { recordOne: jest.Mock; record: jest.Mock };
+  let indexerHooks: { onIssueChanged: jest.Mock };
+  let background: { run: jest.Mock };
 
   const projectId = 'proj-1';
   const issueId = 'issue-1';
@@ -67,6 +71,9 @@ describe('CustomFieldValuesService', () => {
       recordOne: jest.fn().mockResolvedValue(undefined),
       record: jest.fn().mockResolvedValue(undefined),
     };
+    indexerHooks = { onIssueChanged: jest.fn().mockResolvedValue(undefined) };
+    // Invoke the task synchronously so the test can assert the re-index call.
+    background = { run: jest.fn((task: () => unknown) => void task()) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -82,6 +89,8 @@ describe('CustomFieldValuesService', () => {
           provide: TransactionService,
           useValue: { run: (fn: (tx: Tx) => unknown) => fn({} as Tx) },
         },
+        { provide: IndexerHooksService, useValue: indexerHooks },
+        { provide: BackgroundTasks, useValue: background },
       ],
     }).compile();
 
@@ -140,6 +149,8 @@ describe('CustomFieldValuesService', () => {
       expect(valuesRepo.upsert).toHaveBeenCalledWith(issueId, 'f1', 'validated', expect.anything());
       expect(activities.recordOne).toHaveBeenCalled();
       expect(issuesRepo.touchUpdatedAt).toHaveBeenCalledWith(issueId, expect.anything());
+      // Custom field values are part of the ES doc — the change must re-index.
+      expect(indexerHooks.onIssueChanged).toHaveBeenCalledWith(issueId, 'field_value');
     });
 
     it('deletes existing value when setting null on non-required field', async () => {

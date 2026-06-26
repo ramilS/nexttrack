@@ -10,6 +10,7 @@ import { ActivitiesModule } from '@/modules/activities/activities.module';
 import { UsersModule } from '@/modules/users/users.module';
 import { VersionsModule } from '@/modules/versions/versions.module';
 import { ProjectsModule } from '@/modules/projects/projects.module';
+import { IndexerHooksModule } from '@/modules/search/indexer/indexer-hooks.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ProjectsModule } from '@/modules/projects/projects.module';
     UsersModule,
     VersionsModule,
     ProjectsModule,
+    IndexerHooksModule,
   ],
   controllers: [CustomFieldsController, FieldValuesController],
   providers: [
