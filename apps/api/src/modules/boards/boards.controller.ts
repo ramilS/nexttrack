@@ -173,6 +173,6 @@ export class BoardsController {
     @CurrentUser('id') userId: string,
     @CurrentUser('role') userRole: string,
   ) {
-    return this.boardIssueMoveService.moveIssue(project.id, boardId, dto, userId, userRole);
+    return this.boardIssueMoveService.moveIssue(project, boardId, dto, userId, userRole);
   }
 }

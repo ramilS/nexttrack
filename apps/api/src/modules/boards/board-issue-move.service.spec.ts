@@ -10,7 +10,7 @@ import { BoardsRepository, BoardEntity } from "./boards.repository";
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { IssuesRepository } from "@/modules/issues/issues.repository";
 import { SprintsRepository } from "@/modules/sprints/sprints.repository";
-import { ActivitiesService } from "@/modules/activities/activities.service";
+import { DomainEventPublisher } from "@/modules/outbox/domain-event-publisher";
 import { TransactionService } from "@/common/repository/transaction.service";
 import type { Tx } from "@/common/repository/tx.types";
 import type { BoardIssueCard, Workflow } from "@repo/shared/schemas";
@@ -23,10 +23,11 @@ describe("BoardIssueMoveService", () => {
   let workflowsRepo: Mocked<WorkflowsReader>;
   let issuesRepo: Mocked<IssuesRepository>;
   let sprintsRepo: Mocked<SprintsRepository>;
-  let activitiesService: { recordOne: jest.Mock };
+  let domainEvents: { publish: jest.Mock };
   let txService: { run: jest.Mock };
 
   const projectId = "proj-1";
+  const project = { id: projectId, key: "PROJ", name: "Project" };
   const boardId = "board-1";
   const userId = "user-1";
 
@@ -155,7 +156,7 @@ describe("BoardIssueMoveService", () => {
       updateCounters: jest.fn().mockResolvedValue(undefined),
     } as unknown as Mocked<SprintsRepository>;
 
-    activitiesService = { recordOne: jest.fn().mockResolvedValue(undefined) };
+    domainEvents = { publish: jest.fn().mockResolvedValue(undefined) };
     txService = {
       run: jest
         .fn()
@@ -169,7 +170,7 @@ describe("BoardIssueMoveService", () => {
         { provide: WorkflowsReader, useValue: workflowsRepo },
         { provide: IssuesRepository, useValue: issuesRepo },
         { provide: SprintsRepository, useValue: sprintsRepo },
-        { provide: ActivitiesService, useValue: activitiesService },
+        { provide: DomainEventPublisher, useValue: domainEvents },
         { provide: TransactionService, useValue: txService },
       ],
     }).compile();
@@ -181,9 +182,14 @@ describe("BoardIssueMoveService", () => {
     const baseIssue = {
       id: "issue-1",
       projectId,
+      number: 1,
+      title: "Test",
       statusId: "s1",
       sprintId: null,
       parentId: null,
+      assigneeId: null,
+      resolvedAt: null,
+      description: null,
     };
 
     it("throws NotFoundError when the issue is missing", async () => {
@@ -192,7 +198,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "missing" } as never,
           userId,
@@ -206,7 +212,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "issue-1", toStatusId: "bogus" } as never,
           userId,
@@ -232,7 +238,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "issue-1", toStatusId: "s3" } as never,
           userId,
@@ -241,12 +247,12 @@ describe("BoardIssueMoveService", () => {
       ).rejects.toThrow(PermissionDeniedError);
     });
 
-    it("moves the issue and records a STATUS_CHANGE activity", async () => {
+    it("publishes issue.updated with a STATUS_CHANGE activity for the moved issue", async () => {
       boardsRepo.findEntityInProject.mockResolvedValue(buildBoard());
       issuesRepo.findMoveContext.mockResolvedValue(baseIssue);
 
       await service.moveIssue(
-        projectId,
+        project,
         boardId,
         { issueId: "issue-1", toStatusId: "s2" } as never,
         userId,
@@ -257,10 +263,22 @@ describe("BoardIssueMoveService", () => {
         expect.objectContaining({ statusId: "s2" }),
         expect.anything(),
       );
-      expect(activitiesService.recordOne).toHaveBeenCalled();
+      expect(domainEvents.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "issue.updated",
+          aggregateId: "issue-1",
+          payload: expect.objectContaining({
+            changes: expect.objectContaining({ statusId: "s2" }),
+            activities: expect.arrayContaining([
+              expect.objectContaining({ type: "STATUS_CHANGE" }),
+            ]),
+          }),
+        }),
+        expect.anything(),
+      );
     });
 
-    it("records activities inside the same transaction as the issue update", async () => {
+    it("publishes the issue.updated event inside the same transaction as the update", async () => {
       const txSentinel = { sentinel: "tx" } as unknown as Tx;
       txService.run.mockImplementation(<T>(fn: (tx: Tx) => Promise<T>) =>
         fn(txSentinel),
@@ -269,17 +287,17 @@ describe("BoardIssueMoveService", () => {
       issuesRepo.findMoveContext.mockResolvedValue(baseIssue);
 
       await service.moveIssue(
-        projectId,
+        project,
         boardId,
         { issueId: "issue-1", toStatusId: "s2" } as never,
         userId,
       );
 
-      expect(activitiesService.recordOne).toHaveBeenCalledWith(
-        "issue-1",
-        userId,
-        expect.anything(),
-        expect.anything(),
+      expect(domainEvents.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "issue.updated",
+          aggregateId: "issue-1",
+        }),
         txSentinel,
       );
     });
@@ -303,7 +321,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "issue-1", toStatusId: "s2" } as never,
           userId,
@@ -319,7 +337,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "issue-1", toSprintId: "sp-1" } as never,
           userId,
@@ -351,7 +369,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "issue-1", toSprintId: "sp-1" } as never,
           userId,
@@ -371,7 +389,7 @@ describe("BoardIssueMoveService", () => {
 
       await expect(
         service.moveIssue(
-          projectId,
+          project,
           boardId,
           { issueId: "issue-1", toParentId: "parent-1" } as never,
           userId,
