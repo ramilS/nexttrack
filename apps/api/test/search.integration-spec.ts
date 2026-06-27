@@ -101,6 +101,39 @@ describe('Search Integration (real Elasticsearch)', () => {
     ).toBe(true);
   });
 
+  it('should find an issue by its exact key (SRCH-N) and by bare number when project-scoped', async () => {
+    const createRes = await authReq()
+      .post(`/projects/${projectKey}/issues`)
+      .send({ title: 'Find me by key' })
+      .expect(201);
+    const issueId: string = createRes.body.data.id;
+    const number: number = createRes.body.data.number;
+
+    const project = await ctx.prisma.project.findFirst({ where: { key: projectKey } });
+
+    // Exact key search, e.g. "SRCH-1" — works in any scope.
+    const byKey = `q=${encodeURIComponent(`${projectKey}-${number}`)}&pageSize=10`;
+    let keyItems: Array<{ issue: { id: string } }> = [];
+    for (let attempt = 0; attempt < 8; attempt++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      const res = await authReq().get(`/search?${byKey}`);
+      expect(res.status).toBeLessThan(500);
+      if (res.status === 200) {
+        keyItems = res.body.items ?? [];
+        if (keyItems.length > 0) break;
+      }
+    }
+    // The by-key loop above also serves as the indexing barrier for the issue.
+    expect(keyItems.length).toBeGreaterThan(0);
+    expect(keyItems[0]?.issue.id).toBe(issueId);
+
+    // Bare number search "1" resolves to the issue only when project-scoped.
+    const byNumber = `q=${number}&projectId=${project!.id}&pageSize=10`;
+    const numRes = await authReq().get(`/search?${byNumber}`);
+    expect(numRes.status).toBe(200);
+    expect(numRes.body.items[0]?.issue.id).toBe(issueId);
+  });
+
   it('should re-index and find an issue after a tag is assigned (regression: tag search)', async () => {
     const issueRes = await authReq()
       .post(`/projects/${projectKey}/issues`)
