@@ -152,6 +152,7 @@ export class SearchService {
     const esQuery = this.queryBuilder.build(parsed, {
       currentUserId: userId,
       accessibleProjectIds,
+      scopedProjectId: options?.projectId,
     });
 
     const searchParams: Record<string, unknown> = {

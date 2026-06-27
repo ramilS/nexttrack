@@ -11,7 +11,18 @@ import {
 interface QueryContext {
   currentUserId: string;
   accessibleProjectIds: string[];
+  // Set when the search is restricted to a single project; enables resolving a
+  // bare issue number (e.g. "61") to that project's issue.
+  scopedProjectId?: string;
 }
+
+// Issue identity shorthand: "DEVX-61" → projectKey + number, "61" → number.
+// Project keys are >=2 chars (project-key Zod schema), so a non-matching string
+// simply falls through to normal text search.
+const ISSUE_KEY_PATTERN = /^([A-Za-z][A-Za-z0-9]+)-(\d+)$/;
+const ISSUE_NUMBER_PATTERN = /^\d+$/;
+// Large enough to dominate `_score` so the exact issue ranks first.
+const ISSUE_KEY_MATCH_BOOST = 50;
 
 const FIELD_MAP: Record<string, string> = {
   assignee: 'assigneeId',
@@ -50,7 +61,7 @@ export class EsQueryBuilderService {
     for (const node of parsedQuery.filters) {
       switch (node.kind) {
         case 'TEXT_SEARCH':
-          mustClauses.push(this.buildTextSearch(node));
+          mustClauses.push(this.buildTextSearch(node, context));
           break;
         case 'HASHTAG':
           filterClauses.push(
@@ -88,7 +99,7 @@ export class EsQueryBuilderService {
     };
   }
 
-  private buildTextSearch(node: TextSearchNode): object {
+  private buildTextSearch(node: TextSearchNode, context: QueryContext): object {
     const fields = ['title^3', 'description', 'commentBodies'];
 
     if (node.isExact) {
@@ -99,7 +110,7 @@ export class EsQueryBuilderService {
       return { multi_match: { query: node.text, fuzziness: 'AUTO', fields } };
     }
 
-    return {
+    const textMatch = {
       multi_match: {
         query: node.text,
         fields,
@@ -107,6 +118,47 @@ export class EsQueryBuilderService {
         tie_breaker: 0.3,
       },
     };
+
+    const identityMatch = this.buildIssueIdentityMatch(node.text, context);
+    if (identityMatch) {
+      return {
+        bool: { should: [identityMatch, textMatch], minimum_should_match: 1 },
+      };
+    }
+
+    return textMatch;
+  }
+
+  // Returns null when the text is not an issue identity, so the caller falls
+  // through to ordinary text search.
+  private buildIssueIdentityMatch(
+    text: string,
+    context: QueryContext,
+  ): object | null {
+    const keyMatch = text.match(ISSUE_KEY_PATTERN);
+    if (keyMatch) {
+      const [, projectKey, number] = keyMatch;
+      return {
+        bool: {
+          must: [
+            this.termClause('projectKey', projectKey),
+            { term: { number: Number(number) } },
+          ],
+          boost: ISSUE_KEY_MATCH_BOOST,
+        },
+      };
+    }
+
+    if (context.scopedProjectId && ISSUE_NUMBER_PATTERN.test(text)) {
+      return {
+        bool: {
+          must: [{ term: { number: Number(text) } }],
+          boost: ISSUE_KEY_MATCH_BOOST,
+        },
+      };
+    }
+
+    return null;
   }
 
   private buildHashtag(

@@ -118,6 +118,83 @@ describe('EsQueryBuilderService', () => {
     expect(match.query).toBe('fuzzy term');
   });
 
+  // ─── Issue identity (key / number) ───────────────────────────
+
+  const textSearch = (text: string): ParsedQuery => ({
+    filters: [{ kind: 'TEXT_SEARCH', text, isExact: false, isFuzzy: false }],
+    sort: null,
+    errors: [],
+  });
+
+  it('should boost an exact issue-key match (DEVX-61) above text search', () => {
+    const result = service.build(textSearch('DEVX-61'), context) as unknown as EsQuery;
+    const should = result.query.bool.must[0].bool.should as unknown as EsClause[];
+
+    expect(should).toEqual(
+      expect.arrayContaining([
+        {
+          bool: {
+            must: [
+              { term: { projectKey: { value: 'DEVX', case_insensitive: true } } },
+              { term: { number: 61 } },
+            ],
+            boost: 50,
+          },
+        },
+      ]),
+    );
+    expect(should.some((clause) => clause.multi_match !== undefined)).toBe(true);
+  });
+
+  it('should match an issue key case-insensitively (devx-61)', () => {
+    const result = service.build(textSearch('devx-61'), context) as unknown as EsQuery;
+    const should = result.query.bool.must[0].bool.should as unknown as EsClause[];
+
+    expect(should).toEqual(
+      expect.arrayContaining([
+        {
+          bool: {
+            must: [
+              { term: { projectKey: { value: 'devx', case_insensitive: true } } },
+              { term: { number: 61 } },
+            ],
+            boost: 50,
+          },
+        },
+      ]),
+    );
+  });
+
+  it('should resolve a bare number to an issue when project-scoped', () => {
+    const scopedContext = { ...context, scopedProjectId: 'proj-1' };
+    const result = service.build(textSearch('61'), scopedContext) as unknown as EsQuery;
+    const should = result.query.bool.must[0].bool.should as unknown as EsClause[];
+
+    expect(should).toEqual(
+      expect.arrayContaining([
+        { bool: { must: [{ term: { number: 61 } }], boost: 50 } },
+      ]),
+    );
+  });
+
+  it('should treat a bare number as plain text search when not project-scoped', () => {
+    const result = service.build(textSearch('61'), context) as unknown as EsQuery;
+    const must = result.query.bool.must;
+
+    expect(must[0].multi_match).toBeDefined();
+    expect(must[0].multi_match.query).toBe('61');
+    expect(must[0].bool).toBeUndefined();
+  });
+
+  it('should treat non-identity hyphenated text as plain text search', () => {
+    const result = service.build(textSearch('foo-bar'), context) as unknown as EsQuery;
+    const must = result.query.bool.must;
+
+    expect(must[0].multi_match).toBeDefined();
+    expect(must[0].multi_match.query).toBe('foo-bar');
+    expect(must[0].bool).toBeUndefined();
+  });
+
   // ─── Hashtags ─────────────────────────────────────────────────
 
   it('should build must_not exists resolvedAt for #unresolved', () => {
