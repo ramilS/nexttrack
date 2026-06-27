@@ -8,12 +8,14 @@ import { BoardsRepository } from './boards.repository';
 import { ActivitiesModule } from '@/modules/activities/activities.module';
 import { WorkflowsModule } from '@/modules/workflows/workflows.module';
 import { IssuesModule } from '@/modules/issues/issues.module';
+import { OutboxModule } from '@/modules/outbox/outbox.module';
 
 @Module({
   imports: [
     ActivitiesModule,
     WorkflowsModule,
     IssuesModule,
+    OutboxModule,
   ],
   controllers: [BoardsController],
   providers: [BoardsService, BoardDataService, BoardIssueMoveService, BoardAnalyticsService, BoardsRepository],

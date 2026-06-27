@@ -24,8 +24,17 @@ import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { IssuesRepository } from "@/modules/issues/issues.repository";
 import { BoardIssueMovePatch } from "@/modules/issues/issues-query.builder";
 import { SprintsRepository } from "@/modules/sprints/sprints.repository";
-import { ActivitiesService } from "@/modules/activities/activities.service";
+import { DomainEventPublisher } from "@/modules/outbox/domain-event-publisher";
+import { IssueUpdatedEvent } from "@/modules/issues/events/issue.events";
+import type { ActivityEntry } from "@/modules/activities/activity-builder";
 import type { Tx } from "@/common/repository/tx.types";
+
+/** Minimal project context the move needs to build issue.updated events. */
+interface MoveProject {
+  id: string;
+  key: string;
+  name: string;
+}
 
 const PARENT_CASCADE_MAX_DEPTH = 5;
 
@@ -45,21 +54,23 @@ export class BoardIssueMoveService {
     private issuesRepo: IssuesRepository,
     private sprintsRepo: SprintsRepository,
     private txService: TransactionService,
-    private activitiesService: ActivitiesService,
+    private domainEvents: DomainEventPublisher,
   ) {}
 
   async moveIssue(
-    projectId: string,
+    project: MoveProject,
     boardId: string,
     dto: MoveIssueInput,
     actorId: string,
     actorRole?: string,
   ): Promise<BoardMoveResult> {
+    const projectId = project.id;
     const board = await this.requireBoard(projectId, boardId);
     const issue = await this.issuesRepo.findMoveContext(dto.issueId);
     if (!issue || issue.projectId !== projectId) {
       throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
     }
+    const workflow = await this.requireDefaultWorkflow(projectId);
 
     return this.txService.run(async (tx) => {
       const updates: BoardIssueMovePatch = {};
@@ -70,7 +81,6 @@ export class BoardIssueMoveService {
       }[] = [];
 
       if (dto.toStatusId && dto.toStatusId !== issue.statusId) {
-        const workflow = await this.requireDefaultWorkflow(projectId);
         const toStatus = workflow.statuses.find((s) => s.id === dto.toStatusId);
         if (!toStatus) {
           throw new ValidationError(
@@ -185,12 +195,45 @@ export class BoardIssueMoveService {
         tx,
       );
 
-      for (const act of activities) {
-        await this.activitiesService.recordOne(
-          dto.issueId,
-          actorId,
-          act.type,
-          { from: act.from, to: act.to },
+      // Route the move through the same issue.updated event as a normal edit, so
+      // ONE listener re-indexes, records activities, fires ON_STATUS_CHANGE
+      // workflows and notifies watchers — instead of the board mutating in the
+      // dark. changes.statusId is undefined when only sprint/parent changed, so
+      // the listener's status-side effects stay off; activities still carry the
+      // sprint/parent change and the issue is still re-indexed.
+      if (activities.length > 0) {
+        await this.domainEvents.publish(
+          {
+            eventType: "issue.updated",
+            aggregateType: "Issue",
+            aggregateId: dto.issueId,
+            payload: {
+              ...new IssueUpdatedEvent(
+                dto.issueId,
+                projectId,
+                project.key,
+                project.name,
+                issue.number,
+                issue.title,
+                actorId,
+                activities.map(
+                  (a): ActivityEntry => ({
+                    type: a.type,
+                    payload: { from: a.from, to: a.to },
+                  }),
+                ),
+                { statusId: updates.statusId },
+                {
+                  assigneeId: issue.assigneeId,
+                  statusId: issue.statusId,
+                  resolvedAt: issue.resolvedAt,
+                  description: issue.description,
+                },
+                workflow.statuses,
+                null,
+              ),
+            },
+          },
           tx,
         );
       }
@@ -215,10 +258,10 @@ export class BoardIssueMoveService {
         dto.toStatusId &&
         dto.toStatusId !== issue.statusId
       ) {
-        const workflow = await this.requireDefaultWorkflow(projectId);
         await this.cascadeParentStatus(
           { parentId: updatedCard.parentId, statusId: updatedCard.statusId },
           workflow,
+          project,
           actorId,
           tx,
         );
@@ -312,9 +355,61 @@ export class BoardIssueMoveService {
     );
   }
 
+  /**
+   * Emits issue.updated for a parent the cascade auto-closed/reopened, so it is
+   * re-indexed, activity-logged and notified exactly like the moved child —
+   * rather than mutated silently. Status is the only changed field.
+   */
+  private async publishParentStatusEvent(
+    parent: NonNullable<
+      Awaited<ReturnType<IssuesRepository["findParentCascadeContext"]>>
+    >,
+    newStatusId: string,
+    project: MoveProject,
+    workflow: Workflow,
+    actorId: string,
+    tx: Tx,
+  ): Promise<void> {
+    await this.domainEvents.publish(
+      {
+        eventType: "issue.updated",
+        aggregateType: "Issue",
+        aggregateId: parent.id,
+        payload: {
+          ...new IssueUpdatedEvent(
+            parent.id,
+            project.id,
+            project.key,
+            project.name,
+            parent.number,
+            parent.title,
+            actorId,
+            [
+              {
+                type: ActivityType.STATUS_CHANGE,
+                payload: { from: parent.statusId, to: newStatusId, auto: true },
+              },
+            ],
+            { statusId: newStatusId },
+            {
+              assigneeId: parent.assigneeId,
+              statusId: parent.statusId,
+              resolvedAt: parent.resolvedAt,
+              description: parent.description,
+            },
+            workflow.statuses,
+            null,
+          ),
+        },
+      },
+      tx,
+    );
+  }
+
   private async cascadeParentStatus(
     child: { parentId: string | null; statusId: string },
     workflow: Workflow,
+    project: MoveProject,
     actorId: string,
     tx: Tx,
     depth = 0,
@@ -355,11 +450,12 @@ export class BoardIssueMoveService {
           new Date(),
           tx,
         );
-        await this.activitiesService.recordOne(
-          parent.id,
+        await this.publishParentStatusEvent(
+          parent,
+          firstDoneStatus.id,
+          project,
+          workflow,
           actorId,
-          ActivityType.STATUS_CHANGE,
-          { from: parent.statusId, to: firstDoneStatus.id, auto: true },
           tx,
         );
         this.logger.log(
@@ -369,6 +465,7 @@ export class BoardIssueMoveService {
         await this.cascadeParentStatus(
           { parentId: parent.parentId, statusId: firstDoneStatus.id },
           workflow,
+          project,
           actorId,
           tx,
           depth + 1,
@@ -386,11 +483,12 @@ export class BoardIssueMoveService {
         null,
         tx,
       );
-      await this.activitiesService.recordOne(
-        parent.id,
+      await this.publishParentStatusEvent(
+        parent,
+        firstStartedStatus.id,
+        project,
+        workflow,
         actorId,
-        ActivityType.STATUS_CHANGE,
-        { from: parent.statusId, to: firstStartedStatus.id, auto: true },
         tx,
       );
       this.logger.log(
@@ -400,6 +498,7 @@ export class BoardIssueMoveService {
       await this.cascadeParentStatus(
         { parentId: parent.parentId, statusId: firstStartedStatus.id },
         workflow,
+        project,
         actorId,
         tx,
         depth + 1,

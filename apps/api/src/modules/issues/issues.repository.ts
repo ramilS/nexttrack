@@ -422,18 +422,28 @@ export class IssuesRepository {
   async findMoveContext(issueId: string): Promise<{
     id: string;
     projectId: string;
+    number: number;
+    title: string;
     statusId: string;
     sprintId: string | null;
     parentId: string | null;
+    assigneeId: string | null;
+    resolvedAt: Date | null;
+    description: TiptapDoc | null;
   } | null> {
     const row = await this.prisma.issue.findUnique({
       where: { id: issueId },
       select: {
         id: true,
         projectId: true,
+        number: true,
+        title: true,
         statusId: true,
         sprintId: true,
         parentId: true,
+        assigneeId: true,
+        resolvedAt: true,
+        description: true,
         deletedAt: true,
       },
     });
@@ -441,9 +451,14 @@ export class IssuesRepository {
     return {
       id: row.id,
       projectId: row.projectId,
+      number: row.number,
+      title: row.title,
       statusId: row.statusId,
       sprintId: row.sprintId,
       parentId: row.parentId,
+      assigneeId: row.assigneeId,
+      resolvedAt: row.resolvedAt,
+      description: (row.description as TiptapDoc | null) ?? null,
     };
   }
 
@@ -598,12 +613,31 @@ export class IssuesRepository {
   async findParentCascadeContext(
     issueId: string,
     tx?: Tx,
-  ): Promise<{ id: string; statusId: string; parentId: string | null } | null> {
+  ): Promise<{
+    id: string;
+    number: number;
+    title: string;
+    statusId: string;
+    parentId: string | null;
+    assigneeId: string | null;
+    resolvedAt: Date | null;
+    description: TiptapDoc | null;
+  } | null> {
     const row = await this.db(tx).issue.findUnique({
       where: { id: issueId },
-      select: { id: true, statusId: true, parentId: true },
+      select: {
+        id: true,
+        number: true,
+        title: true,
+        statusId: true,
+        parentId: true,
+        assigneeId: true,
+        resolvedAt: true,
+        description: true,
+      },
     });
-    return row ?? null;
+    if (!row) return null;
+    return { ...row, description: (row.description as TiptapDoc | null) ?? null };
   }
 
   /** Counts non-done siblings under a parent — drives the auto-close cascade. */

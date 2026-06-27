@@ -194,6 +194,10 @@ describe('Boards Integration — autoCloseOnDone', () => {
 
     await moveIssue(child.id, doneStatusId).expect(200);
 
+    // The move now routes through issue.updated, so the parent's auto-transition
+    // activity is recorded by the listener — drain the outbox before asserting.
+    await ctx.pumpDomainEvents();
+
     // Check that an activity was recorded for the parent auto-transition
     const activities = await ctx.prisma.activity.findMany({
       where: { issueId: parent.id, type: 'STATUS_CHANGE' },
