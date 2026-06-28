@@ -9,8 +9,6 @@ export interface SearchFilters {
   assignee: string | null;
   type: string | null;
   tag: string | null;
-  sortBy: string;
-  sortOrder: string;
 }
 
 export const DEFAULT_SEARCH_FILTERS: SearchFilters = {
@@ -20,8 +18,6 @@ export const DEFAULT_SEARCH_FILTERS: SearchFilters = {
   assignee: null,
   type: null,
   tag: null,
-  sortBy: 'updatedAt',
-  sortOrder: 'desc',
 };
 
 /**
@@ -36,7 +32,9 @@ export function parseQueryToFilters(query: string): SearchFilters {
   let remaining = query;
 
   // Value is a double-quoted run (may contain spaces) or an unquoted non-space run.
-  const fieldPattern = /(?:^|\s)(status|priority|assignee|type|tag|sort):(?:"([^"]*)"|(\S+))/gi;
+  // Sort is deliberately absent: the "sort by: <field> <dir>" clause stays in the
+  // free text and is handled by the backend query-language, not extracted here.
+  const fieldPattern = /(?:^|\s)(status|priority|assignee|type|tag):(?:"([^"]*)"|(\S+))/gi;
   let match: RegExpExecArray | null;
 
   while ((match = fieldPattern.exec(query)) !== null) {
@@ -61,12 +59,6 @@ export function parseQueryToFilters(query: string): SearchFilters {
       case 'tag':
         filters.tag = value;
         break;
-      case 'sort': {
-        const [sortField, sortDir] = value.split(':');
-        if (sortField) filters.sortBy = sortField;
-        if (sortDir === 'asc' || sortDir === 'desc') filters.sortOrder = sortDir;
-        break;
-      }
     }
   }
 
@@ -115,10 +107,6 @@ export function buildQueryFromFilters(filters: Partial<SearchFilters>): string {
 
   if (filters.tag) {
     parts.push(`tag:${quoteIfNeeded(filters.tag)}`);
-  }
-
-  if (filters.sortBy && filters.sortBy !== 'updatedAt') {
-    parts.push(`sort:${filters.sortBy}:${filters.sortOrder ?? 'desc'}`);
   }
 
   return parts.join(' ');

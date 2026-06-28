@@ -15,8 +15,6 @@ const searchParsers = {
   assignee: parseAsString,
   type: parseAsString,
   tag: parseAsString,
-  sortBy: parseAsString.withDefault('updatedAt'),
-  sortOrder: parseAsString.withDefault('desc'),
 };
 
 export function useSearchState() {
@@ -45,8 +43,6 @@ export function useSearchState() {
       assignee: null,
       type: null,
       tag: null,
-      sortBy: 'updatedAt',
-      sortOrder: 'desc',
     });
   }, [setState]);
 

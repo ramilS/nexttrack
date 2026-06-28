@@ -8,8 +8,6 @@ const NO_FILTERS = {
   assignee: null,
   type: null,
   tag: null,
-  sortBy: 'updatedAt',
-  sortOrder: 'desc',
 };
 
 describe('ActiveFilters', () => {
@@ -96,16 +94,5 @@ describe('ActiveFilters', () => {
     // The colour is applied as an inline background (jsdom normalises #3b82f6 to rgb).
     const dot = container.querySelector('[style*="background"]');
     expect(dot?.getAttribute('style')).toContain('rgb(59, 130, 246)');
-  });
-
-  it('shows the sort chip only for a non-default sort', () => {
-    render(
-      <ActiveFilters
-        filters={{ ...NO_FILTERS, sortBy: 'priority', sortOrder: 'asc' }}
-        onRemove={vi.fn()}
-        onClearAll={vi.fn()}
-      />,
-    );
-    expect(screen.getByText(/Sort:/)).toBeInTheDocument();
   });
 });

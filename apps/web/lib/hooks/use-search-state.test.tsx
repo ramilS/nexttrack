@@ -13,10 +13,15 @@ function renderSearchState() {
 }
 
 describe('useSearchState', () => {
-  it('starts with an empty query and default sort', () => {
+  it('starts with an empty query', () => {
     const { result } = renderSearchState();
     expect(result.current.fullQuery).toBe('');
-    expect(result.current.sortBy).toBe('updatedAt');
+  });
+
+  it('preserves a "sort by:" clause as part of the query (no structured sort state)', async () => {
+    const { result } = renderSearchState();
+    await act(async () => result.current.setQuery('sort by: created desc'));
+    expect(result.current.fullQuery).toBe('sort by: created desc');
   });
 
   it('keeps a workflow status name verbatim (not upper-cased)', async () => {
@@ -85,6 +90,5 @@ describe('useSearchState', () => {
     expect(result.current.fullQuery).toBe('');
     expect(result.current.status).toBeNull();
     expect(result.current.priority).toBeNull();
-    expect(result.current.sortBy).toBe('updatedAt');
   });
 });

@@ -80,6 +80,23 @@ describe('quoted multi-word values', () => {
   });
 });
 
+describe('sort is expressed through the query-language, not a structured filter', () => {
+  // The backend DSL owns sorting via "sort by: <field> <dir>". The frontend must
+  // pass that clause through verbatim (as free text) rather than re-encoding it,
+  // so the search box and the ES query speak the same syntax.
+  it('keeps a "sort by:" clause as free text through the round-trip', () => {
+    const filters = parseQueryToFilters('status:open sort by: created desc');
+    expect(filters.status).toBe('open');
+    expect(filters.q).toBe('sort by: created desc');
+    expect(buildQueryFromFilters(filters)).toBe('sort by: created desc status:open');
+  });
+
+  it('does not extract the legacy "sort:field:dir" colon form into a structured field', () => {
+    const filters = parseQueryToFilters('sort:created:desc');
+    expect(filters.q).toBe('sort:created:desc');
+  });
+});
+
 describe('status is a workflow-status name, not an enum', () => {
   // ES indexes statusName as a case-sensitive keyword holding the human name
   // ("Open", "In Progress"). Upper-casing it (as we do for the priority/type

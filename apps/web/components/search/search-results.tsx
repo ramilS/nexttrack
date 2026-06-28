@@ -51,11 +51,7 @@ export function SearchResults({ onHelpClick }: SearchResultsProps) {
   }
 
   function handleRemoveFilter(key: string) {
-    if (key === 'sortBy') {
-      searchState.setFilters({ sortBy: 'updatedAt', sortOrder: 'desc' });
-    } else {
-      setFilter(key as 'status' | 'priority' | 'type' | 'assignee' | 'tag', null);
-    }
+    setFilter(key as 'status' | 'priority' | 'type' | 'assignee' | 'tag', null);
   }
 
   return (
@@ -83,8 +79,6 @@ export function SearchResults({ onHelpClick }: SearchResultsProps) {
           assignee: searchState.assignee,
           type: searchState.type,
           tag: searchState.tag,
-          sortBy: searchState.sortBy,
-          sortOrder: searchState.sortOrder,
         }}
         onRemove={handleRemoveFilter}
         onClearAll={() => searchState.clearFilters()}
@@ -109,7 +103,7 @@ export function SearchResults({ onHelpClick }: SearchResultsProps) {
           <h2 className="text-lg font-medium text-muted-foreground">Search across all issues</h2>
           <div className="text-sm text-muted-foreground space-y-1">
             <p>Try: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">status:open priority:high</code></p>
-            <p>Or: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">#MyIssues sort:created:desc</code></p>
+            <p>Or: <code className="bg-muted px-1.5 py-0.5 rounded text-xs">#MyIssues sort by: created desc</code></p>
             <p>Or just type free text to search titles and descriptions</p>
           </div>
         </div>

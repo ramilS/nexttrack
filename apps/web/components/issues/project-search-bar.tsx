@@ -41,11 +41,7 @@ export function ProjectSearchBar({ projectId, className }: ProjectSearchBarProps
   }
 
   function handleRemoveFilter(key: string) {
-    if (key === 'sortBy') {
-      searchState.setFilters({ sortBy: 'updatedAt', sortOrder: 'desc' });
-    } else {
-      searchState.setFilter(key as keyof SearchFilters, null);
-    }
+    searchState.setFilter(key as keyof SearchFilters, null);
   }
 
   const hasActiveFilters = !!(
@@ -53,8 +49,7 @@ export function ProjectSearchBar({ projectId, className }: ProjectSearchBarProps
     searchState.priority ||
     searchState.assignee ||
     searchState.type ||
-    searchState.tag ||
-    (searchState.sortBy && searchState.sortBy !== 'updatedAt')
+    searchState.tag
   );
 
   return (
