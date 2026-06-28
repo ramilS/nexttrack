@@ -65,8 +65,9 @@ const SECTIONS = [
   {
     title: 'Sorting',
     items: [
-      { syntax: 'sort:created:desc', desc: 'Sort by created date, newest first' },
-      { syntax: 'sort:priority:asc', desc: 'Sort by priority, lowest first' },
+      { syntax: 'sort by: created desc', desc: 'Sort by created date, newest first' },
+      { syntax: 'sort by: priority asc', desc: 'Sort by priority, lowest first' },
+      { syntax: 'sort by: priority desc, created asc', desc: 'Sort by multiple fields' },
     ],
   },
 ];
@@ -109,7 +110,7 @@ export function SyntaxHelpDialog({ open, onOpenChange }: SyntaxHelpDialogProps) 
               All filters are combined with AND logic. Example:
             </p>
             <code className="mt-1.5 block rounded bg-muted p-2 text-xs font-mono">
-              status:open priority:high assignee:{'{me}'} sort:updated:desc
+              status:open priority:high assignee:{'{me}'} sort by: updated desc
             </code>
           </div>
         </div>

@@ -14,8 +14,6 @@ interface ActiveFiltersProps {
     assignee: string | null;
     type: string | null;
     tag: string | null;
-    sortBy: string;
-    sortOrder: string;
   };
   // Resolved status (for the chip colour); falls back to the bare name.
   statusOption?: IssueStatus | null;
@@ -70,17 +68,6 @@ export function ActiveFilters({ filters, statusOption, onRemove, onClearAll, cla
       label: (
         <span>
           Tag: <span className="font-medium">{filters.tag}</span>
-        </span>
-      ),
-    });
-  }
-
-  if (filters.sortBy && filters.sortBy !== 'updatedAt') {
-    chips.push({
-      key: 'sortBy',
-      label: (
-        <span>
-          Sort: {filters.sortBy} {filters.sortOrder === 'asc' ? '\u2191' : '\u2193'}
         </span>
       ),
     });
