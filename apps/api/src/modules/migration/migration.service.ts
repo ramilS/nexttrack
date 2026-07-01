@@ -1,6 +1,6 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { AppLogger } from '@/common/logging/app-logger';
-import { NotFoundError } from '@/common/errors/domain.errors';
+import { NotFoundError, ValidationError } from '@/common/errors/domain.errors';
 import { ConfigType } from '@nestjs/config';
 import { ErrorCode } from '@repo/shared/error-codes';
 import type { TiptapDoc } from '@repo/shared/schemas';
@@ -67,6 +67,10 @@ export class MigrationService {
       return { data: this.toMigrationIssue(existingByYtId), existed: true };
     }
 
+    this.assertBackdatingAllowed(
+      Boolean(dto.originalCreatedAt || dto.originalUpdatedAt || dto.originalResolvedAt),
+    );
+
     const number =
       dto.ytNumber ?? (await this.issuesRepo.getNextNumber(project.id));
 
@@ -127,6 +131,8 @@ export class MigrationService {
   }
 
   async setOriginalDates(issueId: string, dto: SetDatesDto) {
+    this.assertBackdatingAllowed(true);
+
     if (!(await this.migrationRepo.existsIssue(issueId))) {
       throw new NotFoundError(
         ErrorCode.MIGRATION_ISSUE_NOT_FOUND,
@@ -171,6 +177,8 @@ export class MigrationService {
     body: TiptapDoc,
     originalCreatedAt?: string,
   ) {
+    this.assertBackdatingAllowed(Boolean(originalCreatedAt));
+
     const comment = await this.migrationRepo.createComment(
       issueId,
       authorId,
@@ -185,6 +193,15 @@ export class MigrationService {
       authorId,
     });
     return { data: comment };
+  }
+
+  private assertBackdatingAllowed(hasBackdatedInput: boolean): void {
+    if (hasBackdatedInput && !this.migration.allowBackdatedRecords) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_BACKDATING_DISABLED,
+        'Backdated timestamps are disabled. Set MIGRATION_ALLOW_BACKDATED_RECORDS=true to preserve original dates.',
+      );
+    }
   }
 
   // Response boundary: maps Date columns to ISO strings so the shape matches

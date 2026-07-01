@@ -2,6 +2,8 @@ import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { TEST_SECRETS } from '@repo/test-support';
+import { ErrorCode } from '@repo/shared/error-codes';
+import { migrationConfig } from '@/config';
 import {
   E2eContext,
   createE2eApp,
@@ -120,5 +122,184 @@ describe('Migration Issue Counter (Integration)', () => {
       migrate(60, 'yt-60').expect(201),
     ]);
     expect(await getCounter()).toBe(70);
+  });
+});
+
+describe('Migration Backdating Gate (Integration)', () => {
+  let ctx: E2eContext;
+  let adminToken: string;
+  let adminId: string;
+  let projectKey: string;
+  let statusId: string;
+
+  beforeAll(async () => {
+    ctx = await createE2eApp();
+  }, 60_000);
+
+  afterAll(async () => {
+    await teardownE2eApp(ctx);
+  });
+
+  beforeEach(async () => {
+    await truncateTables(ctx.prisma);
+    await seedSystemRoles(ctx.prisma);
+
+    const hash = await bcrypt.hash('adminpass1', 4);
+    const admin = await ctx.prisma.user.create({
+      data: {
+        email: 'admin@test.local',
+        name: 'Admin User',
+        passwordHash: hash,
+        hasPassword: true,
+        role: 'ADMIN',
+      },
+    });
+    adminId = admin.id;
+
+    const loginRes = await request(ctx.app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'admin@test.local', password: 'adminpass1' })
+      .expect(200);
+    adminToken = extractAccessTokenFromCookies(loginRes.headers['set-cookie']);
+
+    projectKey = 'MIGBD';
+    const projectRes = await request(ctx.app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ key: projectKey, name: 'Migration Backdating Test' })
+      .expect(201);
+    const projectId = projectRes.body.data.id;
+
+    const project = await ctx.prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      include: {
+        workflows: {
+          where: { isDefault: true },
+          take: 1,
+          include: { statuses: { orderBy: { ordinal: 'asc' } } },
+        },
+      },
+    });
+    const statuses = project.workflows[0].statuses as Array<{ id: string }>;
+    statusId = statuses[0].id;
+  });
+
+  it('rejects backdated issue timestamps when backdating is disabled', async () => {
+    // The default test harness leaves MIGRATION_ALLOW_BACKDATED_RECORDS unset (false).
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({
+        title: 'Backdated',
+        statusId,
+        reporterId: adminId,
+        ytId: 'yt-backdate-1',
+        originalCreatedAt: '2020-01-01T00:00:00.000Z',
+      });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe(ErrorCode.MIGRATION_BACKDATING_DISABLED);
+  });
+
+  it('creates the issue when no backdated timestamps are provided', async () => {
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({
+        title: 'Not backdated',
+        statusId,
+        reporterId: adminId,
+        ytId: 'yt-backdate-2',
+      });
+
+    expect(res.status).toBe(201);
+  });
+});
+
+describe('Migration Backdating Gate — allowed (Integration)', () => {
+  let ctx: E2eContext;
+  let adminToken: string;
+  let adminId: string;
+  let projectKey: string;
+  let statusId: string;
+
+  beforeAll(async () => {
+    ctx = await createE2eApp({
+      customize: (builder) =>
+        builder.overrideProvider(migrationConfig.KEY).useValue({
+          apiSecret: MIGRATION_SECRET,
+          allowBackdatedRecords: true,
+        }),
+    });
+  }, 60_000);
+
+  afterAll(async () => {
+    await teardownE2eApp(ctx);
+  });
+
+  beforeEach(async () => {
+    await truncateTables(ctx.prisma);
+    await seedSystemRoles(ctx.prisma);
+
+    const hash = await bcrypt.hash('adminpass1', 4);
+    const admin = await ctx.prisma.user.create({
+      data: {
+        email: 'admin@test.local',
+        name: 'Admin User',
+        passwordHash: hash,
+        hasPassword: true,
+        role: 'ADMIN',
+      },
+    });
+    adminId = admin.id;
+
+    const loginRes = await request(ctx.app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'admin@test.local', password: 'adminpass1' })
+      .expect(200);
+    adminToken = extractAccessTokenFromCookies(loginRes.headers['set-cookie']);
+
+    projectKey = 'MIGBDOK';
+    const projectRes = await request(ctx.app.getHttpServer())
+      .post('/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ key: projectKey, name: 'Migration Backdating Allowed Test' })
+      .expect(201);
+    const projectId = projectRes.body.data.id;
+
+    const project = await ctx.prisma.project.findUniqueOrThrow({
+      where: { id: projectId },
+      include: {
+        workflows: {
+          where: { isDefault: true },
+          take: 1,
+          include: { statuses: { orderBy: { ordinal: 'asc' } } },
+        },
+      },
+    });
+    const statuses = project.workflows[0].statuses as Array<{ id: string }>;
+    statusId = statuses[0].id;
+  });
+
+  it('applies backdated timestamps when backdating is allowed', async () => {
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({
+        title: 'Backdated',
+        statusId,
+        reporterId: adminId,
+        ytId: 'yt-backdate-allowed-1',
+        originalCreatedAt: '2020-01-01T00:00:00.000Z',
+      })
+      .expect(201);
+
+    const issue = await ctx.prisma.issue.findUniqueOrThrow({
+      where: { id: res.body.data.data.id },
+    });
+    expect(issue.createdAt.toISOString()).toBe('2020-01-01T00:00:00.000Z');
   });
 });
