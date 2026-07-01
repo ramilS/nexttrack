@@ -6,6 +6,16 @@ import { CreateUserMigrationDto } from '../transformers/user.transformer';
 import { CreateIssueMigrationDto } from '../transformers/issue.transformer';
 import { YtAttachment } from '../youtrack/types/yt-issue.type';
 
+/**
+ * The API wraps every response in the global TransformInterceptor envelope
+ * `{ data: <payload>, meta }`. Strip that envelope to get the service payload.
+ * Without this, the loader reads ids one level too shallow (→ undefined) and
+ * every id-map registration silently breaks.
+ */
+export function unwrapEnvelope<T>(body: unknown): T {
+  return (body as { data: T }).data;
+}
+
 export class OurApiClient {
   private readonly http: AxiosInstance;
 
@@ -28,7 +38,7 @@ export class OurApiClient {
   async createMigratedUser(dto: CreateUserMigrationDto): Promise<{ data: any; existed: boolean }> {
     return retry(async () => {
       const { data } = await this.http.post('/admin/migration/users', dto);
-      return data;
+      return unwrapEnvelope<{ data: any; existed: boolean }>(data);
     });
   }
 
@@ -37,7 +47,7 @@ export class OurApiClient {
       const { data } = await this.http.get('/admin/migration/users/by-email', {
         params: { email },
       });
-      return data.data;
+      return unwrapEnvelope<{ data: any }>(data).data;
     });
   }
 
@@ -50,7 +60,7 @@ export class OurApiClient {
         `/admin/migration/issues/${projectKey}`,
         dto,
       );
-      return data;
+      return unwrapEnvelope<{ data: any; existed: boolean }>(data);
     });
   }
 
@@ -59,7 +69,7 @@ export class OurApiClient {
       const { data } = await this.http.get(
         `/admin/migration/issues/by-yt-id/${ytId}`,
       );
-      return data.data;
+      return unwrapEnvelope<{ data: any }>(data).data;
     });
   }
 
@@ -91,7 +101,7 @@ export class OurApiClient {
         `/admin/migration/issues/${issueId}/comments`,
         { authorId, body, originalCreatedAt },
       );
-      return data.data;
+      return unwrapEnvelope<{ data: any }>(data).data;
     });
   }
 
@@ -127,6 +137,6 @@ export class OurApiClient {
     const { data } = await this.http.get(
       `/admin/migration/stats/${projectKey}`,
     );
-    return data;
+    return unwrapEnvelope(data);
   }
 }
