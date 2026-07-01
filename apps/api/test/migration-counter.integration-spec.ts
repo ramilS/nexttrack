@@ -124,6 +124,42 @@ describe('Migration Issue Counter (Integration)', () => {
     ]);
     expect(await getCounter()).toBe(70);
   });
+
+  it('creates a tag (idempotent) and links it to a migrated issue', async () => {
+    const first = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/projects/${projectKey}/tags`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ name: 'regression', color: 'red' });
+    expect(first.status).toBe(201);
+    expect(first.body.data.existed).toBe(false);
+    const tagId = first.body.data.data.id;
+
+    // Re-create the same tag → idempotent, returns the existing id.
+    const second = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/projects/${projectKey}/tags`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ name: 'regression', color: 'blue' });
+    expect(second.body.data.existed).toBe(true);
+    expect(second.body.data.data.id).toBe(tagId);
+
+    const issueRes = await migrate(5, 'yt-tag-5').expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const linkRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${issueId}/tags`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ tagIds: [tagId] });
+    expect(linkRes.status).toBe(201);
+    expect(linkRes.body.data.linked).toBe(1);
+
+    const link = await ctx.prisma.issueTag.findFirst({
+      where: { issueId, tagId },
+    });
+    expect(link).not.toBeNull();
+  });
 });
 
 describe('Migration Backdating Gate (Integration)', () => {
@@ -259,6 +295,40 @@ describe('Migration Backdating Gate (Integration)', () => {
       where: { issueId_tagId: { issueId, tagId } },
     });
     expect(link).not.toBeNull();
+  });
+
+  it('creates an issue link idempotently between migrated issues', async () => {
+    const createIssue = (ytId: string, title: string) =>
+      request(ctx.app.getHttpServer())
+        .post(`/admin/migration/issues/${projectKey}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('x-migration-secret', MIGRATION_SECRET)
+        .send({ title, statusId, reporterId: adminId, ytId })
+        .expect(201);
+
+    const a = await createIssue('yt-link-a', 'Link A');
+    const b = await createIssue('yt-link-b', 'Link B');
+    const sourceId = a.body.data.data.id;
+    const targetId = b.body.data.data.id;
+
+    const link = () =>
+      request(ctx.app.getHttpServer())
+        .post(`/admin/migration/issues/${sourceId}/links`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('x-migration-secret', MIGRATION_SECRET)
+        .send({ type: 'RELATES_TO', targetIssueId: targetId });
+
+    const first = await link().expect(201);
+    expect(first.body.data.existed).toBe(false);
+    expect(first.body.data.data.id).toBeDefined();
+
+    const second = await link().expect(201);
+    expect(second.body.data.existed).toBe(true);
+
+    const rows = await ctx.prisma.issueLink.findMany({
+      where: { sourceIssueId: sourceId, targetIssueId: targetId },
+    });
+    expect(rows).toHaveLength(1);
   });
 
   it('returns the project custom-field map with enum options', async () => {

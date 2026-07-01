@@ -1,6 +1,10 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { AppLogger } from '@/common/logging/app-logger';
-import { NotFoundError, ValidationError } from '@/common/errors/domain.errors';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '@/common/errors/domain.errors';
 import { ConfigType } from '@nestjs/config';
 import { ErrorCode } from '@repo/shared/error-codes';
 import type { TiptapDoc } from '@repo/shared/schemas';
@@ -18,7 +22,8 @@ import { ProjectMembersRepository } from '@/modules/projects/project-members.rep
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
-import type { CreateTagInput } from '@repo/shared/schemas';
+import type { CreateTagInput, CreateIssueLinkInput } from '@repo/shared/schemas';
+import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
 
 // Seeded system role "Developer" — the default project role for migrated users
 // (full contributor: issues/comments/tags/boards/sprints/time). Mirrors the
@@ -47,6 +52,7 @@ export class MigrationService {
     private rolesRepo: RolesRepository,
     private tagsService: TagsService,
     private tagsRepo: TagsRepository,
+    private issueLinksService: IssueLinksService,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -281,6 +287,27 @@ export class MigrationService {
       count: tagIds.length,
     });
     return { linked: tagIds.length };
+  }
+
+  // Duplicate links surface as existed=true so the migrator's re-runs and the
+  // symmetric double-emission guard stay idempotent.
+  async createIssueLink(
+    issueId: string,
+    dto: CreateIssueLinkInput,
+    userId: string,
+  ) {
+    try {
+      const link = await this.issueLinksService.create(issueId, dto, userId);
+      return { data: { id: link.id }, existed: false };
+    } catch (err) {
+      if (
+        err instanceof ConflictError &&
+        err.code === ErrorCode.LINK_DUPLICATE
+      ) {
+        return { data: null, existed: true };
+      }
+      throw err;
+    }
   }
 
   async getCustomFieldMap(projectKey: string) {

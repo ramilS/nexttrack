@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
+import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { MigrationGuard } from './migration.guard';
 import { MigrationService } from './migration.service';
 import { ApiEnvelope } from '@/common/decorators/api-envelope.decorator';
@@ -32,6 +33,8 @@ import {
   LinkIssueTagsDto,
   MigrationTagResultDto,
   MigrationTagLinkResultDto,
+  MigrationCreateLinkDto,
+  MigrationLinkResultDto,
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
@@ -141,5 +144,15 @@ export class MigrationController {
     @Body() dto: LinkIssueTagsDto,
   ) {
     return this.migrationService.linkIssueTags(issueId, dto.tagIds);
+  }
+
+  @Post('issues/:issueId/links')
+  @ApiEnvelope(MigrationLinkResultDto, { status: HttpStatus.CREATED })
+  createLink(
+    @Param('issueId') issueId: string,
+    @Body() dto: MigrationCreateLinkDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.migrationService.createIssueLink(issueId, dto, userId);
   }
 }

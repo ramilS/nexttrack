@@ -17,8 +17,9 @@ import {
   migrationMembersResultSchema,
   migrationTagResultSchema,
   migrationTagLinkResultSchema,
+  migrationLinkResultSchema,
 } from './dto/migration-responses';
-import { createTagSchema } from '@repo/shared/schemas';
+import { createTagSchema, createIssueLinkSchema } from '@repo/shared/schemas';
 
 const findUserByEmailQuerySchema = z.object({
   email: z.email(),
@@ -78,3 +79,5 @@ export class MigrationCreateTagDto extends createZodDto(createTagSchema) {}
 export class LinkIssueTagsDto extends createZodDto(linkIssueTagsSchema) {}
 export class MigrationTagResultDto extends createZodDto(migrationTagResultSchema) {}
 export class MigrationTagLinkResultDto extends createZodDto(migrationTagLinkResultSchema) {}
+export class MigrationCreateLinkDto extends createZodDto(createIssueLinkSchema) {}
+export class MigrationLinkResultDto extends createZodDto(migrationLinkResultSchema) {}

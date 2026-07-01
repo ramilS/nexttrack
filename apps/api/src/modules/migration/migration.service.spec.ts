@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundError } from '@/common/errors/domain.errors';
+import { ConflictError, NotFoundError } from '@/common/errors/domain.errors';
+import { ErrorCode } from '@repo/shared/error-codes';
 import { MigrationService } from './migration.service';
 import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
@@ -9,6 +10,7 @@ import { ProjectMembersRepository } from '@/modules/projects/project-members.rep
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
+import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -20,6 +22,7 @@ describe('MigrationService', () => {
   let projectMembersRepo: { createManyIgnoreDuplicates: jest.Mock };
   let rolesRepo: { findAll: jest.Mock };
   let tagsService: { create: jest.Mock };
+  let issueLinksService: { create: jest.Mock };
   let tagsRepo: {
     findByNameInsensitive: jest.Mock;
     replaceIssueLinksBulk: jest.Mock;
@@ -78,6 +81,7 @@ describe('MigrationService', () => {
       ]),
     };
     tagsService = { create: jest.fn() };
+    issueLinksService = { create: jest.fn() };
     tagsRepo = {
       findByNameInsensitive: jest.fn().mockResolvedValue(null),
       replaceIssueLinksBulk: jest.fn().mockResolvedValue(undefined),
@@ -111,6 +115,7 @@ describe('MigrationService', () => {
         { provide: RolesRepository, useValue: rolesRepo },
         { provide: TagsService, useValue: tagsService },
         { provide: TagsRepository, useValue: tagsRepo },
+        { provide: IssueLinksService, useValue: issueLinksService },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -466,6 +471,39 @@ describe('MigrationService', () => {
         'proj-1',
       );
       expect(result).toEqual({ linked: 2 });
+    });
+  });
+
+  describe('createIssueLink', () => {
+    const dto = { type: 'RELATES_TO' as const, targetIssueId: 'issue-2' };
+
+    it('creates the link and returns its id', async () => {
+      issueLinksService.create.mockResolvedValue({ id: 'link-1' });
+
+      const result = await service.createIssueLink('issue-1', dto, 'admin-1');
+
+      expect(issueLinksService.create).toHaveBeenCalledWith('issue-1', dto, 'admin-1');
+      expect(result).toEqual({ data: { id: 'link-1' }, existed: false });
+    });
+
+    it('treats a duplicate link as existed=true (idempotent re-run)', async () => {
+      issueLinksService.create.mockRejectedValue(
+        new ConflictError(ErrorCode.LINK_DUPLICATE, 'exists'),
+      );
+
+      const result = await service.createIssueLink('issue-1', dto, 'admin-1');
+
+      expect(result).toEqual({ data: null, existed: true });
+    });
+
+    it('rethrows non-duplicate errors', async () => {
+      issueLinksService.create.mockRejectedValue(
+        new NotFoundError(ErrorCode.LINK_TARGET_NOT_FOUND, 'missing'),
+      );
+
+      await expect(
+        service.createIssueLink('issue-1', dto, 'admin-1'),
+      ).rejects.toThrow(NotFoundError);
     });
   });
 
