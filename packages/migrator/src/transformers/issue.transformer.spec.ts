@@ -150,6 +150,33 @@ describe('IssueTransformer custom-field mapping', () => {
     expect(sink).toHaveBeenCalledWith({ name: 'Platforms', reason: 'unresolved-value' });
   });
 
+  it('falls back to the ghost user for an unresolved reporter and reports it', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const idMap = new IdMapService(); // reporter yt-user-1 NOT registered
+    idMap.setFallbackUserId('nt-ghost');
+
+    const dto = transformer.transform(buildYtIssue(), idMap, statusMap);
+
+    expect(dto.reporterId).toBe('nt-ghost');
+    expect(sink).toHaveBeenCalledWith({
+      name: 'reporter reporter',
+      reason: 'unresolved-user',
+    });
+  });
+
+  it('keeps the mapped reporter without touching the fallback', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const idMap = idMapWithReporter();
+    idMap.setFallbackUserId('nt-ghost');
+
+    const dto = transformer.transform(buildYtIssue(), idMap, statusMap);
+
+    expect(dto.reporterId).toBe('nt-user-1');
+    expect(sink).not.toHaveBeenCalled();
+  });
+
   it('is usable without a sink', () => {
     const transformer = new IssueTransformer();
     const dto = transformer.transform(

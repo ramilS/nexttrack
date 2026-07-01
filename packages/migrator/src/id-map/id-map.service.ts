@@ -1,5 +1,8 @@
 export class IdMapService {
   private users: Map<string, string> = new Map();
+  // Target user credited with orphaned content (source account deleted in
+  // YouTrack, so it never appears in /admin/users).
+  private fallbackUserId: string | null = null;
   private projects: Map<string, string> = new Map();
   private issues: Map<string, string> = new Map();
   private issueYtIdByNumber: Map<string, string> = new Map(); // "PROJECT-123" → ytId
@@ -37,6 +40,14 @@ export class IdMapService {
 
   getUserId(ytId: string): string | null {
     return this.users.get(ytId) ?? null;
+  }
+
+  setFallbackUserId(targetId: string): void {
+    this.fallbackUserId = targetId;
+  }
+
+  getFallbackUserId(): string | null {
+    return this.fallbackUserId;
   }
 
   getUserEntries(): Array<{ ytId: string; targetId: string }> {
@@ -79,6 +90,7 @@ export class IdMapService {
 
   serialize(): Record<string, Record<string, string>> {
     return {
+      fallback: this.fallbackUserId ? { userId: this.fallbackUserId } : {},
       users: Object.fromEntries(this.users),
       projects: Object.fromEntries(this.projects),
       issues: Object.fromEntries(this.issues),
@@ -91,6 +103,7 @@ export class IdMapService {
 
   static deserialize(data: Record<string, Record<string, string>>): IdMapService {
     const map = new IdMapService();
+    map.fallbackUserId = data.fallback?.userId ?? null;
     map.users = new Map(Object.entries(data.users ?? {}));
     map.projects = new Map(Object.entries(data.projects ?? {}));
     map.issues = new Map(Object.entries(data.issues ?? {}));

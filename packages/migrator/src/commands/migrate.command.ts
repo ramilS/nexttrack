@@ -167,6 +167,7 @@ export class MigrateCommand {
       } else {
         this.reporter.skip('Users (already migrated)');
       }
+      await this.ensureFallbackUser(options);
 
       // Step 2: Projects + Workflows
       step++;
@@ -279,9 +280,36 @@ export class MigrateCommand {
   }
 
   private formatUnmappedField(field: UnmappedFieldReport): string {
-    return field.reason === 'no-field-mapping'
-      ? `Custom field "${field.name}" has no mapping in the target — its values are being dropped`
-      : `Custom field "${field.name}": value could not be resolved (unmapped option/user) — dropping`;
+    switch (field.reason) {
+      case 'no-field-mapping':
+        return `Custom field "${field.name}" has no mapping in the target — its values are being dropped`;
+      case 'unresolved-user':
+        return `User "${field.name}" is not in the migrated set (deleted in YouTrack?) — crediting the migration ghost user`;
+      default:
+        return `Custom field "${field.name}": value could not be resolved (unmapped option/user) — dropping`;
+    }
+  }
+
+  // The ghost user absorbs authorship of content whose source account no longer
+  // exists in YouTrack. Idempotent by email; survives --resume via the id-map.
+  private async ensureFallbackUser(options: MigrateOptions): Promise<void> {
+    if (options.dryRun || this.idMap.getFallbackUserId()) return;
+    try {
+      const result = await this.api.createMigratedUser({
+        email: 'migration.ghost@migrated.local',
+        name: 'YouTrack Migration',
+        avatarUrl: null,
+        isBlocked: true,
+        migratedFrom: 'youtrack',
+        ytId: 'migration-ghost',
+      });
+      this.idMap.setFallbackUserId(result.data.id);
+    } catch (err: any) {
+      this.reporter.warn(
+        `Could not create the migration ghost user: ${err?.message}. ` +
+          `Issues from deleted YouTrack accounts will fail to migrate.`,
+      );
+    }
   }
 
   private initCheckpoint(options: MigrateOptions): MigrationCheckpoint {
@@ -621,7 +649,9 @@ export class MigrateCommand {
           }
 
           try {
-            const authorId = this.idMap.getUserId(comment.author.id);
+            const authorId =
+              this.idMap.getUserId(comment.author.id) ??
+              this.idMap.getFallbackUserId();
             if (!authorId) {
               this.reporter.log(
                 `Skipping comment — author not found: ${comment.author.id}`,

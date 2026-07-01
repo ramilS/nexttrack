@@ -43,7 +43,10 @@ const PRIORITY_MAP: Record<string, Priority> = {
   'Minor': 'LOW',
 };
 
-export type UnmappedFieldReason = 'no-field-mapping' | 'unresolved-value';
+export type UnmappedFieldReason =
+  | 'no-field-mapping'
+  | 'unresolved-value'
+  | 'unresolved-user';
 
 export interface UnmappedFieldReport {
   name: string;
@@ -80,7 +83,7 @@ export class IssueTransformer {
       assigneeId: ytIssue.assignee
         ? idMap.getUserId(ytIssue.assignee.id)
         : null,
-      reporterId: idMap.getUserId(ytIssue.reporter.id) ?? '',
+      reporterId: this.resolveReporter(ytIssue, idMap),
       parentId: ytIssue.parent
         ? idMap.getIssueId(ytIssue.parent.id)
         : null,
@@ -137,6 +140,17 @@ export class IssueTransformer {
 
       return [{ fieldId: ourFieldId, value }];
     });
+  }
+
+  // Reporter is a required guid on the target, so an unresolved author (account
+  // deleted in YouTrack → absent from /admin/users) falls back to the migration
+  // ghost user instead of '' (which would 400 and lose the whole issue).
+  private resolveReporter(ytIssue: YtIssue, idMap: IdMapService): string {
+    const mapped = idMap.getUserId(ytIssue.reporter.id);
+    if (mapped) return mapped;
+
+    this.noteUnmapped(`reporter ${ytIssue.reporter.login ?? ytIssue.reporter.id}`, 'unresolved-user');
+    return idMap.getFallbackUserId() ?? '';
   }
 
   // Report each (field, reason) at most once so a single unmapped field does not
