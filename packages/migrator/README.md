@@ -72,7 +72,9 @@ openssl rand -hex 16
 ```dotenv
 # apps/api/.env
 MIGRATION_API_SECRET=<the 32 chars from openssl>
-# Required to preserve original created/updated/resolved dates:
+# Required to preserve original created/updated/resolved dates. Without it the
+# API REJECTS any backdated record with 400 MIGRATION_BACKDATING_DISABLED
+# (it is not silently ignored) — so migrations carrying original timestamps fail fast.
 MIGRATION_ALLOW_BACKDATED_RECORDS=true
 ```
 
