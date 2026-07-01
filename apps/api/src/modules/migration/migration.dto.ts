@@ -15,7 +15,10 @@ import {
   migrationCustomFieldsSchema,
   migrationStatusesSchema,
   migrationMembersResultSchema,
+  migrationTagResultSchema,
+  migrationTagLinkResultSchema,
 } from './dto/migration-responses';
+import { createTagSchema } from '@repo/shared/schemas';
 
 const findUserByEmailQuerySchema = z.object({
   email: z.email(),
@@ -23,6 +26,15 @@ const findUserByEmailQuerySchema = z.object({
 
 const setIssueParentSchema = z.object({
   parentId: z.guid(),
+});
+
+const linkIssueTagsSchema = z.object({
+  tagIds: z
+    .array(z.guid())
+    .min(1)
+    .refine((arr) => new Set(arr).size === arr.length, {
+      message: 'Duplicate values not allowed',
+    }),
 });
 
 const addMembersSchema = z.object({
@@ -62,3 +74,7 @@ export class MigrationCustomFieldsDto extends createZodDto(migrationCustomFields
 export class MigrationStatusesDto extends createZodDto(migrationStatusesSchema) {}
 export class AddMembersDto extends createZodDto(addMembersSchema) {}
 export class MigrationMembersResultDto extends createZodDto(migrationMembersResultSchema) {}
+export class MigrationCreateTagDto extends createZodDto(createTagSchema) {}
+export class LinkIssueTagsDto extends createZodDto(linkIssueTagsSchema) {}
+export class MigrationTagResultDto extends createZodDto(migrationTagResultSchema) {}
+export class MigrationTagLinkResultDto extends createZodDto(migrationTagLinkResultSchema) {}

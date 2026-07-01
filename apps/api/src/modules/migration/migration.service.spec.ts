@@ -7,6 +7,8 @@ import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.re
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
+import { TagsService } from '@/modules/tags/tags.service';
+import { TagsRepository } from '@/modules/tags/tags.repository';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -17,6 +19,11 @@ describe('MigrationService', () => {
   let workflowsReader: { findDefaultStatuses: jest.Mock };
   let projectMembersRepo: { createManyIgnoreDuplicates: jest.Mock };
   let rolesRepo: { findAll: jest.Mock };
+  let tagsService: { create: jest.Mock };
+  let tagsRepo: {
+    findByNameInsensitive: jest.Mock;
+    replaceIssueLinksBulk: jest.Mock;
+  };
 
   const now = new Date();
 
@@ -70,6 +77,11 @@ describe('MigrationService', () => {
         { id: 'role-qa', name: 'QA' },
       ]),
     };
+    tagsService = { create: jest.fn() };
+    tagsRepo = {
+      findByNameInsensitive: jest.fn().mockResolvedValue(null),
+      replaceIssueLinksBulk: jest.fn().mockResolvedValue(undefined),
+    };
 
     repo = {
       findUserByEmail: jest.fn().mockResolvedValue(null),
@@ -82,6 +94,7 @@ describe('MigrationService', () => {
       setIssueParent: jest.fn().mockResolvedValue(undefined),
       createFieldValues: jest.fn().mockResolvedValue(undefined),
       existsIssue: jest.fn().mockResolvedValue(false),
+      findIssueProjectId: jest.fn().mockResolvedValue(null),
       createComment: jest.fn(),
       setCommentTimestamp: jest.fn().mockResolvedValue(undefined),
       getProjectStats: jest.fn(),
@@ -96,6 +109,8 @@ describe('MigrationService', () => {
         { provide: WorkflowsReader, useValue: workflowsReader },
         { provide: ProjectMembersRepository, useValue: projectMembersRepo },
         { provide: RolesRepository, useValue: rolesRepo },
+        { provide: TagsService, useValue: tagsService },
+        { provide: TagsRepository, useValue: tagsRepo },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -388,6 +403,69 @@ describe('MigrationService', () => {
           { id: 'st-2', name: 'Done' },
         ],
       });
+    });
+  });
+
+  describe('createTag', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(
+        service.createTag('NOPROJECT', { name: 'bug', color: 'red' }),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('returns the existing tag with existed=true (idempotent re-run)', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      tagsRepo.findByNameInsensitive.mockResolvedValue({ id: 'tag-1', name: 'bug' });
+
+      const result = await service.createTag('TEST', { name: 'bug', color: 'red' });
+
+      expect(result).toEqual({ data: { id: 'tag-1', name: 'bug' }, existed: true });
+      expect(tagsService.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a new tag via TagsService when none exists', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      tagsRepo.findByNameInsensitive.mockResolvedValue(null);
+      tagsService.create.mockResolvedValue({ id: 'tag-2', name: 'regression' });
+
+      const result = await service.createTag('TEST', {
+        name: 'regression',
+        color: 'blue',
+      });
+
+      expect(tagsService.create).toHaveBeenCalledWith('proj-1', {
+        name: 'regression',
+        color: 'blue',
+      });
+      expect(result).toEqual({
+        data: { id: 'tag-2', name: 'regression' },
+        existed: false,
+      });
+    });
+  });
+
+  describe('linkIssueTags', () => {
+    it('should throw NotFoundError when issue not found', async () => {
+      repo.findIssueProjectId.mockResolvedValue(null);
+
+      await expect(service.linkIssueTags('missing', ['tag-1'])).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('bulk-links tags within the issue project', async () => {
+      repo.findIssueProjectId.mockResolvedValue('proj-1');
+
+      const result = await service.linkIssueTags('issue-1', ['tag-1', 'tag-2']);
+
+      expect(tagsRepo.replaceIssueLinksBulk).toHaveBeenCalledWith(
+        ['issue-1'],
+        ['tag-1', 'tag-2'],
+        'proj-1',
+      );
+      expect(result).toEqual({ linked: 2 });
     });
   });
 

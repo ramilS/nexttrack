@@ -192,6 +192,14 @@ export class MigrationRepository {
     return row !== null;
   }
 
+  async findIssueProjectId(issueId: string): Promise<string | null> {
+    const row = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { projectId: true },
+    });
+    return row?.projectId ?? null;
+  }
+
   async createComment(
     issueId: string,
     authorId: string,

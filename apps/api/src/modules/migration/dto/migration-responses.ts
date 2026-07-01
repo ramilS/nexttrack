@@ -75,6 +75,15 @@ export const migrationMembersResultSchema = z.object({
   added: z.number().int().nonnegative(),
 });
 
+export const migrationTagResultSchema = z.object({
+  data: z.object({ id: z.guid(), name: z.string() }),
+  existed: z.boolean(),
+});
+
+export const migrationTagLinkResultSchema = z.object({
+  linked: z.number().int().nonnegative(),
+});
+
 export const migrationCustomFieldsSchema = z.object({
   data: z.array(
     z.object({

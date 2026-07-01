@@ -28,6 +28,10 @@ import {
   MigrationSuccessDto,
   MigrationStatsDto,
   MigrationCustomFieldsDto,
+  MigrationCreateTagDto,
+  LinkIssueTagsDto,
+  MigrationTagResultDto,
+  MigrationTagLinkResultDto,
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
@@ -119,5 +123,23 @@ export class MigrationController {
     @Body() dto: AddMembersDto,
   ) {
     return this.migrationService.addProjectMembers(projectKey, dto.members);
+  }
+
+  @Post('projects/:projectKey/tags')
+  @ApiEnvelope(MigrationTagResultDto, { status: HttpStatus.CREATED })
+  createTag(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: MigrationCreateTagDto,
+  ) {
+    return this.migrationService.createTag(projectKey, dto);
+  }
+
+  @Post('issues/:issueId/tags')
+  @ApiEnvelope(MigrationTagLinkResultDto, { status: HttpStatus.CREATED })
+  linkTags(
+    @Param('issueId') issueId: string,
+    @Body() dto: LinkIssueTagsDto,
+  ) {
+    return this.migrationService.linkIssueTags(issueId, dto.tagIds);
   }
 }

@@ -16,6 +16,9 @@ import {
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
+import { TagsService } from '@/modules/tags/tags.service';
+import { TagsRepository } from '@/modules/tags/tags.repository';
+import type { CreateTagInput } from '@repo/shared/schemas';
 
 // Seeded system role "Developer" — the default project role for migrated users
 // (full contributor: issues/comments/tags/boards/sprints/time). Mirrors the
@@ -42,6 +45,8 @@ export class MigrationService {
     private workflowsReader: WorkflowsReader,
     private projectMembersRepo: ProjectMembersRepository,
     private rolesRepo: RolesRepository,
+    private tagsService: TagsService,
+    private tagsRepo: TagsRepository,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -232,6 +237,50 @@ export class MigrationService {
     }
     const statuses = await this.workflowsReader.findDefaultStatuses(project.id);
     return { data: statuses.map((s) => ({ id: s.id, name: s.name })) };
+  }
+
+  // Idempotent by (project, name): re-running the tag phase returns the
+  // existing tag instead of failing on TAG_NAME_TAKEN.
+  async createTag(projectKey: string, dto: CreateTagInput) {
+    const project = await this.migrationRepo.findProjectByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+
+    const existing = await this.tagsRepo.findByNameInsensitive(
+      project.id,
+      dto.name,
+    );
+    if (existing) {
+      return { data: { id: existing.id, name: existing.name }, existed: true };
+    }
+
+    const tag = await this.tagsService.create(project.id, dto);
+    this.logger.log('Migrated tag created', {
+      tagId: tag.id,
+      projectId: project.id,
+    });
+    return { data: { id: tag.id, name: tag.name }, existed: false };
+  }
+
+  async linkIssueTags(issueId: string, tagIds: string[]) {
+    const projectId = await this.migrationRepo.findIssueProjectId(issueId);
+    if (!projectId) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_ISSUE_NOT_FOUND,
+        `Issue ${issueId} not found`,
+      );
+    }
+
+    await this.tagsRepo.replaceIssueLinksBulk([issueId], tagIds, projectId);
+    this.logger.log('Migrated issue tags linked', {
+      issueId,
+      count: tagIds.length,
+    });
+    return { linked: tagIds.length };
   }
 
   async getCustomFieldMap(projectKey: string) {

@@ -218,6 +218,49 @@ describe('Migration Backdating Gate (Integration)', () => {
     expect(res.status).toBe(201);
   });
 
+  it('creates a project tag idempotently and links it to a migrated issue', async () => {
+    const issueRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({
+        title: 'Tag target',
+        statusId,
+        reporterId: adminId,
+        ytId: 'yt-tag-target',
+      })
+      .expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const createTag = () =>
+      request(ctx.app.getHttpServer())
+        .post(`/admin/migration/projects/${projectKey}/tags`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('x-migration-secret', MIGRATION_SECRET)
+        .send({ name: 'regression', color: 'red' });
+
+    const first = await createTag().expect(201);
+    expect(first.body.data.existed).toBe(false);
+    const tagId = first.body.data.data.id;
+
+    const second = await createTag().expect(201);
+    expect(second.body.data.existed).toBe(true);
+    expect(second.body.data.data.id).toBe(tagId);
+
+    const linkRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${issueId}/tags`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ tagIds: [tagId] })
+      .expect(201);
+    expect(linkRes.body.data.linked).toBe(1);
+
+    const link = await ctx.prisma.issueTag.findUnique({
+      where: { issueId_tagId: { issueId, tagId } },
+    });
+    expect(link).not.toBeNull();
+  });
+
   it('returns the project custom-field map with enum options', async () => {
     const project = await ctx.prisma.project.findFirstOrThrow({
       where: { key: projectKey },
