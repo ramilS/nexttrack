@@ -14,6 +14,7 @@ import {
   migrationStatsSchema,
   migrationCustomFieldsSchema,
   migrationStatusesSchema,
+  migrationMembersResultSchema,
 } from './dto/migration-responses';
 
 const findUserByEmailQuerySchema = z.object({
@@ -22,6 +23,11 @@ const findUserByEmailQuerySchema = z.object({
 
 const setIssueParentSchema = z.object({
   parentId: z.guid(),
+});
+
+const addMembersSchema = z.object({
+  userIds: z.array(z.guid()).min(1),
+  roleId: z.guid().optional(),
 });
 
 /**
@@ -46,3 +52,5 @@ export class MigrationSuccessDto extends createZodDto(migrationSuccessSchema) {}
 export class MigrationStatsDto extends createZodDto(migrationStatsSchema) {}
 export class MigrationCustomFieldsDto extends createZodDto(migrationCustomFieldsSchema) {}
 export class MigrationStatusesDto extends createZodDto(migrationStatusesSchema) {}
+export class AddMembersDto extends createZodDto(addMembersSchema) {}
+export class MigrationMembersResultDto extends createZodDto(migrationMembersResultSchema) {}

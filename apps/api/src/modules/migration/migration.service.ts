@@ -14,6 +14,12 @@ import {
   getFieldConfig,
 } from '@/modules/custom-fields/custom-fields.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
+import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
+
+// Seeded system role "Developer" — the default project role for migrated users
+// (full contributor: issues/comments/tags/boards/sprints/time). Mirrors the
+// PROJECT_ADMIN_ROLE_ID convention in projects.repository.
+const DEVELOPER_ROLE_ID = '00000000-0000-0000-0000-000000000002';
 import {
   MigrationRepository,
   MigrationUserRow,
@@ -33,6 +39,7 @@ export class MigrationService {
     private issuesRepo: IssuesRepository,
     private customFieldsRepo: CustomFieldsRepository,
     private workflowsReader: WorkflowsReader,
+    private projectMembersRepo: ProjectMembersRepository,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -176,6 +183,33 @@ export class MigrationService {
       projectId: project.id,
       counts,
     };
+  }
+
+  async addProjectMembers(
+    projectKey: string,
+    userIds: string[],
+    roleId?: string,
+  ) {
+    const project = await this.migrationRepo.findProjectByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    const added = await this.projectMembersRepo.createManyIgnoreDuplicates(
+      userIds.map((userId) => ({
+        userId,
+        projectId: project.id,
+        roleId: roleId ?? DEVELOPER_ROLE_ID,
+      })),
+    );
+    this.logger.log('Migrated project members added', {
+      projectId: project.id,
+      requested: userIds.length,
+      added,
+    });
+    return { added };
   }
 
   async getStatusMap(projectKey: string) {

@@ -265,6 +265,29 @@ describe('Migration Backdating Gate (Integration)', () => {
       res.body.data.data.map((s: { id: string }) => s.id),
     ).toContain(statusId);
   });
+
+  it('adds migrated users as project members with the Developer role', async () => {
+    const project = await ctx.prisma.project.findFirstOrThrow({
+      where: { key: projectKey },
+    });
+    const user = await ctx.prisma.user.create({
+      data: { email: 'imported@test.local', name: 'Imported', role: 'USER' },
+    });
+
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/projects/${projectKey}/members`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ userIds: [user.id] });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.added).toBe(1);
+
+    const membership = await ctx.prisma.projectMember.findUnique({
+      where: { userId_projectId: { userId: user.id, projectId: project.id } },
+    });
+    expect(membership?.roleId).toBe('00000000-0000-0000-0000-000000000002');
+  });
 });
 
 describe('Migration Backdating Gate — allowed (Integration)', () => {

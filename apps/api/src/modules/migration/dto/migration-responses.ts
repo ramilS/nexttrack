@@ -71,6 +71,10 @@ export const migrationStatusesSchema = z.object({
   data: z.array(z.object({ id: z.string(), name: z.string() })),
 });
 
+export const migrationMembersResultSchema = z.object({
+  added: z.number().int().nonnegative(),
+});
+
 export const migrationCustomFieldsSchema = z.object({
   data: z.array(
     z.object({

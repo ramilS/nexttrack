@@ -5,6 +5,7 @@ import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
+import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -13,6 +14,7 @@ describe('MigrationService', () => {
   let issuesRepo: { getNextNumber: jest.Mock };
   let customFieldsRepo: { findManyByProject: jest.Mock };
   let workflowsReader: { findDefaultStatuses: jest.Mock };
+  let projectMembersRepo: { createManyIgnoreDuplicates: jest.Mock };
 
   const now = new Date();
 
@@ -57,6 +59,9 @@ describe('MigrationService', () => {
     issuesRepo = { getNextNumber: jest.fn().mockResolvedValue(1) };
     customFieldsRepo = { findManyByProject: jest.fn().mockResolvedValue([]) };
     workflowsReader = { findDefaultStatuses: jest.fn().mockResolvedValue([]) };
+    projectMembersRepo = {
+      createManyIgnoreDuplicates: jest.fn().mockResolvedValue(0),
+    };
 
     repo = {
       findUserByEmail: jest.fn().mockResolvedValue(null),
@@ -81,6 +86,7 @@ describe('MigrationService', () => {
         { provide: IssuesRepository, useValue: issuesRepo },
         { provide: CustomFieldsRepository, useValue: customFieldsRepo },
         { provide: WorkflowsReader, useValue: workflowsReader },
+        { provide: ProjectMembersRepository, useValue: projectMembersRepo },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -309,6 +315,40 @@ describe('MigrationService', () => {
       await service.setIssueParent('issue-1', 'parent-1');
 
       expect(repo.setIssueParent).toHaveBeenCalledWith('issue-1', 'parent-1');
+    });
+  });
+
+  describe('addProjectMembers', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(
+        service.addProjectMembers('NOPROJECT', ['user-1']),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('defaults to the Developer role and returns the added count', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      projectMembersRepo.createManyIgnoreDuplicates.mockResolvedValue(2);
+
+      const result = await service.addProjectMembers('TEST', ['u1', 'u2']);
+
+      expect(projectMembersRepo.createManyIgnoreDuplicates).toHaveBeenCalledWith([
+        { userId: 'u1', projectId: 'proj-1', roleId: '00000000-0000-0000-0000-000000000002' },
+        { userId: 'u2', projectId: 'proj-1', roleId: '00000000-0000-0000-0000-000000000002' },
+      ]);
+      expect(result).toEqual({ added: 2 });
+    });
+
+    it('honors an explicit roleId override', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      projectMembersRepo.createManyIgnoreDuplicates.mockResolvedValue(1);
+
+      await service.addProjectMembers('TEST', ['u1'], 'role-custom');
+
+      expect(projectMembersRepo.createManyIgnoreDuplicates).toHaveBeenCalledWith([
+        { userId: 'u1', projectId: 'proj-1', roleId: 'role-custom' },
+      ]);
     });
   });
 

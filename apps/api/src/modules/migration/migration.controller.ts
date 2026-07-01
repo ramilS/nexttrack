@@ -29,6 +29,8 @@ import {
   MigrationStatsDto,
   MigrationCustomFieldsDto,
   MigrationStatusesDto,
+  AddMembersDto,
+  MigrationMembersResultDto,
 } from './migration.dto';
 
 @Controller('admin/migration')
@@ -108,5 +110,18 @@ export class MigrationController {
   @ApiEnvelope(MigrationStatusesDto)
   getStatuses(@Param('projectKey') projectKey: string) {
     return this.migrationService.getStatusMap(projectKey);
+  }
+
+  @Post('projects/:projectKey/members')
+  @ApiEnvelope(MigrationMembersResultDto, { status: HttpStatus.CREATED })
+  addMembers(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: AddMembersDto,
+  ) {
+    return this.migrationService.addProjectMembers(
+      projectKey,
+      dto.userIds,
+      dto.roleId,
+    );
   }
 }
