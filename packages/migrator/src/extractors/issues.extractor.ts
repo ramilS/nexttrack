@@ -12,6 +12,7 @@ const ISSUE_FIELDS = [
   'parent(id,numberInProject)',
   'sprint(id,name)',
   'tags(id,name,color)',
+  'links(direction,linkType(name,sourceToTarget,targetToSource),issues(id))',
   'customFields(name,value(id,name,text,minutes,date,avatarUrl,login,email),$type)',
   'dueDate',
 ].join(',');
