@@ -43,7 +43,23 @@ const PRIORITY_MAP: Record<string, Priority> = {
   'Minor': 'LOW',
 };
 
+export type UnmappedFieldReason = 'no-field-mapping' | 'unresolved-value';
+
+export interface UnmappedFieldReport {
+  name: string;
+  reason: UnmappedFieldReason;
+}
+
+export type UnmappedFieldSink = (report: UnmappedFieldReport) => void;
+
 export class IssueTransformer {
+  private readonly reportUnmapped: UnmappedFieldSink;
+  private readonly reported = new Set<string>();
+
+  constructor(onUnmappedField: UnmappedFieldSink = () => {}) {
+    this.reportUnmapped = onUnmappedField;
+  }
+
   transform(
     ytIssue: YtIssue,
     idMap: IdMapService,
@@ -108,16 +124,34 @@ export class IssueTransformer {
   ): { fieldId: string; value: any }[] {
     return ytFields.flatMap((ytField) => {
       const ourFieldId = idMap.getCustomFieldId(ytField.name);
-      if (!ourFieldId) return [];
+      if (!ourFieldId) {
+        this.noteUnmapped(ytField.name, 'no-field-mapping');
+        return [];
+      }
 
       const value = this.mapFieldValue(ytField, idMap);
-      if (value === undefined) return [];
+      if (value === undefined) {
+        this.noteUnmapped(ytField.name, 'unresolved-value');
+        return [];
+      }
 
       return [{ fieldId: ourFieldId, value }];
     });
   }
 
-  private mapFieldValue(ytField: YtCustomField, idMap: IdMapService): any {
+  // Report each (field, reason) at most once so a single unmapped field does not
+  // emit one warning per migrated issue.
+  private noteUnmapped(name: string, reason: UnmappedFieldReason): void {
+    const key = `${name}:${reason}`;
+    if (this.reported.has(key)) return;
+    this.reported.add(key);
+    this.reportUnmapped({ name, reason });
+  }
+
+  // Returns `undefined` when a value cannot be resolved (unmapped enum option or
+  // user) so the caller drops the field instead of writing a null that would
+  // clobber the target. `null` means the source field was genuinely empty.
+  private mapFieldValue(ytField: YtCustomField, idMap: IdMapService): unknown {
     if (!ytField.value) return null;
 
     const fieldType = ytField.$type ?? ytField.type ?? '';
@@ -125,10 +159,10 @@ export class IssueTransformer {
     switch (fieldType) {
       case 'SingleEnumIssueCustomField':
       case 'EnumIssueCustomField':
-        return idMap.getEnumOptionId(ytField.name, ytField.value.name);
+        return idMap.getEnumOptionId(ytField.name, ytField.value.name) ?? undefined;
       case 'SingleUserIssueCustomField':
       case 'UserIssueCustomField':
-        return idMap.getUserId(ytField.value.id);
+        return idMap.getUserId(ytField.value.id) ?? undefined;
       case 'PeriodIssueCustomField':
         return ytField.value.minutes;
       case 'DateIssueCustomField':

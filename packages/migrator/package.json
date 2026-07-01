@@ -7,8 +7,11 @@
   },
   "main": "./dist/cli.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",
+    "test": "pnpm check-types && pnpm test:unit",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "migrate": "ts-node src/cli.ts migrate",
     "status": "ts-node src/cli.ts status",
     "verify": "ts-node src/cli.ts verify"
@@ -28,6 +31,7 @@
     "@types/uuid": "^10.0.0",
     "@types/node": "^22.15.0",
     "ts-node": "^10.9.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.9"
   }
 }

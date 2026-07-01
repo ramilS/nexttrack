@@ -19,7 +19,7 @@ import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { WorkflowTransformer } from '../transformers/workflow.transformer';
-import { IssueTransformer } from '../transformers/issue.transformer';
+import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
 
 export interface MigrateOptions {
   sourceUrl: string;
@@ -44,6 +44,20 @@ export interface MigrateOptions {
 
 const VERSION = '0.1.0';
 
+// Flags whose data is extracted from YouTrack but not yet loaded into the target.
+// The migration rejects them up front instead of running and silently doing
+// nothing. Remove an entry here once its loading path is implemented.
+const UNSUPPORTED_FLAGS: { key: 'withBoards' | 'withTimeTracking'; label: string }[] = [
+  { key: 'withBoards', label: '--with-boards' },
+  { key: 'withTimeTracking', label: '--with-time-tracking' },
+];
+
+export function unsupportedMigrationFlags(
+  options: Pick<MigrateOptions, 'withBoards' | 'withTimeTracking'>,
+): string[] {
+  return UNSUPPORTED_FLAGS.filter((f) => options[f.key]).map((f) => f.label);
+}
+
 export class MigrateCommand {
   private yt!: YouTrackClient;
   private api!: OurApiClient;
@@ -65,6 +79,16 @@ export class MigrateCommand {
 
   async run(options: MigrateOptions): Promise<void> {
     this.init(options);
+
+    const unsupported = unsupportedMigrationFlags(options);
+    if (unsupported.length > 0) {
+      this.reporter.error(
+        `Not implemented yet: ${unsupported.join(', ')}. These entities are ` +
+          `extracted from YouTrack but not loaded into the target — remove the ` +
+          `flag(s) and migrate this data separately once support lands.`,
+      );
+      process.exit(1);
+    }
 
     const startTime = Date.now();
     let checkpoint: MigrationCheckpoint;
@@ -217,7 +241,15 @@ export class MigrateCommand {
 
     this.userTransformer = new UserTransformer();
     this.workflowTransformer = new WorkflowTransformer();
-    this.issueTransformer = new IssueTransformer();
+    this.issueTransformer = new IssueTransformer((field) =>
+      this.reporter.warn(this.formatUnmappedField(field)),
+    );
+  }
+
+  private formatUnmappedField(field: UnmappedFieldReport): string {
+    return field.reason === 'no-field-mapping'
+      ? `Custom field "${field.name}" has no mapping in the target — its values are being dropped`
+      : `Custom field "${field.name}": value could not be resolved (unmapped option/user) — dropping`;
   }
 
   private initCheckpoint(options: MigrateOptions): MigrationCheckpoint {
