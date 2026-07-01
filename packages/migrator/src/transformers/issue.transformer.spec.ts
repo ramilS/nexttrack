@@ -103,6 +103,53 @@ describe('IssueTransformer custom-field mapping', () => {
     expect(sink).not.toHaveBeenCalled();
   });
 
+  it('maps a multi-enum custom field to an array of target option ids', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const idMap = idMapWithReporter();
+    idMap.registerCustomField('Platforms', 'nt-field-plat');
+    idMap.registerEnumOption('Platforms', 'iOS', 'opt-ios');
+    idMap.registerEnumOption('Platforms', 'Web', 'opt-web');
+    const issue = buildYtIssue({
+      customFields: [
+        {
+          name: 'Platforms',
+          value: [{ name: 'iOS' }, { name: 'Web' }],
+          $type: 'MultiEnumIssueCustomField',
+        },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMap, statusMap);
+
+    expect(dto.fieldValues).toEqual([
+      { fieldId: 'nt-field-plat', value: ['opt-ios', 'opt-web'] },
+    ]);
+    expect(sink).not.toHaveBeenCalled();
+  });
+
+  it('drops unresolved elements of a multi-enum and reports unresolved-value', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const idMap = idMapWithReporter();
+    idMap.registerCustomField('Platforms', 'nt-field-plat');
+    idMap.registerEnumOption('Platforms', 'iOS', 'opt-ios');
+    const issue = buildYtIssue({
+      customFields: [
+        {
+          name: 'Platforms',
+          value: [{ name: 'iOS' }, { name: 'Web' }],
+          $type: 'MultiEnumIssueCustomField',
+        },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMap, statusMap);
+
+    expect(dto.fieldValues).toEqual([{ fieldId: 'nt-field-plat', value: ['opt-ios'] }]);
+    expect(sink).toHaveBeenCalledWith({ name: 'Platforms', reason: 'unresolved-value' });
+  });
+
   it('is usable without a sink', () => {
     const transformer = new IssueTransformer();
     const dto = transformer.transform(

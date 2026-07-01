@@ -151,24 +151,51 @@ export class IssueTransformer {
   // Returns `undefined` when a value cannot be resolved (unmapped enum option or
   // user) so the caller drops the field instead of writing a null that would
   // clobber the target. `null` means the source field was genuinely empty.
+  // Multi-value fields (arrays) map each element and drop unresolved ones.
   private mapFieldValue(ytField: YtCustomField, idMap: IdMapService): unknown {
-    if (!ytField.value) return null;
+    if (ytField.value == null) return null;
 
     const fieldType = ytField.$type ?? ytField.type ?? '';
 
+    if (Array.isArray(ytField.value)) {
+      const mapped = ytField.value
+        .map((el) => this.mapScalarValue(fieldType, el, ytField.name, idMap))
+        .filter((v) => v !== undefined);
+      if (mapped.length < ytField.value.length) {
+        this.noteUnmapped(ytField.name, 'unresolved-value');
+      }
+      return mapped.length > 0 ? mapped : undefined;
+    }
+
+    return this.mapScalarValue(fieldType, ytField.value, ytField.name, idMap);
+  }
+
+  private mapScalarValue(
+    fieldType: string,
+    value: any,
+    fieldName: string,
+    idMap: IdMapService,
+  ): unknown {
     switch (fieldType) {
       case 'SingleEnumIssueCustomField':
       case 'EnumIssueCustomField':
-        return idMap.getEnumOptionId(ytField.name, ytField.value.name) ?? undefined;
+      case 'MultiEnumIssueCustomField':
+      case 'StateIssueCustomField':
+      case 'StateMachineIssueCustomField':
+      case 'VersionIssueCustomField':
+      case 'OwnedIssueCustomField':
+      case 'BuildIssueCustomField':
+        return idMap.getEnumOptionId(fieldName, value.name) ?? undefined;
       case 'SingleUserIssueCustomField':
       case 'UserIssueCustomField':
-        return idMap.getUserId(ytField.value.id) ?? undefined;
+      case 'MultiUserIssueCustomField':
+        return idMap.getUserId(value.id) ?? undefined;
       case 'PeriodIssueCustomField':
-        return ytField.value.minutes;
+        return value.minutes;
       case 'DateIssueCustomField':
-        return new Date(ytField.value).toISOString().split('T')[0];
+        return new Date(value).toISOString().split('T')[0];
       default:
-        return ytField.value.text ?? ytField.value;
+        return value.text ?? value;
     }
   }
 }
