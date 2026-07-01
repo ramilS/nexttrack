@@ -27,6 +27,7 @@ import {
   MigrationCommentResultDto,
   MigrationSuccessDto,
   MigrationStatsDto,
+  MigrationCustomFieldsDto,
 } from './migration.dto';
 
 @Controller('admin/migration')
@@ -94,5 +95,11 @@ export class MigrationController {
   @ApiEnvelope(MigrationStatsDto)
   getStats(@Param('projectKey') projectKey: string) {
     return this.migrationService.getProjectStats(projectKey);
+  }
+
+  @Get('custom-fields/:projectKey')
+  @ApiEnvelope(MigrationCustomFieldsDto)
+  getCustomFields(@Param('projectKey') projectKey: string) {
+    return this.migrationService.getCustomFieldMap(projectKey);
   }
 }

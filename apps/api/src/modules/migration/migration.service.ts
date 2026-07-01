@@ -10,6 +10,10 @@ import { CreateIssueMigrationDto } from './dto/create-issue-migration.dto';
 import { SetDatesDto } from './dto/set-dates.dto';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import {
+  CustomFieldsRepository,
+  getFieldConfig,
+} from '@/modules/custom-fields/custom-fields.repository';
+import {
   MigrationRepository,
   MigrationUserRow,
   MigrationIssueRow,
@@ -26,6 +30,7 @@ export class MigrationService {
   constructor(
     private migrationRepo: MigrationRepository,
     private issuesRepo: IssuesRepository,
+    private customFieldsRepo: CustomFieldsRepository,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -168,6 +173,28 @@ export class MigrationService {
       projectKey,
       projectId: project.id,
       counts,
+    };
+  }
+
+  async getCustomFieldMap(projectKey: string) {
+    const project = await this.migrationRepo.findProjectByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    const fields = await this.customFieldsRepo.findManyByProject(project.id);
+    return {
+      data: fields.map((field) => ({
+        id: field.id,
+        name: field.name,
+        type: String(field.type),
+        options: (getFieldConfig(field).options ?? []).map((option) => ({
+          id: option.id,
+          name: option.name,
+        })),
+      })),
     };
   }
 

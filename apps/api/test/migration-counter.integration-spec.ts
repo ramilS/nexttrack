@@ -3,6 +3,7 @@ import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { TEST_SECRETS } from '@repo/test-support';
 import { ErrorCode } from '@repo/shared/error-codes';
+import { CustomFieldType } from '@prisma/client';
 import { migrationConfig } from '@/config';
 import {
   E2eContext,
@@ -215,6 +216,41 @@ describe('Migration Backdating Gate (Integration)', () => {
       });
 
     expect(res.status).toBe(201);
+  });
+
+  it('returns the project custom-field map with enum options', async () => {
+    const project = await ctx.prisma.project.findFirstOrThrow({
+      where: { key: projectKey },
+    });
+    await ctx.prisma.customField.create({
+      data: {
+        projectId: project.id,
+        name: 'Severity',
+        type: CustomFieldType.ENUM,
+        ordinal: 0,
+        config: {
+          options: [
+            { id: 'opt-high', name: 'High', color: null, ordinal: 0 },
+            { id: 'opt-low', name: 'Low', color: null, ordinal: 1 },
+          ],
+        },
+      },
+    });
+
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/admin/migration/custom-fields/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET);
+
+    expect(res.status).toBe(200);
+    const severity = res.body.data.data.find(
+      (f: { name: string }) => f.name === 'Severity',
+    );
+    expect(severity).toBeDefined();
+    expect(severity.type).toBe('ENUM');
+    expect(
+      severity.options.map((o: { name: string }) => o.name).sort(),
+    ).toEqual(['High', 'Low']);
   });
 });
 

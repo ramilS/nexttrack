@@ -3,12 +3,14 @@ import { NotFoundError } from '@/common/errors/domain.errors';
 import { MigrationService } from './migration.service';
 import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
+import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
   let service: MigrationService;
   let repo: Record<string, jest.Mock>;
   let issuesRepo: { getNextNumber: jest.Mock };
+  let customFieldsRepo: { findManyByProject: jest.Mock };
 
   const now = new Date();
 
@@ -51,6 +53,7 @@ describe('MigrationService', () => {
 
   beforeEach(async () => {
     issuesRepo = { getNextNumber: jest.fn().mockResolvedValue(1) };
+    customFieldsRepo = { findManyByProject: jest.fn().mockResolvedValue([]) };
 
     repo = {
       findUserByEmail: jest.fn().mockResolvedValue(null),
@@ -73,7 +76,8 @@ describe('MigrationService', () => {
         MigrationService,
         { provide: MigrationRepository, useValue: repo },
         { provide: IssuesRepository, useValue: issuesRepo },
-        { provide: migrationConfig.KEY, useValue: {} },
+        { provide: CustomFieldsRepository, useValue: customFieldsRepo },
+        { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
 
@@ -301,6 +305,43 @@ describe('MigrationService', () => {
       await service.setIssueParent('issue-1', 'parent-1');
 
       expect(repo.setIssueParent).toHaveBeenCalledWith('issue-1', 'parent-1');
+    });
+  });
+
+  describe('getCustomFieldMap', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(service.getCustomFieldMap('NOPROJECT')).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('should map fields with their enum options', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([
+        {
+          id: 'field-1',
+          name: 'Severity',
+          type: 'ENUM',
+          config: { options: [{ id: 'opt-1', name: 'High' }] },
+        },
+        { id: 'field-2', name: 'Notes', type: 'TEXT', config: {} },
+      ]);
+
+      const result = await service.getCustomFieldMap('TEST');
+
+      expect(result).toEqual({
+        data: [
+          {
+            id: 'field-1',
+            name: 'Severity',
+            type: 'ENUM',
+            options: [{ id: 'opt-1', name: 'High' }],
+          },
+          { id: 'field-2', name: 'Notes', type: 'TEXT', options: [] },
+        ],
+      });
     });
   });
 

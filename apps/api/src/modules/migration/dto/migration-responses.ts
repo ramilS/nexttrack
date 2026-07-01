@@ -67,6 +67,17 @@ export const migrationSuccessSchema = z.object({
   success: z.boolean(),
 });
 
+export const migrationCustomFieldsSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      type: z.string(),
+      options: z.array(z.object({ id: z.string(), name: z.string() })),
+    }),
+  ),
+});
+
 export const migrationStatsSchema = z.object({
   projectKey: z.string(),
   projectId: z.guid(),
