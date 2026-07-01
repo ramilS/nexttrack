@@ -18,6 +18,20 @@ describe('IdMapService.getUserEntries', () => {
   });
 });
 
+describe('IdMapService tags', () => {
+  it('matches tag names case-insensitively and survives a round-trip', () => {
+    const idMap = new IdMapService();
+    idMap.registerTag('DEVX', 'Regression', 'tag-1');
+
+    expect(idMap.getTagId('DEVX', 'regression')).toBe('tag-1');
+    expect(idMap.getTagId('DEVX', 'REGRESSION')).toBe('tag-1');
+    expect(idMap.getTagId('OTHER', 'Regression')).toBeNull();
+
+    const restored = IdMapService.deserialize(idMap.serialize());
+    expect(restored.getTagId('DEVX', 'Regression')).toBe('tag-1');
+  });
+});
+
 describe('IdMapService fallback user', () => {
   it('survives a serialize/deserialize round-trip (checkpoint resume)', () => {
     const idMap = new IdMapService();

@@ -9,6 +9,7 @@ export class IdMapService {
   private customFields: Map<string, string> = new Map();
   private enumOptions: Map<string, string> = new Map();
   private statuses: Map<string, string> = new Map();
+  private tags: Map<string, string> = new Map(); // `${projectKey}:${name.toLowerCase()}` → tagId
 
   registerUser(ytId: string, ourId: string): void {
     this.users.set(ytId, ourId);
@@ -36,6 +37,15 @@ export class IdMapService {
 
   registerStatus(projectKey: string, name: string, ourId: string): void {
     this.statuses.set(`${projectKey}:${name}`, ourId);
+  }
+
+  // Lower-cased: the target enforces case-insensitive tag-name uniqueness.
+  registerTag(projectKey: string, name: string, ourId: string): void {
+    this.tags.set(`${projectKey}:${name.toLowerCase()}`, ourId);
+  }
+
+  getTagId(projectKey: string, name: string): string | null {
+    return this.tags.get(`${projectKey}:${name.toLowerCase()}`) ?? null;
   }
 
   getUserId(ytId: string): string | null {
@@ -98,6 +108,7 @@ export class IdMapService {
       customFields: Object.fromEntries(this.customFields),
       enumOptions: Object.fromEntries(this.enumOptions),
       statuses: Object.fromEntries(this.statuses),
+      tags: Object.fromEntries(this.tags),
     };
   }
 
@@ -111,6 +122,7 @@ export class IdMapService {
     map.customFields = new Map(Object.entries(data.customFields ?? {}));
     map.enumOptions = new Map(Object.entries(data.enumOptions ?? {}));
     map.statuses = new Map(Object.entries(data.statuses ?? {}));
+    map.tags = new Map(Object.entries(data.tags ?? {}));
     return map;
   }
 }

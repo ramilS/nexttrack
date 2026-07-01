@@ -17,6 +17,7 @@ import { CommentsExtractor } from '../extractors/comments.extractor';
 import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
+import { mapTagColor } from '../transformers/tag.transformer';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -132,6 +133,8 @@ export class MigrateCommand {
         process.exit(1);
       }
       checkpoint = loaded;
+      // Checkpoints written before the tags phase existed lack this key.
+      checkpoint.progress.tags ??= {};
       this.idMap = IdMapService.deserialize(checkpoint.idMap);
       this.reporter.info(`Resuming migration from ${checkpoint.updatedAt}`);
     } else {
@@ -201,7 +204,17 @@ export class MigrateCommand {
         await this.linkParentIssues(projectKey, checkpoint, options);
       }
 
-      // Step 5: Comments
+      // Step 5: Tags
+      step++;
+      this.reporter.section(step, totalSteps, 'Migrating Tags');
+      for (const projectKey of options.projects) {
+        if (checkpoint.progress.tags[projectKey]?.status === 'COMPLETED') {
+          continue;
+        }
+        await this.migrateTags(projectKey, checkpoint, options);
+      }
+
+      // Step 6: Comments
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Comments');
       for (const projectKey of options.projects) {
@@ -338,6 +351,7 @@ export class MigrateCommand {
         projects: {},
         issues: {},
         comments: {},
+        tags: {},
         attachments: {},
         timeLogs: {},
         boards: {},
@@ -348,7 +362,7 @@ export class MigrateCommand {
   }
 
   private countSteps(options: MigrateOptions): number {
-    let steps = 5; // users, projects, issues, parent-links, comments
+    let steps = 6; // users, projects, issues, parent-links, tags, comments
     if (options.withAttachments) steps++;
     if (options.withTimeTracking) steps++;
     if (options.withBoards) steps++;
@@ -607,6 +621,70 @@ export class MigrateCommand {
       { status: 'COMPLETED', completed: linked, total: linked },
     );
     this.reporter.done(`Linked ${linked} parent-child relationships for ${projectKey}`);
+  }
+
+  private async migrateTags(
+    projectKey: string,
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+  ): Promise<void> {
+    await this.checkpointService.updateProgress(checkpoint, 'tags', projectKey, {
+      status: 'IN_PROGRESS',
+    });
+
+    let tagged = 0;
+
+    for await (const batch of this.issuesExtractor.extract(projectKey, {
+      withClosedIssues: options.withClosedIssues,
+      batchSize: options.batchSize,
+    })) {
+      for (const ytIssue of batch) {
+        const ytTags = ytIssue.tags ?? [];
+        if (ytTags.length === 0) continue;
+
+        if (options.dryRun) {
+          this.reporter.log(
+            `[DRY] Would tag ${projectKey}-${ytIssue.numberInProject}: ` +
+              ytTags.map((t) => t.name).join(', '),
+          );
+          continue;
+        }
+
+        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+        if (!ourIssueId) continue;
+
+        try {
+          const tagIds: string[] = [];
+          for (const ytTag of ytTags) {
+            // Tag creation is deduped via the id-map, so each unique tag name
+            // costs one API call per project, not one per issue.
+            let tagId = this.idMap.getTagId(projectKey, ytTag.name);
+            if (!tagId) {
+              const result = await this.api.createTag(projectKey, {
+                name: ytTag.name,
+                color: mapTagColor(ytTag.color),
+              });
+              tagId = result.data.id;
+              this.idMap.registerTag(projectKey, ytTag.name, tagId);
+            }
+            tagIds.push(tagId);
+          }
+          await this.api.linkIssueTags(ourIssueId, [...new Set(tagIds)]);
+          tagged++;
+        } catch (err) {
+          this.recordError(checkpoint, 'tags', ytIssue.id, err);
+        }
+      }
+      checkpoint.idMap = this.idMap.serialize();
+      await this.checkpointService.save(checkpoint);
+    }
+
+    await this.checkpointService.updateProgress(checkpoint, 'tags', projectKey, {
+      status: 'COMPLETED',
+      completed: tagged,
+      total: tagged,
+    });
+    this.reporter.done(`Tags [${projectKey}]: ${tagged} issues tagged`);
   }
 
   private async migrateComments(

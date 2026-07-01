@@ -152,6 +152,30 @@ export class OurApiClient {
     });
   }
 
+  async createTag(
+    projectKey: string,
+    tag: { name: string; color: string },
+  ): Promise<{ data: { id: string; name: string }; existed: boolean }> {
+    return retry(async () => {
+      const { data } = await this.http.post(
+        `/admin/migration/projects/${projectKey}/tags`,
+        tag,
+      );
+      return unwrapEnvelope<{ data: { id: string; name: string }; existed: boolean }>(
+        data,
+      );
+    });
+  }
+
+  async linkIssueTags(issueId: string, tagIds: string[]): Promise<void> {
+    if (tagIds.length === 0) return;
+    await retry(async () => {
+      await this.http.post(`/admin/migration/issues/${issueId}/tags`, {
+        tagIds,
+      });
+    });
+  }
+
   async getStatusMap(
     projectKey: string,
   ): Promise<Array<{ id: string; name: string }>> {
