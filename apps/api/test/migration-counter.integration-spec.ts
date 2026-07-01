@@ -252,6 +252,19 @@ describe('Migration Backdating Gate (Integration)', () => {
       severity.options.map((o: { name: string }) => o.name).sort(),
     ).toEqual(['High', 'Low']);
   });
+
+  it('returns the project default workflow statuses including the one issues use', async () => {
+    const res = await request(ctx.app.getHttpServer())
+      .get(`/admin/migration/statuses/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.data.length).toBeGreaterThan(0);
+    expect(
+      res.body.data.data.map((s: { id: string }) => s.id),
+    ).toContain(statusId);
+  });
 });
 
 describe('Migration Backdating Gate — allowed (Integration)', () => {

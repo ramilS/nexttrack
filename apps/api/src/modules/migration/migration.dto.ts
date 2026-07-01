@@ -13,6 +13,7 @@ import {
   migrationSuccessSchema,
   migrationStatsSchema,
   migrationCustomFieldsSchema,
+  migrationStatusesSchema,
 } from './dto/migration-responses';
 
 const findUserByEmailQuerySchema = z.object({
@@ -44,3 +45,4 @@ export class MigrationCommentResultDto extends createZodDto(migrationCommentResu
 export class MigrationSuccessDto extends createZodDto(migrationSuccessSchema) {}
 export class MigrationStatsDto extends createZodDto(migrationStatsSchema) {}
 export class MigrationCustomFieldsDto extends createZodDto(migrationCustomFieldsSchema) {}
+export class MigrationStatusesDto extends createZodDto(migrationStatusesSchema) {}

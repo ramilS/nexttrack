@@ -4,6 +4,7 @@ import { MigrationService } from './migration.service';
 import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
+import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -11,6 +12,7 @@ describe('MigrationService', () => {
   let repo: Record<string, jest.Mock>;
   let issuesRepo: { getNextNumber: jest.Mock };
   let customFieldsRepo: { findManyByProject: jest.Mock };
+  let workflowsReader: { findDefaultStatuses: jest.Mock };
 
   const now = new Date();
 
@@ -54,6 +56,7 @@ describe('MigrationService', () => {
   beforeEach(async () => {
     issuesRepo = { getNextNumber: jest.fn().mockResolvedValue(1) };
     customFieldsRepo = { findManyByProject: jest.fn().mockResolvedValue([]) };
+    workflowsReader = { findDefaultStatuses: jest.fn().mockResolvedValue([]) };
 
     repo = {
       findUserByEmail: jest.fn().mockResolvedValue(null),
@@ -77,6 +80,7 @@ describe('MigrationService', () => {
         { provide: MigrationRepository, useValue: repo },
         { provide: IssuesRepository, useValue: issuesRepo },
         { provide: CustomFieldsRepository, useValue: customFieldsRepo },
+        { provide: WorkflowsReader, useValue: workflowsReader },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -305,6 +309,33 @@ describe('MigrationService', () => {
       await service.setIssueParent('issue-1', 'parent-1');
 
       expect(repo.setIssueParent).toHaveBeenCalledWith('issue-1', 'parent-1');
+    });
+  });
+
+  describe('getStatusMap', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(service.getStatusMap('NOPROJECT')).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('should map default workflow statuses to id/name pairs', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      workflowsReader.findDefaultStatuses.mockResolvedValue([
+        { id: 'st-1', name: 'Open', category: 'UNSTARTED' },
+        { id: 'st-2', name: 'Done', category: 'DONE' },
+      ]);
+
+      const result = await service.getStatusMap('TEST');
+
+      expect(result).toEqual({
+        data: [
+          { id: 'st-1', name: 'Open' },
+          { id: 'st-2', name: 'Done' },
+        ],
+      });
     });
   });
 

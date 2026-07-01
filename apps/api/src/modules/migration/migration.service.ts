@@ -13,6 +13,7 @@ import {
   CustomFieldsRepository,
   getFieldConfig,
 } from '@/modules/custom-fields/custom-fields.repository';
+import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import {
   MigrationRepository,
   MigrationUserRow,
@@ -31,6 +32,7 @@ export class MigrationService {
     private migrationRepo: MigrationRepository,
     private issuesRepo: IssuesRepository,
     private customFieldsRepo: CustomFieldsRepository,
+    private workflowsReader: WorkflowsReader,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -174,6 +176,18 @@ export class MigrationService {
       projectId: project.id,
       counts,
     };
+  }
+
+  async getStatusMap(projectKey: string) {
+    const project = await this.migrationRepo.findProjectByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    const statuses = await this.workflowsReader.findDefaultStatuses(project.id);
+    return { data: statuses.map((s) => ({ id: s.id, name: s.name })) };
   }
 
   async getCustomFieldMap(projectKey: string) {
