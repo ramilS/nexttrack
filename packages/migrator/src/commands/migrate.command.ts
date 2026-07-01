@@ -430,6 +430,25 @@ export class MigrateCommand {
       );
     }
 
+    // Make every migrated user a member of the project, so migrated assignees
+    // and USER-type custom-field values reference actual members (the app
+    // enforces membership; the raw migration insert bypasses that check).
+    const memberIds = this.idMap.getAllUserIds();
+    if (options.dryRun) {
+      this.reporter.log(
+        `[DRY] Would add ${memberIds.length} members to ${projectKey}`,
+      );
+    } else if (memberIds.length > 0) {
+      try {
+        await this.api.addProjectMembers(projectKey, memberIds);
+        this.reporter.info(
+          `Project ${projectKey}: ${memberIds.length} users added as members`,
+        );
+      } catch (err) {
+        this.recordError(checkpoint, 'projects', projectKey, err);
+      }
+    }
+
     checkpoint.idMap = this.idMap.serialize();
     await this.checkpointService.updateProgress(
       checkpoint,

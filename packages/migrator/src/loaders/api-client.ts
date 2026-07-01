@@ -140,6 +140,18 @@ export class OurApiClient {
     return unwrapEnvelope(data);
   }
 
+  async addProjectMembers(
+    projectKey: string,
+    userIds: string[],
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    await retry(async () => {
+      await this.http.post(`/admin/migration/projects/${projectKey}/members`, {
+        userIds,
+      });
+    });
+  }
+
   async getStatusMap(
     projectKey: string,
   ): Promise<Array<{ id: string; name: string }>> {
