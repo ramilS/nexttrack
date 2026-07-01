@@ -46,7 +46,13 @@ const PRIORITY_MAP: Record<string, Priority> = {
 export type UnmappedFieldReason =
   | 'no-field-mapping'
   | 'unresolved-value'
-  | 'unresolved-user';
+  | 'unresolved-user'
+  | 'estimate-unit-mismatch';
+
+export interface TransformOptions {
+  // Name of the YouTrack custom field whose value becomes Issue.estimate.
+  estimateFieldName?: string;
+}
 
 export interface UnmappedFieldReport {
   name: string;
@@ -67,6 +73,7 @@ export class IssueTransformer {
     ytIssue: YtIssue,
     idMap: IdMapService,
     statusMap: Map<string, string>,
+    opts?: TransformOptions,
   ): CreateIssueMigrationDto {
     const statusId =
       (ytIssue.state?.name ? statusMap.get(ytIssue.state.name) : null) ??
@@ -90,7 +97,7 @@ export class IssueTransformer {
       dueDate: ytIssue.dueDate
         ? new Date(ytIssue.dueDate).toISOString()
         : null,
-      estimate: null,
+      estimate: this.resolveEstimate(ytIssue, opts?.estimateFieldName),
       fieldValues: this.mapCustomFields(ytIssue.customFields ?? [], idMap),
       originalCreatedAt: new Date(ytIssue.created).toISOString(),
       originalUpdatedAt: new Date(ytIssue.updated).toISOString(),
@@ -140,6 +147,31 @@ export class IssueTransformer {
 
       return [{ fieldId: ourFieldId, value }];
     });
+  }
+
+  // NextTrack estimate is story points (Int 1..9999). When the configured field
+  // is a YouTrack period (time in minutes), the raw minutes are carried over
+  // with a one-time unit-mismatch warning — the operator opted in via
+  // --estimate-field. Out-of-range values are dropped (issue must survive).
+  private resolveEstimate(
+    ytIssue: YtIssue,
+    fieldName?: string,
+  ): number | null {
+    if (!fieldName) return null;
+    const field = ytIssue.customFields?.find((f) => f.name === fieldName);
+    if (!field || field.value == null) return null;
+
+    const type = field.$type ?? field.type ?? '';
+    let raw: unknown;
+    if (type === 'PeriodIssueCustomField') {
+      this.noteUnmapped(fieldName, 'estimate-unit-mismatch');
+      raw = field.value.minutes;
+    } else {
+      raw = typeof field.value === 'number' ? field.value : field.value?.name ?? field.value;
+    }
+
+    const n = Math.round(Number(raw));
+    return Number.isFinite(n) && n >= 1 && n <= 9999 ? n : null;
   }
 
   // Reporter is a required guid on the target, so an unresolved author (account

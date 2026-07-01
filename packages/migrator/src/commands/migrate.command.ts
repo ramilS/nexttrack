@@ -34,6 +34,7 @@ export interface MigrateOptions {
   withTimeTracking: boolean;
   withBoards: boolean;
   withClosedIssues: boolean;
+  estimateField?: string;
   dryRun: boolean;
   resume: boolean;
   checkpointFile: string;
@@ -298,6 +299,8 @@ export class MigrateCommand {
         return `Custom field "${field.name}" has no mapping in the target — its values are being dropped`;
       case 'unresolved-user':
         return `User "${field.name}" is not in the migrated set (deleted in YouTrack?) — crediting the migration ghost user`;
+      case 'estimate-unit-mismatch':
+        return `Estimate field "${field.name}" is a time period (minutes) but the target estimate is story points — storing raw minutes`;
       default:
         return `Custom field "${field.name}": value could not be resolved (unmapped option/user) — dropping`;
     }
@@ -542,7 +545,9 @@ export class MigrateCommand {
         }
 
         try {
-          const dto = this.issueTransformer.transform(ytIssue, this.idMap, statusMap);
+          const dto = this.issueTransformer.transform(ytIssue, this.idMap, statusMap, {
+            estimateFieldName: options.estimateField,
+          });
           const result = await this.api.createMigratedIssue(projectKey, dto);
           this.idMap.registerIssue(ytIssue.id, result.data.id);
           this.idMap.registerIssueByNumber(

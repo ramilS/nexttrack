@@ -177,6 +177,70 @@ describe('IssueTransformer custom-field mapping', () => {
     expect(sink).not.toHaveBeenCalled();
   });
 
+  it('populates estimate from the configured integer custom field', () => {
+    const transformer = new IssueTransformer();
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Story points', value: 8, $type: 'SimpleIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMapWithReporter(), statusMap, {
+      estimateFieldName: 'Story points',
+    });
+
+    expect(dto.estimate).toBe(8);
+  });
+
+  it('takes period minutes for the estimate field but warns about the unit mismatch', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Estimation', value: { minutes: 480 }, $type: 'PeriodIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMapWithReporter(), statusMap, {
+      estimateFieldName: 'Estimation',
+    });
+
+    expect(dto.estimate).toBe(480);
+    expect(sink).toHaveBeenCalledWith({
+      name: 'Estimation',
+      reason: 'estimate-unit-mismatch',
+    });
+  });
+
+  it('drops an out-of-range estimate instead of failing the issue', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Estimation', value: { minutes: 14400 }, $type: 'PeriodIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMapWithReporter(), statusMap, {
+      estimateFieldName: 'Estimation',
+    });
+
+    expect(dto.estimate).toBeNull();
+  });
+
+  it('leaves estimate null when no estimate field is configured', () => {
+    const transformer = new IssueTransformer();
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Story points', value: 8, $type: 'SimpleIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMapWithReporter(), statusMap);
+
+    expect(dto.estimate).toBeNull();
+  });
+
   it('is usable without a sink', () => {
     const transformer = new IssueTransformer();
     const dto = transformer.transform(

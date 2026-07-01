@@ -28,6 +28,10 @@ program
   .option('--with-time-tracking', 'Include time logs', false)
   .option('--with-boards', 'Include agile boards and sprints', false)
   .option('--with-closed-issues', 'Include resolved/closed issues', false)
+  .option(
+    '--estimate-field <name>',
+    'YouTrack custom field mapped into issue estimate (story points)',
+  )
   .option('--dry-run', 'Show plan without writing data', false)
   .option('--resume', 'Continue interrupted migration', false)
   .option(
@@ -58,6 +62,7 @@ program
       withTimeTracking: opts.withTimeTracking,
       withBoards: opts.withBoards,
       withClosedIssues: opts.withClosedIssues,
+      estimateField: opts.estimateField,
       dryRun: opts.dryRun,
       resume: opts.resume,
       checkpointFile: opts.checkpointFile,
