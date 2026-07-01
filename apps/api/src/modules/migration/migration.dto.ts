@@ -26,8 +26,16 @@ const setIssueParentSchema = z.object({
 });
 
 const addMembersSchema = z.object({
-  userIds: z.array(z.guid()).min(1),
-  roleId: z.guid().optional(),
+  members: z
+    .array(
+      z.object({
+        userId: z.guid(),
+        // NextTrack role name (already mapped from YouTrack by the migrator).
+        // Unknown/absent → the default Developer role.
+        roleName: z.string().optional(),
+      }),
+    )
+    .min(1),
 });
 
 /**

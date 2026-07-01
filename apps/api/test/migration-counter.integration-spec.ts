@@ -266,27 +266,39 @@ describe('Migration Backdating Gate (Integration)', () => {
     ).toContain(statusId);
   });
 
-  it('adds migrated users as project members with the Developer role', async () => {
+  it('adds migrated users as members, resolving the role name to its id', async () => {
     const project = await ctx.prisma.project.findFirstOrThrow({
       where: { key: projectKey },
     });
-    const user = await ctx.prisma.user.create({
-      data: { email: 'imported@test.local', name: 'Imported', role: 'USER' },
+    const dev = await ctx.prisma.user.create({
+      data: { email: 'dev@test.local', name: 'Dev', role: 'USER' },
+    });
+    const qa = await ctx.prisma.user.create({
+      data: { email: 'qa@test.local', name: 'Qa', role: 'USER' },
     });
 
     const res = await request(ctx.app.getHttpServer())
       .post(`/admin/migration/projects/${projectKey}/members`)
       .set('Authorization', `Bearer ${adminToken}`)
       .set('x-migration-secret', MIGRATION_SECRET)
-      .send({ userIds: [user.id] });
+      .send({
+        members: [
+          { userId: dev.id }, // no role → default Developer
+          { userId: qa.id, roleName: 'QA' },
+        ],
+      });
 
     expect(res.status).toBe(201);
-    expect(res.body.data.added).toBe(1);
+    expect(res.body.data.added).toBe(2);
 
-    const membership = await ctx.prisma.projectMember.findUnique({
-      where: { userId_projectId: { userId: user.id, projectId: project.id } },
+    const devMember = await ctx.prisma.projectMember.findUnique({
+      where: { userId_projectId: { userId: dev.id, projectId: project.id } },
     });
-    expect(membership?.roleId).toBe('00000000-0000-0000-0000-000000000002');
+    const qaMember = await ctx.prisma.projectMember.findUnique({
+      where: { userId_projectId: { userId: qa.id, projectId: project.id } },
+    });
+    expect(devMember?.roleId).toBe('00000000-0000-0000-0000-000000000002'); // Developer
+    expect(qaMember?.roleId).toBe('00000000-0000-0000-0000-000000000003'); // QA
   });
 });
 

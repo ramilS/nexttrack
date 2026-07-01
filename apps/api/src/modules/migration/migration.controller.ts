@@ -118,10 +118,6 @@ export class MigrationController {
     @Param('projectKey') projectKey: string,
     @Body() dto: AddMembersDto,
   ) {
-    return this.migrationService.addProjectMembers(
-      projectKey,
-      dto.userIds,
-      dto.roleId,
-    );
+    return this.migrationService.addProjectMembers(projectKey, dto.members);
   }
 }

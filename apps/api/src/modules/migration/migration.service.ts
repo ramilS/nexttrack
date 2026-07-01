@@ -15,6 +15,7 @@ import {
 } from '@/modules/custom-fields/custom-fields.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
+import { RolesRepository } from '@/modules/roles/roles.repository';
 
 // Seeded system role "Developer" — the default project role for migrated users
 // (full contributor: issues/comments/tags/boards/sprints/time). Mirrors the
@@ -40,6 +41,7 @@ export class MigrationService {
     private customFieldsRepo: CustomFieldsRepository,
     private workflowsReader: WorkflowsReader,
     private projectMembersRepo: ProjectMembersRepository,
+    private rolesRepo: RolesRepository,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -187,8 +189,7 @@ export class MigrationService {
 
   async addProjectMembers(
     projectKey: string,
-    userIds: string[],
-    roleId?: string,
+    members: Array<{ userId: string; roleName?: string }>,
   ) {
     const project = await this.migrationRepo.findProjectByKey(projectKey);
     if (!project) {
@@ -197,16 +198,25 @@ export class MigrationService {
         `Project ${projectKey} not found`,
       );
     }
+
+    const roles = await this.rolesRepo.findAll();
+    const roleIdByName = new Map(
+      roles.map((role) => [role.name.toLowerCase(), role.id]),
+    );
+    const defaultRoleId = roleIdByName.get('developer') ?? DEVELOPER_ROLE_ID;
+    const resolveRoleId = (roleName?: string): string =>
+      (roleName && roleIdByName.get(roleName.toLowerCase())) || defaultRoleId;
+
     const added = await this.projectMembersRepo.createManyIgnoreDuplicates(
-      userIds.map((userId) => ({
-        userId,
+      members.map((member) => ({
+        userId: member.userId,
         projectId: project.id,
-        roleId: roleId ?? DEVELOPER_ROLE_ID,
+        roleId: resolveRoleId(member.roleName),
       })),
     );
     this.logger.log('Migrated project members added', {
       projectId: project.id,
-      requested: userIds.length,
+      requested: members.length,
       added,
     });
     return { added };
