@@ -18,7 +18,6 @@ import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 
 import { UserTransformer } from '../transformers/user.transformer';
-import { WorkflowTransformer } from '../transformers/workflow.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
 
 export interface MigrateOptions {
@@ -58,6 +57,38 @@ export function unsupportedMigrationFlags(
   return UNSUPPORTED_FLAGS.filter((f) => options[f.key]).map((f) => f.label);
 }
 
+// Register the TARGET project's real workflow-status ids, keyed by status name,
+// so issues resolve to a valid statusId (the FK). Name-based: the target
+// project's workflow must use status names matching the YouTrack states, or the
+// issue transformer falls back to the initial status.
+export function registerStatusMap(
+  idMap: IdMapService,
+  projectKey: string,
+  statuses: Array<{ id: string; name: string }>,
+): void {
+  for (const status of statuses) {
+    idMap.registerStatus(projectKey, status.name, status.id);
+  }
+}
+
+// Register the TARGET project's real custom-field ids (and enum-option ids),
+// keyed by name, so custom-field values map instead of being dropped.
+export function registerCustomFieldMap(
+  idMap: IdMapService,
+  fields: Array<{
+    id: string;
+    name: string;
+    options: Array<{ id: string; name: string }>;
+  }>,
+): void {
+  for (const field of fields) {
+    idMap.registerCustomField(field.name, field.id);
+    for (const option of field.options) {
+      idMap.registerEnumOption(field.name, option.name, option.id);
+    }
+  }
+}
+
 export class MigrateCommand {
   private yt!: YouTrackClient;
   private api!: OurApiClient;
@@ -74,7 +105,6 @@ export class MigrateCommand {
   private timeLogsExtractor!: TimeLogsExtractor;
 
   private userTransformer!: UserTransformer;
-  private workflowTransformer!: WorkflowTransformer;
   private issueTransformer!: IssueTransformer;
 
   async run(options: MigrateOptions): Promise<void> {
@@ -240,7 +270,6 @@ export class MigrateCommand {
     this.timeLogsExtractor = new TimeLogsExtractor(this.yt);
 
     this.userTransformer = new UserTransformer();
-    this.workflowTransformer = new WorkflowTransformer();
     this.issueTransformer = new IssueTransformer((field) =>
       this.reporter.warn(this.formatUnmappedField(field)),
     );
@@ -379,25 +408,26 @@ export class MigrateCommand {
       return;
     }
 
-    const ytProject = projects[0]!;
-
-    // Extract states for workflow
-    const states = await this.projectsExtractor.getStates(ytProject.id);
-    const workflowDto = this.workflowTransformer.transform(states);
-
-    if (!options.dryRun) {
-      // We don't create projects through migration API — they should exist already
-      // Just register the project ID mapping
-      // The user should create projects manually before running migration
+    // The target project (with its workflow + custom fields) must already exist
+    // in NextTrack — the migrator does not create it. Register the target's REAL
+    // status and custom-field ids (by name) so issues map to valid ids instead
+    // of dropping. Read-only, so it runs in dry-run too (enables field/status
+    // validation during a preview).
+    try {
+      const statuses = await this.api.getStatusMap(projectKey);
+      registerStatusMap(this.idMap, projectKey, statuses);
+      const fields = await this.api.getCustomFieldMap(projectKey);
+      registerCustomFieldMap(this.idMap, fields);
       this.reporter.info(
-        `Project ${projectKey}: ${states.length} states extracted. ` +
-          `Register project in target system before migrating issues.`,
+        `Project ${projectKey}: registered ${statuses.length} statuses, ${fields.length} custom fields`,
       );
-
-      // Register status mappings for this project
-      for (const status of workflowDto.statuses) {
-        this.idMap.registerStatus(projectKey, status.name, status.id);
-      }
+    } catch (err) {
+      this.recordError(checkpoint, 'projects', projectKey, err);
+      this.reporter.warn(
+        `Project ${projectKey}: could not fetch target status/custom-field maps — ` +
+          `is the project created in the target system? Statuses will fall back to ` +
+          `the initial status and custom fields will be dropped.`,
+      );
     }
 
     checkpoint.idMap = this.idMap.serialize();
@@ -407,7 +437,7 @@ export class MigrateCommand {
       projectKey,
       { status: 'COMPLETED', completed: 1, total: 1 },
     );
-    this.reporter.done(`Project ${projectKey}: workflow with ${states.length} states`);
+    this.reporter.done(`Project ${projectKey}: maps registered`);
   }
 
   private async migrateIssues(

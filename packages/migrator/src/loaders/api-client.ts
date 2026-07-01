@@ -139,4 +139,39 @@ export class OurApiClient {
     );
     return unwrapEnvelope(data);
   }
+
+  async getStatusMap(
+    projectKey: string,
+  ): Promise<Array<{ id: string; name: string }>> {
+    return retry(async () => {
+      const { data } = await this.http.get(
+        `/admin/migration/statuses/${projectKey}`,
+      );
+      return unwrapEnvelope<{ data: Array<{ id: string; name: string }> }>(data)
+        .data;
+    });
+  }
+
+  async getCustomFieldMap(projectKey: string): Promise<
+    Array<{
+      id: string;
+      name: string;
+      type: string;
+      options: Array<{ id: string; name: string }>;
+    }>
+  > {
+    return retry(async () => {
+      const { data } = await this.http.get(
+        `/admin/migration/custom-fields/${projectKey}`,
+      );
+      return unwrapEnvelope<{
+        data: Array<{
+          id: string;
+          name: string;
+          type: string;
+          options: Array<{ id: string; name: string }>;
+        }>;
+      }>(data).data;
+    });
+  }
 }

@@ -1,5 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MigrateCommand, MigrateOptions, unsupportedMigrationFlags } from './migrate.command';
+import {
+  MigrateCommand,
+  MigrateOptions,
+  unsupportedMigrationFlags,
+  registerStatusMap,
+  registerCustomFieldMap,
+} from './migrate.command';
+import { IdMapService } from '../id-map/id-map.service';
 
 const baseOptions: MigrateOptions = {
   sourceUrl: 'https://yt.example.com',
@@ -38,6 +45,35 @@ describe('MigrateCommand unsupported-flag guard', () => {
     } finally {
       exit.mockRestore();
     }
+  });
+});
+
+describe('registerStatusMap', () => {
+  it('registers target status ids keyed by status name', () => {
+    const idMap = new IdMapService();
+
+    registerStatusMap(idMap, 'DEVX', [
+      { id: 'st-1', name: 'Open' },
+      { id: 'st-2', name: 'Done' },
+    ]);
+
+    expect(idMap.getStatusId('DEVX', 'Open')).toBe('st-1');
+    expect(idMap.getStatusId('DEVX', 'Done')).toBe('st-2');
+  });
+});
+
+describe('registerCustomFieldMap', () => {
+  it('registers custom fields and their enum options by name', () => {
+    const idMap = new IdMapService();
+
+    registerCustomFieldMap(idMap, [
+      { id: 'f1', name: 'Severity', options: [{ id: 'o1', name: 'High' }] },
+      { id: 'f2', name: 'Notes', options: [] },
+    ]);
+
+    expect(idMap.getCustomFieldId('Severity')).toBe('f1');
+    expect(idMap.getEnumOptionId('Severity', 'High')).toBe('o1');
+    expect(idMap.getCustomFieldId('Notes')).toBe('f2');
   });
 });
 
