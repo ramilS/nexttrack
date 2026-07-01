@@ -16,6 +16,7 @@ import { IssuesExtractor } from '../extractors/issues.extractor';
 import { CommentsExtractor } from '../extractors/comments.extractor';
 import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
+import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -103,6 +104,7 @@ export class MigrateCommand {
   private commentsExtractor!: CommentsExtractor;
   private attachmentsExtractor!: AttachmentsExtractor;
   private timeLogsExtractor!: TimeLogsExtractor;
+  private teamExtractor!: TeamExtractor;
 
   private userTransformer!: UserTransformer;
   private issueTransformer!: IssueTransformer;
@@ -268,6 +270,7 @@ export class MigrateCommand {
     this.commentsExtractor = new CommentsExtractor(this.yt);
     this.attachmentsExtractor = new AttachmentsExtractor(this.yt);
     this.timeLogsExtractor = new TimeLogsExtractor(this.yt);
+    this.teamExtractor = new TeamExtractor(this.yt);
 
     this.userTransformer = new UserTransformer();
     this.issueTransformer = new IssueTransformer((field) =>
@@ -408,6 +411,8 @@ export class MigrateCommand {
       return;
     }
 
+    const ytProject = projects[0]!;
+
     // The target project (with its workflow + custom fields) must already exist
     // in NextTrack — the migrator does not create it. Register the target's REAL
     // status and custom-field ids (by name) so issues map to valid ids instead
@@ -430,19 +435,24 @@ export class MigrateCommand {
       );
     }
 
-    // Make every migrated user a member of the project, so migrated assignees
-    // and USER-type custom-field values reference actual members (the app
-    // enforces membership; the raw migration insert bypasses that check).
-    const memberIds = this.idMap.getAllUserIds();
+    // Make every migrated user a member of the project (so assignees and
+    // USER-type custom-field values reference actual members — the app enforces
+    // membership, which the raw migration insert bypasses), carrying each user's
+    // YouTrack project role mapped to a NextTrack role (unmapped → Developer).
+    const teamRoles = await this.teamExtractor.getUserRoles(ytProject.id);
+    const members = this.idMap.getUserEntries().map(({ ytId, targetId }) => ({
+      userId: targetId,
+      roleName: mapYtRole(teamRoles.get(ytId)),
+    }));
     if (options.dryRun) {
       this.reporter.log(
-        `[DRY] Would add ${memberIds.length} members to ${projectKey}`,
+        `[DRY] Would add ${members.length} members to ${projectKey}`,
       );
-    } else if (memberIds.length > 0) {
+    } else if (members.length > 0) {
       try {
-        await this.api.addProjectMembers(projectKey, memberIds);
+        await this.api.addProjectMembers(projectKey, members);
         this.reporter.info(
-          `Project ${projectKey}: ${memberIds.length} users added as members`,
+          `Project ${projectKey}: ${members.length} users added as members`,
         );
       } catch (err) {
         this.recordError(checkpoint, 'projects', projectKey, err);

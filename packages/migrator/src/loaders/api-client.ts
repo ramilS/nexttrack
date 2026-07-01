@@ -142,12 +142,12 @@ export class OurApiClient {
 
   async addProjectMembers(
     projectKey: string,
-    userIds: string[],
+    members: Array<{ userId: string; roleName?: string }>,
   ): Promise<void> {
-    if (userIds.length === 0) return;
+    if (members.length === 0) return;
     await retry(async () => {
       await this.http.post(`/admin/migration/projects/${projectKey}/members`, {
-        userIds,
+        members,
       });
     });
   }

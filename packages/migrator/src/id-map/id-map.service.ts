@@ -39,8 +39,11 @@ export class IdMapService {
     return this.users.get(ytId) ?? null;
   }
 
-  getAllUserIds(): string[] {
-    return [...this.users.values()];
+  getUserEntries(): Array<{ ytId: string; targetId: string }> {
+    return [...this.users.entries()].map(([ytId, targetId]) => ({
+      ytId,
+      targetId,
+    }));
   }
 
   getIssueId(ytId: string): string | null {
