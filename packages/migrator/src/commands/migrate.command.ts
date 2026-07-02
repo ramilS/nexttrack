@@ -557,7 +557,7 @@ export class MigrateCommand {
     const statusMap = this.idMap.getStatusMap(projectKey);
     let completed = checkpoint.progress.issues[projectKey]?.completed ?? 0;
 
-    const bar = this.reporter.createBar(`Issues [${projectKey}]`);
+    const bar = this.reporter.createCounter(`Issues [${projectKey}]`);
     bar.start(0, completed);
 
     for await (const batch of this.issuesExtractor.extract(projectKey, {
