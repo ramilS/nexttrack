@@ -483,19 +483,22 @@ export class MigrationService {
     return { success: true };
   }
 
-  // Streamed attachment import: pipes the raw request body straight to S3
-  // (no in-memory buffering) and creates the row with the original author +
-  // date. Deliberately bypasses the interactive upload's 50 MB cap and MIME
-  // allow-list — migration is an admin-trusted bulk path carrying files that
-  // already existed in YouTrack. The source is trusted; do NOT reuse this for
-  // user-facing uploads.
+  // Streamed attachment import: buffers the raw request body, then stores it
+  // with the original author + date. Deliberately bypasses the interactive
+  // upload's 50 MB cap and MIME allow-list — migration is an admin-trusted bulk
+  // path carrying files that already existed in YouTrack. The source is
+  // trusted; do NOT reuse this for user-facing uploads.
+  //
+  // The body arrives chunked (no reliable length up front — YouTrack's reported
+  // size is often wrong), so we buffer it and take the TRUE size from the
+  // buffer. Streaming straight to S3 would need an accurate ContentLength and
+  // fail with IncompleteBody/ExcessData on any mismatch.
   async uploadAttachment(
     issueId: string,
     stream: Readable,
     meta: {
       filename: string;
       mimeType: string;
-      size: number;
       uploadedById: string;
       originalCreatedAt?: string;
     },
@@ -506,15 +509,11 @@ export class MigrationService {
     }
     this.assertBackdatingAllowed(Boolean(meta.originalCreatedAt));
 
+    const buffer = await this.collectStream(stream);
     const attachmentId = randomUUID();
     const storagePath = `attachments/${issueId}/${attachmentId}${extname(meta.filename).toLowerCase()}`;
 
-    await this.attachmentsStorage.uploadStream(
-      stream,
-      storagePath,
-      meta.mimeType,
-      meta.size,
-    );
+    await this.attachmentsStorage.uploadBuffer(buffer, storagePath, meta.mimeType);
 
     const raw = await this.attachmentsRepo.create({
       id: attachmentId,
@@ -523,7 +522,7 @@ export class MigrationService {
       filename: meta.filename,
       storagePath,
       mimeType: meta.mimeType,
-      size: meta.size,
+      size: buffer.length,
     });
 
     if (meta.originalCreatedAt) {
@@ -535,9 +534,18 @@ export class MigrationService {
     this.logger.log('Migrated attachment uploaded', {
       attachmentId: raw.id,
       issueId,
-      size: meta.size,
+      size: buffer.length,
     });
     return { data: { id: raw.id } };
+  }
+
+  private collectStream(stream: Readable): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+    });
   }
 
   async getCustomFieldMap(projectKey: string) {

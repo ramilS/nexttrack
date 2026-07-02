@@ -228,7 +228,6 @@ describe('Migration Issue Counter (Integration)', () => {
         // A type the interactive endpoint's allow-list would reject — proving
         // the migration path bypasses it.
         mimeType: 'application/x-msdownload',
-        size: body.length,
         uploadedById: adminId,
         originalCreatedAt: '2021-02-03T04:05:06.000Z',
       })

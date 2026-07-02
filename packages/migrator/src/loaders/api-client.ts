@@ -109,6 +109,11 @@ export class OurApiClient {
   // cap / MIME check, unlike the interactive endpoint), carrying the original
   // author + date so no follow-up metadata call is needed. Metadata rides in
   // the query string; the body is the raw bytes.
+  //
+  // Sent WITHOUT Content-Length (chunked transfer): YouTrack's reported `size`
+  // often differs from the bytes actually streamed, and a wrong Content-Length
+  // makes the server's S3 upload fail with IncompleteBody/ExcessData. The
+  // server derives the true size from the received body instead.
   async uploadAttachmentStream(
     issueId: string,
     attachment: YtAttachment,
@@ -118,7 +123,6 @@ export class OurApiClient {
     const params = new URLSearchParams({
       filename: attachment.name,
       mimeType: attachment.mimeType,
-      size: String(attachment.size),
       uploadedById: meta.uploadedById,
     });
     if (meta.originalCreatedAt) params.set('originalCreatedAt', meta.originalCreatedAt);
@@ -127,10 +131,7 @@ export class OurApiClient {
       `/admin/migration/issues/${issueId}/attachments?${params.toString()}`,
       stream,
       {
-        headers: {
-          'Content-Type': 'application/octet-stream',
-          'Content-Length': attachment.size,
-        },
+        headers: { 'Content-Type': 'application/octet-stream' },
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
         // Large files over a slow source link — allow up to 10 min.

@@ -69,11 +69,11 @@ const setAttachmentMetadataSchema = z.object({
 
 // Streamed attachment upload: file bytes are the raw request body; this
 // metadata rides in the query string. No size cap (migration carries files
-// that already existed in YouTrack).
+// that already existed in YouTrack). The true size is derived from the
+// received body — YouTrack's reported size is unreliable.
 const migrationAttachmentMetaSchema = z.object({
   filename: z.string().trim().min(1).max(500),
   mimeType: z.string().trim().min(1).max(255),
-  size: z.coerce.number().int().min(0),
   uploadedById: z.guid(),
   originalCreatedAt: z.iso.datetime().optional(),
 });

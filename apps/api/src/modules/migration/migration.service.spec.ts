@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Readable } from 'stream';
 import { ConflictError, NotFoundError } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
 import { MigrationService } from './migration.service';
@@ -35,7 +36,7 @@ describe('MigrationService', () => {
   let projectsRepo: { findEntityByKey: jest.Mock; createWithWorkflow: jest.Mock };
   let boardsService: { create: jest.Mock };
   let sprintsService: { create: jest.Mock; addIssues: jest.Mock };
-  let attachmentsStorage: { uploadStream: jest.Mock };
+  let attachmentsStorage: { uploadBuffer: jest.Mock };
   let attachmentsRepo: { create: jest.Mock };
   let tagsRepo: {
     findByNameInsensitive: jest.Mock;
@@ -104,7 +105,7 @@ describe('MigrationService', () => {
     };
     boardsService = { create: jest.fn() };
     sprintsService = { create: jest.fn(), addIssues: jest.fn() };
-    attachmentsStorage = { uploadStream: jest.fn().mockResolvedValue(undefined) };
+    attachmentsStorage = { uploadBuffer: jest.fn().mockResolvedValue(undefined) };
     attachmentsRepo = { create: jest.fn() };
     tagsRepo = {
       findByNameInsensitive: jest.fn().mockResolvedValue(null),
@@ -555,48 +556,51 @@ describe('MigrationService', () => {
   });
 
   describe('uploadAttachment', () => {
-    const stream = { pipe: jest.fn() } as unknown as NodeJS.ReadableStream;
     const meta = {
       filename: 'diagram.pdf',
       mimeType: 'application/pdf',
-      size: 123,
       uploadedById: 'user-1',
       originalCreatedAt: '2022-05-01T00:00:00.000Z',
     };
+    const body = Buffer.from('the file bytes');
+    const makeStream = () => Readable.from([body]);
 
     it('throws NotFoundError when the issue does not exist', async () => {
       repo.findIssueProjectId.mockResolvedValue(null);
 
       await expect(
-        service.uploadAttachment('missing', stream as never, meta),
+        service.uploadAttachment('missing', makeStream(), meta),
       ).rejects.toThrow(NotFoundError);
-      expect(attachmentsStorage.uploadStream).not.toHaveBeenCalled();
+      expect(attachmentsStorage.uploadBuffer).not.toHaveBeenCalled();
     });
 
-    it('streams to storage, creates the row, and backdates it', async () => {
+    it('buffers the body, stores it with the true size, and backdates it', async () => {
       repo.findIssueProjectId.mockResolvedValue('proj-1');
       // Echo the id back (Prisma returns the id you set) so the generated id,
       // the created row, and the backdate target all line up.
       attachmentsRepo.create.mockImplementation(({ id }) => Promise.resolve({ id }));
 
-      const result = await service.uploadAttachment('issue-1', stream as never, meta);
+      const result = await service.uploadAttachment('issue-1', makeStream(), meta);
 
       const createdId = attachmentsRepo.create.mock.calls[0][0].id;
       expect(createdId).toEqual(expect.any(String));
 
-      expect(attachmentsStorage.uploadStream).toHaveBeenCalledWith(
-        stream,
+      // Size is taken from the received bytes, not any caller-declared value.
+      expect(attachmentsStorage.uploadBuffer).toHaveBeenCalledWith(
+        expect.any(Buffer),
         expect.stringContaining(`attachments/issue-1/${createdId}`),
         'application/pdf',
-        123,
       );
+      const [uploadedBuffer] = attachmentsStorage.uploadBuffer.mock.calls[0];
+      expect(uploadedBuffer.equals(body)).toBe(true);
+
       expect(attachmentsRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           issueId: 'issue-1',
           uploadedById: 'user-1',
           filename: 'diagram.pdf',
           mimeType: 'application/pdf',
-          size: 123,
+          size: body.length,
         }),
       );
       expect(repo.setAttachmentMetadata).toHaveBeenCalledWith(createdId, {
