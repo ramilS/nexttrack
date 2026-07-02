@@ -19,7 +19,7 @@ import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 import { BoardsExtractor } from '../extractors/boards.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { CustomFieldDefsExtractor } from '../extractors/custom-field-defs.extractor';
-import { buildCustomFieldDto } from '../transformers/custom-field-def.transformer';
+import { buildCustomFieldDto, YtFieldDef } from '../transformers/custom-field-def.transformer';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink } from '../transformers/link.transformer';
 import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
@@ -462,7 +462,16 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    const defs = await this.fieldDefsExtractor.collect(projectKey);
+    let defs: YtFieldDef[];
+    try {
+      defs = await this.fieldDefsExtractor.collect(projectKey);
+    } catch (err) {
+      // Non-fatal: without field defs, custom-field VALUES drop, but issues
+      // (and their first-class Type/State/Assignee/Priority, read per-issue)
+      // still migrate. Record and skip rather than abort the whole run.
+      await this.recordError(checkpoint, 'projects', `${projectKey}:field-defs`, err);
+      return;
+    }
     let created = 0;
     const skipped: string[] = [];
 
