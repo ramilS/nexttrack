@@ -128,6 +128,7 @@ describe('MigrationService', () => {
       createComment: jest.fn(),
       setCommentTimestamp: jest.fn().mockResolvedValue(undefined),
       getProjectStats: jest.fn(),
+      createActivities: jest.fn().mockResolvedValue(0),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -552,6 +553,28 @@ describe('MigrationService', () => {
         createdAt: new Date('2020-03-04T00:00:00.000Z'),
       });
       expect(result).toEqual({ success: true });
+    });
+  });
+
+  describe('createActivities', () => {
+    const entries = [
+      { type: 'FIELD_VALUE_CHANGE' as const, actorId: 'user-1', createdAt: '2019-03-01T00:00:00.000Z', payload: { field: 'State', from: 'Bug', to: 'Open' } },
+    ];
+
+    it('throws NotFoundError when the issue does not exist', async () => {
+      repo.findIssueProjectId.mockResolvedValue(null);
+      await expect(service.createActivities('missing', entries)).rejects.toThrow(NotFoundError);
+      expect(repo.createActivities).not.toHaveBeenCalled();
+    });
+
+    it('delegates to the repo and returns the created count', async () => {
+      repo.findIssueProjectId.mockResolvedValue('proj-1');
+      repo.createActivities.mockResolvedValue(1);
+
+      const result = await service.createActivities('issue-1', entries);
+
+      expect(repo.createActivities).toHaveBeenCalledWith('issue-1', entries);
+      expect(result).toEqual({ created: 1 });
     });
   });
 

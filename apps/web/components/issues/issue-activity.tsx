@@ -229,6 +229,27 @@ function getActivityDisplay(activity: Activity): { icon: React.ReactNode; text: 
         text: 'created this issue',
       };
 
+    case 'DESCRIPTION_CHANGE':
+      return {
+        icon: <Pencil className="size-3 text-muted-foreground" />,
+        text: 'updated the description',
+      };
+
+    case 'FIELD_VALUE_CHANGE': {
+      const field = asStringOrEmpty(payload.field) || 'field';
+      const from = payload.from == null ? null : String(payload.from);
+      const to = payload.to == null ? null : String(payload.to);
+      let text: string;
+      if (from && to) text = `changed ${field}: ${from} → ${to}`;
+      else if (to) text = `set ${field} to ${to}`;
+      else if (from) text = `cleared ${field} (was ${from})`;
+      else text = `changed ${field}`;
+      return {
+        icon: <Pencil className="size-3 text-muted-foreground" />,
+        text,
+      };
+    }
+
     default:
       return {
         icon: <Pencil className="size-3 text-muted-foreground" />,

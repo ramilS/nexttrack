@@ -41,6 +41,8 @@ import {
   MigrationLinkResultDto,
   MigrationTimeLogsDto,
   MigrationTimeLogsResultDto,
+  MigrationActivitiesDto,
+  MigrationActivitiesResultDto,
   MigrationCreateBoardDto,
   MigrationCreateSprintDto,
   MigrationSprintIssuesDto,
@@ -195,6 +197,15 @@ export class MigrationController {
     @Body() dto: MigrationTimeLogsDto,
   ) {
     return this.migrationService.createTimeLogs(issueId, dto.entries);
+  }
+
+  @Post('issues/:issueId/activities')
+  @ApiEnvelope(MigrationActivitiesResultDto, { status: HttpStatus.CREATED })
+  createActivities(
+    @Param('issueId') issueId: string,
+    @Body() dto: MigrationActivitiesDto,
+  ) {
+    return this.migrationService.createActivities(issueId, dto.entries);
   }
 
   @Patch('attachments/:attachmentId/metadata')

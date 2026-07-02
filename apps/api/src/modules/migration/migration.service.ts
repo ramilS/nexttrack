@@ -27,7 +27,7 @@ import { TagsRepository } from '@/modules/tags/tags.repository';
 import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { generateDefaultWorkflow } from '@/modules/workflows/default-workflow';
-import { StatusCategory } from '@prisma/client';
+import { StatusCategory, ActivityType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { Readable } from 'stream';
@@ -368,6 +368,29 @@ export class MigrationService {
         description: entry.description ?? null,
       })),
     );
+    return { created };
+  }
+
+  // Backdated issue change-history. Rows are inserted with their original
+  // timestamps (Activity has no @updatedAt, so createdAt is settable directly)
+  // and are idempotent per issue — a migrated issue starts with no activities.
+  async createActivities(
+    issueId: string,
+    entries: Array<{
+      type: ActivityType;
+      actorId: string;
+      createdAt: string;
+      payload: Record<string, unknown>;
+    }>,
+  ) {
+    const projectId = await this.migrationRepo.findIssueProjectId(issueId);
+    if (!projectId) {
+      throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
+    }
+    this.assertBackdatingAllowed(true);
+
+    const created = await this.migrationRepo.createActivities(issueId, entries);
+    this.logger.log('Migrated activities created', { issueId, created });
     return { created };
   }
 

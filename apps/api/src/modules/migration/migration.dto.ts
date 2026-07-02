@@ -1,6 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
-import { StatusCategory } from '@prisma/client';
+import { StatusCategory, ActivityType } from '@prisma/client';
 import { createUserMigrationSchema } from './dto/create-user-migration.dto';
 import { createIssueMigrationSchema } from './dto/create-issue-migration.dto';
 import { setDatesSchema } from './dto/set-dates.dto';
@@ -24,6 +24,7 @@ import {
   migrationSprintIssuesResultSchema,
   migrationProjectResultSchema,
   migrationCustomFieldResultSchema,
+  migrationActivitiesResultSchema,
 } from './dto/migration-responses';
 import {
   createTagSchema,
@@ -100,6 +101,21 @@ const migrationTimeLogsSchema = z.object({
     .min(1),
 });
 
+// Backdated issue change-history entries. `payload` is free-form per activity
+// type (the frontend renders it); `createdAt` carries the original timestamp.
+const migrationActivitiesSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        type: z.enum(ActivityType),
+        actorId: z.guid(),
+        createdAt: z.iso.datetime(),
+        payload: z.record(z.string(), z.unknown()).default({}),
+      }),
+    )
+    .min(1),
+});
+
 const linkIssueTagsSchema = z.object({
   tagIds: z
     .array(z.guid())
@@ -154,6 +170,8 @@ export class MigrationCreateLinkDto extends createZodDto(createIssueLinkSchema) 
 export class MigrationLinkResultDto extends createZodDto(migrationLinkResultSchema) {}
 export class MigrationTimeLogsDto extends createZodDto(migrationTimeLogsSchema) {}
 export class MigrationTimeLogsResultDto extends createZodDto(migrationTimeLogsResultSchema) {}
+export class MigrationActivitiesDto extends createZodDto(migrationActivitiesSchema) {}
+export class MigrationActivitiesResultDto extends createZodDto(migrationActivitiesResultSchema) {}
 export class MigrationCreateBoardDto extends createZodDto(createBoardSchema) {}
 export class MigrationCreateSprintDto extends createZodDto(createSprintSchema) {}
 export class MigrationSprintIssuesDto extends createZodDto(sprintIssuesSchema) {}

@@ -248,6 +248,47 @@ describe('Migration Issue Counter (Integration)', () => {
     expect(stored.createdAt.toISOString()).toBe('2021-02-03T04:05:06.000Z');
   });
 
+  it('imports backdated change history (idempotent per issue)', async () => {
+    const issueRes = await migrate(310, 'yt-hist-310').expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const post = () =>
+      request(ctx.app.getHttpServer())
+        .post(`/admin/migration/issues/${issueId}/activities`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('x-migration-secret', MIGRATION_SECRET)
+        .send({
+          entries: [
+            { type: 'ISSUE_CREATED', actorId: adminId, createdAt: '2019-03-01T00:00:00.000Z', payload: {} },
+            {
+              type: 'FIELD_VALUE_CHANGE',
+              actorId: adminId,
+              createdAt: '2019-04-01T10:00:00.000Z',
+              payload: { field: 'State', from: 'Bug', to: 'Open' },
+            },
+          ],
+        });
+
+    const first = await post();
+    expect(first.status).toBe(201);
+    expect(first.body.data.created).toBe(2);
+
+    const stored = await ctx.prisma.activity.findMany({
+      where: { issueId },
+      orderBy: { createdAt: 'asc' },
+    });
+    expect(stored).toHaveLength(2);
+    expect(stored[0].type).toBe('ISSUE_CREATED');
+    expect(stored[0].createdAt.toISOString()).toBe('2019-03-01T00:00:00.000Z');
+    expect(stored[1].payload).toEqual({ field: 'State', from: 'Bug', to: 'Open' });
+    expect(stored[1].actorId).toBe(adminId);
+
+    // Idempotent: a re-run does not duplicate the timeline.
+    const second = await post();
+    expect(second.body.data.created).toBe(0);
+    expect(await ctx.prisma.activity.count({ where: { issueId } })).toBe(2);
+  });
+
   it('creates a non-parent issue link between two migrated issues', async () => {
     const sourceRes = await migrate(201, 'yt-link-src').expect(201);
     const targetRes = await migrate(202, 'yt-link-tgt').expect(201);

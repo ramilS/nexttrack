@@ -19,7 +19,9 @@ import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 import { BoardsExtractor } from '../extractors/boards.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { CustomFieldDefsExtractor } from '../extractors/custom-field-defs.extractor';
+import { ActivitiesExtractor } from '../extractors/activities.extractor';
 import { buildCustomFieldDto, YtFieldDef } from '../transformers/custom-field-def.transformer';
+import { mapActivity } from '../transformers/activity.transformer';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink, resolveParentYtId } from '../transformers/link.transformer';
 import { richTextToTiptap } from '../transformers/rich-text';
@@ -102,6 +104,7 @@ export class MigrateCommand {
   private boardsExtractor!: BoardsExtractor;
   private teamExtractor!: TeamExtractor;
   private fieldDefsExtractor!: CustomFieldDefsExtractor;
+  private activitiesExtractor!: ActivitiesExtractor;
 
   private userTransformer!: UserTransformer;
   private issueTransformer!: IssueTransformer;
@@ -220,6 +223,15 @@ export class MigrateCommand {
         await this.migrateComments(projectKey, checkpoint, options);
       }
 
+      // Change history — the per-field audit trail (status/assignee/field
+      // changes over time) needed for incident investigation. Idempotent per
+      // issue; inserting activity rows doesn't touch the issue's updated_at.
+      step++;
+      this.reporter.section(step, totalSteps, 'Migrating Change History');
+      for (const projectKey of options.projects) {
+        await this.migrateHistory(projectKey, checkpoint, options);
+      }
+
       // Step 8: Attachments
       if (options.withAttachments) {
         step++;
@@ -326,6 +338,7 @@ export class MigrateCommand {
     this.boardsExtractor = new BoardsExtractor(this.yt);
     this.teamExtractor = new TeamExtractor(this.yt);
     this.fieldDefsExtractor = new CustomFieldDefsExtractor(this.yt);
+    this.activitiesExtractor = new ActivitiesExtractor(this.yt);
 
     this.userTransformer = new UserTransformer();
     this.issueTransformer = new IssueTransformer((field) =>
@@ -407,13 +420,67 @@ export class MigrateCommand {
   }
 
   private countSteps(options: MigrateOptions): number {
-    // users, projects, issues, parent-links, links, tags, comments,
+    // users, projects, issues, parent-links, links, tags, comments, history,
     // restore-timestamps, reindex
-    let steps = 9;
+    let steps = 10;
     if (options.withAttachments) steps++;
     if (options.withTimeTracking) steps++;
     if (options.withBoards) steps++;
     return steps;
+  }
+
+  // Import each issue's field-change history as backdated Activity rows. The
+  // author resolves to the migrated user or the ghost ("Deleted User"). One
+  // activities request per issue (bounded), idempotent server-side.
+  private async migrateHistory(
+    projectKey: string,
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+  ): Promise<void> {
+    if (options.dryRun) {
+      this.reporter.log(`[DRY] Would migrate change history for ${projectKey}`);
+      return;
+    }
+
+    const ghost = this.idMap.getFallbackUserId();
+    let created = 0;
+    for await (const batch of this.issuesExtractor.extract(projectKey, {
+      withClosedIssues: options.withClosedIssues,
+      batchSize: options.batchSize,
+    })) {
+      for (const ytIssue of batch) {
+        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+        if (!ourIssueId) continue;
+
+        let activities;
+        try {
+          activities = await this.activitiesExtractor.getForIssue(ytIssue.id);
+        } catch (err) {
+          await this.recordError(checkpoint, 'history', ytIssue.id, err);
+          continue;
+        }
+
+        const entries = activities
+          .map(mapActivity)
+          .map((m) => ({
+            type: m.type,
+            actorId:
+              (m.authorYtId && this.idMap.getUserId(m.authorYtId)) || ghost || '',
+            createdAt: new Date(m.timestamp).toISOString(),
+            payload: m.payload,
+          }))
+          .filter((e) => e.actorId);
+        if (entries.length === 0) continue;
+
+        try {
+          await this.api.createActivities(ourIssueId, entries);
+          created += entries.length;
+        } catch (err) {
+          await this.recordError(checkpoint, 'history', ytIssue.id, err);
+        }
+      }
+    }
+    this.reporter.info(`Change history [${projectKey}]: ${created} activities`);
   }
 
   // Re-stamp each issue's original created/updated from the source. Later

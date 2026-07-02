@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { IssueType, Prisma, Priority } from '@prisma/client';
+import { IssueType, Prisma, Priority, ActivityType } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { asJson } from '@/prisma/json';
 import type { TiptapDoc } from '@repo/shared/schemas';
@@ -182,6 +182,34 @@ export class MigrationRepository {
       })),
       skipDuplicates: true,
     });
+  }
+
+  // Bulk-insert backdated change-history rows. Idempotent per issue: a migrated
+  // issue has no activities of its own, so a non-empty count means a prior run
+  // already imported them — skip to avoid duplicating the timeline on --resume.
+  async createActivities(
+    issueId: string,
+    entries: Array<{
+      type: ActivityType;
+      actorId: string;
+      createdAt: string;
+      payload: Record<string, unknown>;
+    }>,
+  ): Promise<number> {
+    if (entries.length === 0) return 0;
+    const existing = await this.prisma.activity.count({ where: { issueId } });
+    if (existing > 0) return 0;
+
+    const result = await this.prisma.activity.createMany({
+      data: entries.map((e) => ({
+        issueId,
+        actorId: e.actorId,
+        type: e.type,
+        payload: asJson(e.payload),
+        createdAt: new Date(e.createdAt),
+      })),
+    });
+    return result.count;
   }
 
   async existsIssue(issueId: string): Promise<boolean> {

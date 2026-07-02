@@ -88,6 +88,10 @@ export const migrationTimeLogsResultSchema = z.object({
   created: z.number().int().nonnegative(),
 });
 
+export const migrationActivitiesResultSchema = z.object({
+  created: z.number().int().nonnegative(),
+});
+
 export const migrationEntityIdResultSchema = z.object({
   data: z.object({ id: z.guid() }),
 });

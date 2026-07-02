@@ -297,6 +297,23 @@ export class OurApiClient {
     });
   }
 
+  async createActivities(
+    issueId: string,
+    entries: Array<{
+      type: string;
+      actorId: string;
+      createdAt: string;
+      payload: Record<string, unknown>;
+    }>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    await retry(async () => {
+      await this.http.post(`/admin/migration/issues/${issueId}/activities`, {
+        entries,
+      });
+    });
+  }
+
   async createIssueLink(
     sourceIssueId: string,
     dto: { type: string; targetIssueId: string },
