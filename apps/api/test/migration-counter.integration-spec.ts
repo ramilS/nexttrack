@@ -169,6 +169,53 @@ describe('Migration Issue Counter (Integration)', () => {
     expect(link).not.toBeNull();
   });
 
+  it('creates a custom field (idempotent) with server-generated option ids and maps a value', async () => {
+    const create = () =>
+      request(ctx.app.getHttpServer())
+        .post(`/admin/migration/projects/${projectKey}/custom-fields`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('x-migration-secret', MIGRATION_SECRET)
+        .send({
+          name: 'Subsystem',
+          type: CustomFieldType.ENUM,
+          config: { type: CustomFieldType.ENUM, options: [{ name: 'Backend' }, { name: 'Frontend' }] },
+        });
+
+    const first = await create();
+    expect(first.status).toBe(201);
+    expect(first.body.data.existed).toBe(false);
+    const fieldId = first.body.data.data.id;
+    const backend = first.body.data.data.options.find(
+      (o: { name: string }) => o.name === 'Backend',
+    );
+    expect(backend.id).toBeDefined();
+
+    // Re-create the same field → idempotent, same id, options unchanged.
+    const second = await create();
+    expect(second.body.data.existed).toBe(true);
+    expect(second.body.data.data.id).toBe(fieldId);
+
+    // A migrated issue can now carry the field value (option id).
+    const issueRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${projectKey}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({
+        title: 'With subsystem',
+        statusId,
+        reporterId: adminId,
+        ytId: 'yt-cf-1',
+        fieldValues: [{ fieldId, value: backend.id }],
+      })
+      .expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const stored = await ctx.prisma.customFieldValue.findFirst({
+      where: { issueId, customFieldId: fieldId },
+    });
+    expect(stored?.value).toBe(backend.id);
+  });
+
   it('creates a non-parent issue link between two migrated issues', async () => {
     const sourceRes = await migrate(201, 'yt-link-src').expect(201);
     const targetRes = await migrate(202, 'yt-link-tgt').expect(201);
