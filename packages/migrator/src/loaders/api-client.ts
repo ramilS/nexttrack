@@ -167,6 +167,18 @@ export class OurApiClient {
     });
   }
 
+  async setAttachmentMetadata(
+    attachmentId: string,
+    meta: { uploadedById?: string; originalCreatedAt?: string },
+  ): Promise<void> {
+    await retry(async () => {
+      await this.http.patch(
+        `/admin/migration/attachments/${attachmentId}/metadata`,
+        meta,
+      );
+    });
+  }
+
   async createProject(dto: {
     key: string;
     name: string;

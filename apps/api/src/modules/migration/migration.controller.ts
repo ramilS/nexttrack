@@ -44,6 +44,7 @@ import {
   MigrationSprintIssuesResultDto,
   MigrationCreateProjectDto,
   MigrationProjectResultDto,
+  SetAttachmentMetadataDto,
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
@@ -172,6 +173,15 @@ export class MigrationController {
     @Body() dto: MigrationTimeLogsDto,
   ) {
     return this.migrationService.createTimeLogs(issueId, dto.entries);
+  }
+
+  @Patch('attachments/:attachmentId/metadata')
+  @ApiEnvelope(MigrationSuccessDto)
+  setAttachmentMetadata(
+    @Param('attachmentId') attachmentId: string,
+    @Body() dto: SetAttachmentMetadataDto,
+  ) {
+    return this.migrationService.setAttachmentMetadata(attachmentId, dto);
   }
 
   @Post('projects')

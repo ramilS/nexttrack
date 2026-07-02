@@ -458,6 +458,22 @@ export class MigrationService {
     return { added: result.added };
   }
 
+  // Backdate a just-uploaded attachment to its original YouTrack date + author
+  // (the normal upload path stamps now + the migration admin).
+  async setAttachmentMetadata(
+    attachmentId: string,
+    dto: { uploadedById?: string; originalCreatedAt?: string },
+  ) {
+    this.assertBackdatingAllowed(Boolean(dto.originalCreatedAt));
+    await this.migrationRepo.setAttachmentMetadata(attachmentId, {
+      uploadedById: dto.uploadedById,
+      createdAt: dto.originalCreatedAt
+        ? new Date(dto.originalCreatedAt)
+        : undefined,
+    });
+    return { success: true };
+  }
+
   async getCustomFieldMap(projectKey: string) {
     const project = await this.migrationRepo.findProjectByKey(projectKey);
     if (!project) {

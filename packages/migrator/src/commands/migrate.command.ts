@@ -886,7 +886,22 @@ export class MigrateCommand {
 
           try {
             const stream = await this.attachmentsExtractor.downloadStream(att);
-            await this.api.uploadAttachmentStream(ourIssueId, att, stream);
+            const created = await this.api.uploadAttachmentStream(
+              ourIssueId,
+              att,
+              stream,
+            );
+            // Backdate to the original YouTrack date + author (the upload path
+            // itself stamps now + the migration admin).
+            if (created?.id) {
+              await this.api.setAttachmentMetadata(created.id, {
+                uploadedById:
+                  (att.author?.id && this.idMap.getUserId(att.author.id)) ||
+                  this.idMap.getFallbackUserId() ||
+                  undefined,
+                originalCreatedAt: new Date(att.created).toISOString(),
+              });
+            }
             completed++;
           } catch (err) {
             this.recordError(checkpoint, 'attachments', att.id, err);

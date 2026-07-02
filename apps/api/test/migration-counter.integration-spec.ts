@@ -24,7 +24,15 @@ describe('Migration Issue Counter (Integration)', () => {
   let statusId: string;
 
   beforeAll(async () => {
-    ctx = await createE2eApp();
+    // Backdating enabled so the attachment/date-carrying tests here can preserve
+    // original timestamps (rejection-when-disabled has its own describe).
+    ctx = await createE2eApp({
+      customize: (builder) =>
+        builder.overrideProvider(migrationConfig.KEY).useValue({
+          apiSecret: MIGRATION_SECRET,
+          allowBackdatedRecords: true,
+        }),
+    });
   }, 60_000);
 
   afterAll(async () => {
@@ -279,6 +287,37 @@ describe('Migration Issue Counter (Integration)', () => {
       .send(body);
     expect(second.body.data.existed).toBe(true);
     expect(second.body.data.data.id).toBe(newProjectId);
+  });
+
+  it('backdates an attachment to its original date + author', async () => {
+    const issueRes = await migrate(230, 'yt-att-230').expect(201);
+    const issueId = issueRes.body.data.data.id;
+    const author = await ctx.prisma.user.create({
+      data: { email: 'att-author@test.local', name: 'Att Author', role: 'USER' },
+    });
+    const attachment = await ctx.prisma.attachment.create({
+      data: {
+        issueId,
+        uploadedById: adminId,
+        filename: 'design.png',
+        storagePath: 'x/design.png',
+        mimeType: 'image/png',
+        size: 123,
+      },
+    });
+
+    const res = await request(ctx.app.getHttpServer())
+      .patch(`/admin/migration/attachments/${attachment.id}/metadata`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ uploadedById: author.id, originalCreatedAt: '2019-05-06T00:00:00.000Z' });
+    expect(res.status).toBe(200);
+
+    const updated = await ctx.prisma.attachment.findUnique({
+      where: { id: attachment.id },
+    });
+    expect(updated?.uploadedById).toBe(author.id);
+    expect(updated?.createdAt.toISOString()).toBe('2019-05-06T00:00:00.000Z');
   });
 });
 

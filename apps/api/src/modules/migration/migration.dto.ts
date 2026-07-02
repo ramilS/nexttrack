@@ -60,6 +60,11 @@ const migrationCreateProjectSchema = z.object({
     .default([]),
 });
 
+const setAttachmentMetadataSchema = z.object({
+  uploadedById: z.guid().optional(),
+  originalCreatedAt: z.iso.datetime().optional(),
+});
+
 const sprintIssuesSchema = z.object({
   issueIds: z
     .array(z.guid())
@@ -143,3 +148,4 @@ export class MigrationEntityIdResultDto extends createZodDto(migrationEntityIdRe
 export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprintIssuesResultSchema) {}
 export class MigrationCreateProjectDto extends createZodDto(migrationCreateProjectSchema) {}
 export class MigrationProjectResultDto extends createZodDto(migrationProjectResultSchema) {}
+export class SetAttachmentMetadataDto extends createZodDto(setAttachmentMetadataSchema) {}

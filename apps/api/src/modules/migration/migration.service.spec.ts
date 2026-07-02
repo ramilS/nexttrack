@@ -114,6 +114,7 @@ describe('MigrationService', () => {
       createFieldValues: jest.fn().mockResolvedValue(undefined),
       existsIssue: jest.fn().mockResolvedValue(false),
       findIssueProjectId: jest.fn().mockResolvedValue(null),
+      setAttachmentMetadata: jest.fn().mockResolvedValue(undefined),
       createComment: jest.fn(),
       setCommentTimestamp: jest.fn().mockResolvedValue(undefined),
       getProjectStats: jest.fn(),
@@ -523,6 +524,21 @@ describe('MigrationService', () => {
       await expect(
         service.createIssueLink('issue-1', dto, 'admin-1'),
       ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('setAttachmentMetadata', () => {
+    it('backdates the attachment to its original date + author', async () => {
+      const result = await service.setAttachmentMetadata('att-1', {
+        uploadedById: 'user-9',
+        originalCreatedAt: '2020-03-04T00:00:00.000Z',
+      });
+
+      expect(repo.setAttachmentMetadata).toHaveBeenCalledWith('att-1', {
+        uploadedById: 'user-9',
+        createdAt: new Date('2020-03-04T00:00:00.000Z'),
+      });
+      expect(result).toEqual({ success: true });
     });
   });
 

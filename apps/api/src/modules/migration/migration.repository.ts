@@ -200,6 +200,21 @@ export class MigrationRepository {
     return row?.projectId ?? null;
   }
 
+  // Backdate an attachment to its original YouTrack date + author. createdAt has
+  // only @default(now()) (no @updatedAt), so a plain Prisma update can set it.
+  async setAttachmentMetadata(
+    attachmentId: string,
+    patch: { uploadedById?: string; createdAt?: Date },
+  ): Promise<void> {
+    await this.prisma.attachment.update({
+      where: { id: attachmentId },
+      data: {
+        ...(patch.uploadedById ? { uploadedById: patch.uploadedById } : {}),
+        ...(patch.createdAt ? { createdAt: patch.createdAt } : {}),
+      },
+    });
+  }
+
   async createComment(
     issueId: string,
     authorId: string,
