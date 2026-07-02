@@ -24,6 +24,7 @@ import {
   ATTACHMENT_MAX_FILE_SIZE,
 } from '@repo/shared/schemas';
 import { ApiEnvelope } from '@/common/decorators/api-envelope.decorator';
+import { SkipTimeout } from '@/common/interceptors/skip-timeout.decorator';
 import { DownloadQueryDto, AttachmentDto } from './attachments.dto';
 
 @Controller('issues/:issueId/attachments')
@@ -33,6 +34,9 @@ export class AttachmentsController {
 
   @Post()
   @RequirePermission(Permission.ISSUE_UPDATE)
+  // Streaming multipart upload (to S3/MinIO) legitimately exceeds the global
+  // JSON request timeout — exempt it so large files aren't aborted with a 408.
+  @SkipTimeout()
   @ApiEnvelope([AttachmentDto], { status: HttpStatus.CREATED })
   @UseInterceptors(
     FilesInterceptor('files', ATTACHMENT_MAX_FILES_PER_UPLOAD, {
