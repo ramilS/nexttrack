@@ -112,7 +112,9 @@ export class OurApiClient {
     stream: Readable,
   ): Promise<any> {
     const formData = new FormData();
-    formData.append('file', stream, {
+    // Field name MUST be 'files' — the API uses FilesInterceptor('files', …);
+    // a singular 'file' is rejected by multer as an unexpected field.
+    formData.append('files', stream, {
       filename: attachment.name,
       contentType: attachment.mimeType,
       knownLength: attachment.size,
