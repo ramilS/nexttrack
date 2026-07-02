@@ -167,6 +167,18 @@ export class OurApiClient {
     });
   }
 
+  async createIssueLink(
+    sourceIssueId: string,
+    dto: { type: string; targetIssueId: string },
+  ): Promise<void> {
+    await retry(async () => {
+      await this.http.post(
+        `/admin/migration/issues/${sourceIssueId}/links`,
+        dto,
+      );
+    });
+  }
+
   async linkIssueTags(issueId: string, tagIds: string[]): Promise<void> {
     if (tagIds.length === 0) return;
     await retry(async () => {

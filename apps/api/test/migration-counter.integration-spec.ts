@@ -160,6 +160,31 @@ describe('Migration Issue Counter (Integration)', () => {
     });
     expect(link).not.toBeNull();
   });
+
+  it('creates a non-parent issue link between two migrated issues', async () => {
+    const sourceRes = await migrate(201, 'yt-link-src').expect(201);
+    const targetRes = await migrate(202, 'yt-link-tgt').expect(201);
+    const sourceId = sourceRes.body.data.data.id;
+    const targetId = targetRes.body.data.data.id;
+
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${sourceId}/links`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ type: 'RELATES_TO', targetIssueId: targetId });
+    expect(res.status).toBe(201);
+
+    const link = await ctx.prisma.issueLink.findFirst({
+      where: {
+        OR: [
+          { sourceIssueId: sourceId, targetIssueId: targetId },
+          { sourceIssueId: targetId, targetIssueId: sourceId },
+        ],
+      },
+    });
+    expect(link).not.toBeNull();
+    expect(link?.type).toBe('RELATES_TO');
+  });
 });
 
 describe('Migration Backdating Gate (Integration)', () => {

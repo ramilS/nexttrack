@@ -17,6 +17,7 @@ export interface MigrationCheckpoint {
     timeLogs: Record<string, PhaseProgress>;
     boards: Record<string, PhaseProgress>;
     parentLinks: Record<string, PhaseProgress>;
+    links: Record<string, PhaseProgress>;
   };
 
   errors: MigrationError[];

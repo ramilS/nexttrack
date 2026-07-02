@@ -18,6 +18,7 @@ import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { mapTagColor } from '../transformers/tag.transformer';
+import { mapYtLink } from '../transformers/link.transformer';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -205,7 +206,17 @@ export class MigrateCommand {
         await this.linkParentIssues(projectKey, checkpoint, options);
       }
 
-      // Step 5: Tags
+      // Step 5: Issue links (non-parent)
+      step++;
+      this.reporter.section(step, totalSteps, 'Migrating Links');
+      for (const projectKey of options.projects) {
+        if (checkpoint.progress.links[projectKey]?.status === 'COMPLETED') {
+          continue;
+        }
+        await this.migrateLinks(projectKey, checkpoint, options);
+      }
+
+      // Step 6: Tags
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Tags');
       for (const projectKey of options.projects) {
@@ -359,13 +370,14 @@ export class MigrateCommand {
         timeLogs: {},
         boards: {},
         parentLinks: {},
+        links: {},
       },
       errors: [],
     };
   }
 
   private countSteps(options: MigrateOptions): number {
-    let steps = 6; // users, projects, issues, parent-links, tags, comments
+    let steps = 7; // users, projects, issues, parent-links, links, tags, comments
     if (options.withAttachments) steps++;
     if (options.withTimeTracking) steps++;
     if (options.withBoards) steps++;
@@ -626,6 +638,66 @@ export class MigrateCommand {
       { status: 'COMPLETED', completed: linked, total: linked },
     );
     this.reporter.done(`Linked ${linked} parent-child relationships for ${projectKey}`);
+  }
+
+  // Non-parent issue links. Runs after all issues exist so both endpoints of
+  // every link resolve via the id-map. The server enforces uniqueness and
+  // dependency-cycle safety, so duplicate/cyclic links surface as recorded
+  // errors rather than aborting the migration.
+  private async migrateLinks(
+    projectKey: string,
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+  ): Promise<void> {
+    await this.checkpointService.updateProgress(checkpoint, 'links', projectKey, {
+      status: 'IN_PROGRESS',
+    });
+
+    let linked = 0;
+
+    for await (const batch of this.issuesExtractor.extract(projectKey, {
+      withClosedIssues: options.withClosedIssues,
+      batchSize: options.batchSize,
+    })) {
+      for (const ytIssue of batch) {
+        const links = ytIssue.links ?? [];
+        if (links.length === 0) continue;
+
+        const sourceId = this.idMap.getIssueId(ytIssue.id);
+        if (!sourceId) continue;
+
+        for (const link of links) {
+          const type = mapYtLink(link.linkType.name, link.direction);
+          if (!type) continue; // unknown type, subtask, or inward-symmetric
+
+          for (const target of link.issues ?? []) {
+            const targetId = this.idMap.getIssueId(target.id);
+            if (!targetId || targetId === sourceId) continue;
+
+            if (options.dryRun) {
+              this.reporter.log(
+                `[DRY] Would link ${projectKey}-${ytIssue.numberInProject}: ${type} → ${target.id}`,
+              );
+              continue;
+            }
+
+            try {
+              await this.api.createIssueLink(sourceId, { type, targetIssueId: targetId });
+              linked++;
+            } catch (err) {
+              this.recordError(checkpoint, 'links', ytIssue.id, err);
+            }
+          }
+        }
+      }
+    }
+
+    await this.checkpointService.updateProgress(checkpoint, 'links', projectKey, {
+      status: 'COMPLETED',
+      completed: linked,
+      total: linked,
+    });
+    this.reporter.done(`Links [${projectKey}]: ${linked} created`);
   }
 
   private async migrateTags(
