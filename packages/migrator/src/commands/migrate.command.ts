@@ -53,13 +53,6 @@ export interface MigrateOptions {
 
 const VERSION = '0.1.0';
 
-// Mirrors the API's ATTACHMENT_MAX_FILE_SIZE (packages/shared): the upload
-// endpoint's multer limit hard-caps files at 50 MB and aborts the stream past
-// it (surfacing client-side as ECONNRESET, not a clean 413). Pre-skip larger
-// files with a clear message so the operator can handle them manually.
-const MAX_ATTACHMENT_MB = 50;
-const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024;
-
 // Register the TARGET project's real workflow-status ids, keyed by status name,
 // so issues resolve to a valid statusId (the FK). Name-based: the target
 // project's workflow must use status names matching the YouTrack states, or the
@@ -973,37 +966,19 @@ export class MigrateCommand {
             continue;
           }
 
-          // A file over the target's hard cap can never upload — record it as a
-          // skip (visible in errors[]) instead of letting it ECONNRESET.
-          if ((att.size ?? 0) > MAX_ATTACHMENT_BYTES) {
-            const mb = Math.round((att.size ?? 0) / 1024 / 1024);
-            await this.recordError(
-              checkpoint,
-              'attachments',
-              `${att.id} "${att.name}"`,
-              new Error(`Skipped: ${mb}MB exceeds the ${MAX_ATTACHMENT_MB}MB limit — upload manually`),
-            );
-            continue;
-          }
-
           try {
             const stream = await this.attachmentsExtractor.downloadStream(att);
-            const created = await this.api.uploadAttachmentStream(
-              ourIssueId,
-              att,
-              stream,
-            );
-            // Backdate to the original YouTrack date + author (the upload path
-            // itself stamps now + the migration admin).
-            if (created?.id) {
-              await this.api.setAttachmentMetadata(created.id, {
-                uploadedById:
-                  (att.author?.id && this.idMap.getUserId(att.author.id)) ||
-                  this.idMap.getFallbackUserId() ||
-                  undefined,
-                originalCreatedAt: new Date(att.created).toISOString(),
-              });
-            }
+            // The migration endpoint stores the original author + date inline —
+            // no size cap, no follow-up metadata call. Unresolved author (a
+            // deleted YouTrack account) falls back to the ghost user.
+            const uploadedById =
+              (att.author?.id && this.idMap.getUserId(att.author.id)) ||
+              this.idMap.getFallbackUserId() ||
+              '';
+            await this.api.uploadAttachmentStream(ourIssueId, att, stream, {
+              uploadedById,
+              originalCreatedAt: new Date(att.created).toISOString(),
+            });
             completed++;
           } catch (err) {
             // Include file context (size/mime) so a connection reset (which

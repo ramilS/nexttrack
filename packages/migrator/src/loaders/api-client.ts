@@ -1,5 +1,4 @@
 import axios, { AxiosInstance } from 'axios';
-import FormData from 'form-data';
 import { Readable } from 'stream';
 import { retry } from '../utils/retry';
 import { CreateUserMigrationDto } from '../transformers/user.transformer';
@@ -106,30 +105,39 @@ export class OurApiClient {
     });
   }
 
+  // Streams the file body straight to the migration upload endpoint (no size
+  // cap / MIME check, unlike the interactive endpoint), carrying the original
+  // author + date so no follow-up metadata call is needed. Metadata rides in
+  // the query string; the body is the raw bytes.
   async uploadAttachmentStream(
     issueId: string,
     attachment: YtAttachment,
     stream: Readable,
-  ): Promise<any> {
-    const formData = new FormData();
-    // Field name MUST be 'files' — the API uses FilesInterceptor('files', …);
-    // a singular 'file' is rejected by multer as an unexpected field.
-    formData.append('files', stream, {
+    meta: { uploadedById: string; originalCreatedAt?: string },
+  ): Promise<{ id: string }> {
+    const params = new URLSearchParams({
       filename: attachment.name,
-      contentType: attachment.mimeType,
-      knownLength: attachment.size,
+      mimeType: attachment.mimeType,
+      size: String(attachment.size),
+      uploadedById: meta.uploadedById,
     });
+    if (meta.originalCreatedAt) params.set('originalCreatedAt', meta.originalCreatedAt);
 
     const { data } = await this.http.post(
-      `/issues/${issueId}/attachments`,
-      formData,
+      `/admin/migration/issues/${issueId}/attachments?${params.toString()}`,
+      stream,
       {
-        headers: formData.getHeaders(),
+        headers: {
+          'Content-Type': 'application/octet-stream',
+          'Content-Length': attachment.size,
+        },
         maxBodyLength: Infinity,
-        timeout: 120_000,
+        maxContentLength: Infinity,
+        // Large files over a slow source link — allow up to 10 min.
+        timeout: 600_000,
       },
     );
-    return data.data?.[0];
+    return unwrapEnvelope<{ data: { id: string } }>(data).data;
   }
 
   async getProjectStats(projectKey: string): Promise<{
@@ -198,18 +206,6 @@ export class OurApiClient {
         data: Array<{ filename: string; size: number }>;
       }>(data).data;
       return list.map((a) => ({ filename: a.filename, size: a.size }));
-    });
-  }
-
-  async setAttachmentMetadata(
-    attachmentId: string,
-    meta: { uploadedById?: string; originalCreatedAt?: string },
-  ): Promise<void> {
-    await retry(async () => {
-      await this.http.patch(
-        `/admin/migration/attachments/${attachmentId}/metadata`,
-        meta,
-      );
     });
   }
 
