@@ -22,6 +22,7 @@ import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink } from '../transformers/link.transformer';
 import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
 import { mapStatesToStatuses } from '../transformers/state.transformer';
+import { formatHttpError } from '../utils/http-error';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -258,7 +259,7 @@ export class MigrateCommand {
       checkpoint.status = 'INTERRUPTED';
       checkpoint.idMap = this.idMap.serialize();
       await this.checkpointService.save(checkpoint);
-      this.reporter.error(`Migration interrupted: ${err.message}`);
+      this.reporter.error(`Migration interrupted: ${formatHttpError(err)}`);
       this.reporter.info('Run with --resume to continue from this point');
       process.exit(1);
     }
@@ -383,7 +384,7 @@ export class MigrateCommand {
     entityId: string,
     err: any,
   ): void {
-    const message = err?.response?.data?.message ?? err?.message ?? String(err);
+    const message = formatHttpError(err);
     checkpoint.errors.push({
       phase,
       entityId,
