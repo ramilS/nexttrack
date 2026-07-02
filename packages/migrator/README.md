@@ -22,10 +22,12 @@ Classic ETL, one project at a time:
    (`POST /api/admin/migration/*`), keeping a YouTrack-ID → NextTrack-ID map and a
    resumable checkpoint file.
 
-Currently migrated: **users, projects (workflow statuses/transitions), issues,
-parent-child links, comments, attachments, custom fields**.
-Not yet wired into the flow: **agile boards/sprints, time-tracking** (extractors
-exist, loading is a stub).
+Migrated: **users** (+ a ghost user for accounts deleted in YouTrack), **project
+membership with roles**, **issues** (with type/priority/status/estimate),
+**custom fields** (enum/user/period/date + multi-value), **tags**, **comments**,
+**attachments**, **parent-child + other issue links**, **time-tracking**, and
+**agile boards/sprints**. Rich text (descriptions + comments) is converted from
+Markdown to Tiptap. Projects themselves must be pre-created (see Prerequisites).
 
 ## Prerequisites
 
@@ -151,10 +153,11 @@ pnpm migrate -- \
   --verbose
 ```
 
-> **Dry run does not validate mappings.** It skips writes *and* the ID-map
-> registration for statuses/users/custom fields, so a clean dry run proves
-> connectivity and counts only — not that custom fields or statuses will map
-> correctly. Follow it with a small real run against a disposable NextTrack DB.
+> **Dry run registers the target maps (statuses, custom fields) but skips all
+> writes.** It resolves the same name→id mappings the real run uses, so unmapped
+> custom fields already surface as warnings; it cannot, however, prove that
+> issue/user references resolve (users aren't created in dry run). Follow it with
+> a small real run against a disposable NextTrack DB before committing.
 
 ### 2. Real run (single project pilot)
 
@@ -207,9 +210,10 @@ fix the cause and re-run the same command with `--resume`. Inspect progress with
 | `--projects <keys>` | one of these | — | Comma-separated keys, e.g. `DEVX,OPS` |
 | `--all-projects` | one of these | `false` | Migrate every project |
 | `--with-attachments` | no | `false` | Download + upload attachments |
-| `--with-time-tracking` | no | `false` | **Rejected** — extraction exists but loading is not implemented; the run aborts if set |
-| `--with-boards` | no | `false` | **Rejected** — extraction exists but loading is not implemented; the run aborts if set |
+| `--with-time-tracking` | no | `false` | Import work items as IMPORT-sourced time logs (recalculates `spent`) |
+| `--with-boards` | no | `false` | Recreate agile boards as SCRUM boards + their sprints + sprint membership |
 | `--with-closed-issues` | no | `false` | Include resolved/closed issues (default: unresolved only) |
+| `--estimate-field <name>` | no | — | YouTrack custom field to map into the native `estimate` (story points). See Known limitations |
 | `--dry-run` | no | `false` | Read + log, no writes |
 | `--resume` | no | `false` | Continue from checkpoint |
 | `--checkpoint-file <path>` | no | `./migration-checkpoint.json` | Progress file |
@@ -220,14 +224,24 @@ fix the cause and re-run the same command with `--resume`. Inspect progress with
 
 ## Known limitations
 
-- **Custom fields with no target mapping are dropped — but loudly.** If a YouTrack
-  custom field has no entry in the ID map (name → NextTrack field id), its value
-  is dropped and the run prints
-  `Custom field "<name>" has no mapping in the target — its values are being dropped`
-  (once per field). Enum/user values that don't resolve to a target option/user
-  are dropped the same way rather than written as `null`. Register the missing
-  field/option mappings, or accept the loss — but it is no longer silent. Still
-  worth spot-checking a few migrated issues in the UI during the pilot.
-- **Boards/sprints and time-tracking are not migrated yet.** Extraction exists but
-  loading does not, so `--with-boards` / `--with-time-tracking` **abort the run**
-  with a "not implemented yet" error instead of silently doing nothing.
+- **Custom fields are matched to the target by NAME.** A field/option with no
+  match in the target project is dropped with a one-time warning
+  (`Custom field "<name>" has no mapping…` / `value could not be resolved…`),
+  never silently. Create the matching fields/options in the target first, or
+  accept the loss. Spot-check a few issues in the UI during the pilot.
+- **`--estimate-field` is a unit decision.** NextTrack `estimate` is story points
+  (integer); YouTrack "Estimation" is time (minutes). If you point
+  `--estimate-field` at a period field the raw minutes are stored as-is with a
+  loud `estimate-unit-mismatch` warning — usually you want a numeric story-points
+  field instead. Left unset, `estimate` is not migrated.
+- **Project roles are best-effort and version-dependent.** The role of each team
+  member is read from a YouTrack endpoint whose shape changed across versions
+  (unified into the app REST API in 2026.1); when it can't be read, members fall
+  back to the Developer role. Verify roles landed as expected during the pilot
+  (`team.extractor.ts` if the endpoint needs adjusting).
+- **Content from deleted YouTrack accounts** (absent from `/admin/users`) is
+  credited to a blocked "YouTrack Migration" ghost user rather than lost.
+- **Agile boards are recreated as SCRUM boards** (so sprints can hold issues); a
+  board shared across several projects is recreated once per migrated project.
+- **Backdated timestamps require `MIGRATION_ALLOW_BACKDATED_RECORDS=true`** or the
+  API rejects them with 400 (fail-fast, not silent).
