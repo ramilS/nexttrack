@@ -76,10 +76,15 @@ export class AttachmentsController {
     @Param('issueId') issueId: string,
     @Param('attachmentId') attachmentId: string,
     @Query() _query: DownloadQueryDto,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Res() res: Response,
   ) {
-    const url = await this.attachmentsService.getDownloadUrl(issueId, attachmentId, userId);
+    const url = await this.attachmentsService.getDownloadUrl(
+      issueId,
+      attachmentId,
+      user.id,
+      user.role === GlobalRole.ADMIN,
+    );
     res.redirect(url);
   }
 
@@ -88,13 +93,14 @@ export class AttachmentsController {
   async thumbnail(
     @Param('issueId') issueId: string,
     @Param('attachmentId') attachmentId: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Res() res: Response,
   ) {
     const url = await this.attachmentsService.getThumbnailUrl(
       issueId,
       attachmentId,
-      userId,
+      user.id,
+      user.role === GlobalRole.ADMIN,
     );
     res.redirect(url);
   }
