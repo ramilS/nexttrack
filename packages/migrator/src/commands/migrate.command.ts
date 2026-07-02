@@ -967,7 +967,16 @@ export class MigrateCommand {
             }
             completed++;
           } catch (err) {
-            await this.recordError(checkpoint, 'attachments', att.id, err);
+            // Include file context (size/mime) so a connection reset (which
+            // carries no server-side reason) still hints at the cause — an
+            // oversized file, an odd type, etc.
+            const kb = Math.round((att.size ?? 0) / 1024);
+            await this.recordError(
+              checkpoint,
+              'attachments',
+              `${att.id} "${att.name}" ${kb}KB ${att.mimeType}`,
+              err,
+            );
           }
         }
       }
