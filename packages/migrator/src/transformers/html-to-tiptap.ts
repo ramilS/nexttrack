@@ -53,9 +53,7 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
   const blocks: TiptapDoc[] = [];
   let inline: TiptapDoc[] = [];
   const flush = () => {
-    if (inline.some((n) => n.type !== 'hardBreak')) {
-      blocks.push({ type: 'paragraph', content: inline });
-    }
+    blocks.push(...segmentInlineToBlocks(inline));
     inline = [];
   };
 
@@ -72,10 +70,7 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
         if (hasBlockChild(el)) {
           blocks.push(...blocksFrom(el.childNodes));
         } else {
-          const inner = inlineFrom(el.childNodes, []);
-          if (inner.some((n) => n.type !== 'hardBreak')) {
-            blocks.push({ type: 'paragraph', content: inner });
-          }
+          blocks.push(...segmentInlineToBlocks(inlineFrom(el.childNodes, [])));
         }
         break;
       }
@@ -139,6 +134,79 @@ const BLOCK_TAGS = new Set([
 
 function hasBlockChild(el: HTMLElement): boolean {
   return el.childNodes.some((n) => BLOCK_TAGS.has(tagOf(n)));
+}
+
+// Turn an inline run into block nodes. YouTrack wiki HTML renders a multi-line
+// code block as consecutive per-line `<code>…</code><br/>` (not a <pre>), which
+// naively becomes fragmented inline code + hardBreaks. Split the run on
+// hardBreaks into lines and coalesce a run of 2+ "code-only" lines into one
+// codeBlock; everything else stays a paragraph.
+function segmentInlineToBlocks(inline: TiptapDoc[]): TiptapDoc[] {
+  if (!inline.some((n) => n.type !== 'hardBreak')) return [];
+
+  const lines = splitOnHardBreaks(inline);
+  const blocks: TiptapDoc[] = [];
+  let paraLines: TiptapDoc[][] = [];
+  const flushPara = () => {
+    if (paraLines.length === 0) return;
+    const content = joinWithHardBreaks(paraLines);
+    if (content.some((n) => n.type !== 'hardBreak')) {
+      blocks.push({ type: 'paragraph', content });
+    }
+    paraLines = [];
+  };
+
+  for (let i = 0; i < lines.length; ) {
+    let j = i;
+    while (j < lines.length && isCodeOnlyLine(lines[j]!)) j++;
+    if (j - i >= 2) {
+      flushPara();
+      const text = lines.slice(i, j).map(lineText).join('\n');
+      blocks.push({ type: 'codeBlock', content: [{ type: 'text', text }] });
+      i = j;
+    } else {
+      paraLines.push(lines[i]!);
+      i++;
+    }
+  }
+  flushPara();
+  return blocks;
+}
+
+function splitOnHardBreaks(inline: TiptapDoc[]): TiptapDoc[][] {
+  const lines: TiptapDoc[][] = [[]];
+  for (const node of inline) {
+    if (node.type === 'hardBreak') lines.push([]);
+    else lines[lines.length - 1]!.push(node);
+  }
+  return lines;
+}
+
+function joinWithHardBreaks(lines: TiptapDoc[][]): TiptapDoc[] {
+  const out: TiptapDoc[] = [];
+  lines.forEach((line, idx) => {
+    if (idx > 0) out.push({ type: 'hardBreak' });
+    out.push(...line);
+  });
+  return out;
+}
+
+// A line is "code-only" when it has text and every text node carries the `code`
+// mark (a standalone wiki code line). Prose lines that merely end in inline code
+// are not code-only, so they stay paragraphs.
+function isCodeOnlyLine(line: TiptapDoc[]): boolean {
+  const texts = line.filter((n) => n.type === 'text' && (n.text ?? '').length > 0);
+  return (
+    texts.length > 0 &&
+    texts.every((n) => (n.marks ?? []).some((m) => m.type === 'code'))
+  );
+}
+
+function lineText(line: TiptapDoc[]): string {
+  return line
+    .filter((n) => n.type === 'text')
+    .map((n) => n.text ?? '')
+    .join('');
 }
 
 function listFrom(el: HTMLElement, type: 'bulletList' | 'orderedList'): TiptapDoc {

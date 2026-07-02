@@ -76,6 +76,26 @@ describe('htmlToTiptap', () => {
       'line two',
     ]);
   });
+
+  it('coalesces per-line <code>…</code><br/> into a single codeBlock', () => {
+    const doc = htmlToTiptap(
+      'intro <code>x</code><br/>' +
+        '<code>{</code><br/>' +
+        '<code>  "a": 1,</code><br/>' +
+        '<code>}</code>',
+    );
+    // "intro …<code>x</code>" is prose (not code-only) → paragraph;
+    // the three pure-code lines coalesce into one codeBlock.
+    const codeBlocks = doc.content!.filter((n) => n.type === 'codeBlock');
+    expect(codeBlocks).toHaveLength(1);
+    expect(codeBlocks[0].content![0].text).toBe('{\n  "a": 1,\n}');
+    expect(doc.content!.some((n) => n.type === 'paragraph')).toBe(true);
+  });
+
+  it('keeps a lone inline code line inline (no spurious codeBlock)', () => {
+    const doc = htmlToTiptap('the value is <code>null</code> here');
+    expect(doc.content!.every((n) => n.type !== 'codeBlock')).toBe(true);
+  });
 });
 
 describe('richTextToTiptap', () => {
