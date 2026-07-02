@@ -5,6 +5,7 @@ import { MigrationService } from './migration.service';
 import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
+import { CustomFieldsService } from '@/modules/custom-fields/custom-fields.service';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
@@ -22,6 +23,7 @@ describe('MigrationService', () => {
   let repo: Record<string, jest.Mock>;
   let issuesRepo: { getNextNumber: jest.Mock };
   let customFieldsRepo: { findManyByProject: jest.Mock };
+  let customFieldsService: { create: jest.Mock };
   let workflowsReader: { findDefaultStatuses: jest.Mock };
   let projectMembersRepo: { createManyIgnoreDuplicates: jest.Mock };
   let rolesRepo: { findAll: jest.Mock };
@@ -78,6 +80,7 @@ describe('MigrationService', () => {
   beforeEach(async () => {
     issuesRepo = { getNextNumber: jest.fn().mockResolvedValue(1) };
     customFieldsRepo = { findManyByProject: jest.fn().mockResolvedValue([]) };
+    customFieldsService = { create: jest.fn() };
     workflowsReader = { findDefaultStatuses: jest.fn().mockResolvedValue([]) };
     projectMembersRepo = {
       createManyIgnoreDuplicates: jest.fn().mockResolvedValue(0),
@@ -126,6 +129,7 @@ describe('MigrationService', () => {
         { provide: MigrationRepository, useValue: repo },
         { provide: IssuesRepository, useValue: issuesRepo },
         { provide: CustomFieldsRepository, useValue: customFieldsRepo },
+        { provide: CustomFieldsService, useValue: customFieldsService },
         { provide: WorkflowsReader, useValue: workflowsReader },
         { provide: ProjectMembersRepository, useValue: projectMembersRepo },
         { provide: RolesRepository, useValue: rolesRepo },
@@ -691,6 +695,71 @@ describe('MigrationService', () => {
           },
           { id: 'field-2', name: 'Notes', type: 'TEXT', options: [] },
         ],
+      });
+    });
+  });
+
+  describe('createCustomField', () => {
+    const dto = {
+      name: 'Subsystem',
+      type: 'ENUM' as const,
+      config: { type: 'ENUM' as const, options: [{ name: 'Backend' }] },
+    };
+
+    it('throws NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(service.createCustomField('NOPROJECT', dto)).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('returns the existing field with existed=true (idempotent re-run)', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([
+        {
+          id: 'field-1',
+          name: 'Subsystem',
+          type: 'ENUM',
+          config: { options: [{ id: 'opt-1', name: 'Backend' }] },
+        },
+      ]);
+
+      const result = await service.createCustomField('TEST', dto);
+
+      expect(result).toEqual({
+        data: {
+          id: 'field-1',
+          name: 'Subsystem',
+          type: 'ENUM',
+          options: [{ id: 'opt-1', name: 'Backend' }],
+        },
+        existed: true,
+      });
+      expect(customFieldsService.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a new field via CustomFieldsService when none exists', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([]);
+      customFieldsService.create.mockResolvedValue({
+        id: 'field-2',
+        name: 'Subsystem',
+        type: 'ENUM',
+        config: { options: [{ id: 'gen-1', name: 'Backend' }] },
+      });
+
+      const result = await service.createCustomField('TEST', dto);
+
+      expect(customFieldsService.create).toHaveBeenCalledWith('proj-1', dto);
+      expect(result).toEqual({
+        data: {
+          id: 'field-2',
+          name: 'Subsystem',
+          type: 'ENUM',
+          options: [{ id: 'gen-1', name: 'Backend' }],
+        },
+        existed: false,
       });
     });
   });

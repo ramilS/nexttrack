@@ -45,6 +45,8 @@ import {
   MigrationSprintIssuesResultDto,
   MigrationCreateProjectDto,
   MigrationProjectResultDto,
+  MigrationCreateCustomFieldDto,
+  MigrationCustomFieldResultDto,
   SetAttachmentMetadataDto,
   MigrationStatusesDto,
   AddMembersDto,
@@ -128,6 +130,15 @@ export class MigrationController {
   @ApiEnvelope(MigrationCustomFieldsDto)
   getCustomFields(@Param('projectKey') projectKey: string) {
     return this.migrationService.getCustomFieldMap(projectKey);
+  }
+
+  @Post('projects/:projectKey/custom-fields')
+  @ApiEnvelope(MigrationCustomFieldResultDto, { status: HttpStatus.CREATED })
+  createCustomField(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: MigrationCreateCustomFieldDto,
+  ) {
+    return this.migrationService.createCustomField(projectKey, dto);
   }
 
   @Get('statuses/:projectKey')

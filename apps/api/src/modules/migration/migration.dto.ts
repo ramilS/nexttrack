@@ -23,12 +23,14 @@ import {
   migrationEntityIdResultSchema,
   migrationSprintIssuesResultSchema,
   migrationProjectResultSchema,
+  migrationCustomFieldResultSchema,
 } from './dto/migration-responses';
 import {
   createTagSchema,
   createIssueLinkSchema,
   createBoardSchema,
   createSprintSchema,
+  createCustomFieldSchema,
   TIME_LOG_DURATION_MAX_MINUTES,
 } from '@repo/shared/schemas';
 
@@ -149,3 +151,5 @@ export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprint
 export class MigrationCreateProjectDto extends createZodDto(migrationCreateProjectSchema) {}
 export class MigrationProjectResultDto extends createZodDto(migrationProjectResultSchema) {}
 export class SetAttachmentMetadataDto extends createZodDto(setAttachmentMetadataSchema) {}
+export class MigrationCreateCustomFieldDto extends createZodDto(createCustomFieldSchema) {}
+export class MigrationCustomFieldResultDto extends createZodDto(migrationCustomFieldResultSchema) {}

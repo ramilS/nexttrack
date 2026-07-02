@@ -17,6 +17,8 @@ import {
   CustomFieldsRepository,
   getFieldConfig,
 } from '@/modules/custom-fields/custom-fields.repository';
+import { CustomFieldsService } from '@/modules/custom-fields/custom-fields.service';
+import type { CreateCustomFieldParsed } from '@repo/shared/schemas';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
@@ -58,6 +60,7 @@ export class MigrationService {
     private workflowsReader: WorkflowsReader,
     private projectMembersRepo: ProjectMembersRepository,
     private rolesRepo: RolesRepository,
+    private customFieldsService: CustomFieldsService,
     private tagsService: TagsService,
     private tagsRepo: TagsRepository,
     private issueLinksService: IssueLinksService,
@@ -483,15 +486,51 @@ export class MigrationService {
       );
     }
     const fields = await this.customFieldsRepo.findManyByProject(project.id);
+    return { data: fields.map((field) => this.toMigrationField(field)) };
+  }
+
+  // Create a custom field in the target project, idempotent by name so a
+  // re-run (or --resume) does not duplicate it. Enum option ids are generated
+  // by CustomFieldsService.create; the migrator resolves values back to those
+  // ids by option name via getCustomFieldMap.
+  async createCustomField(projectKey: string, dto: CreateCustomFieldParsed) {
+    const project = await this.migrationRepo.findProjectByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+
+    const existing = (
+      await this.customFieldsRepo.findManyByProject(project.id)
+    ).find((f) => f.name === dto.name);
+    if (existing) {
+      return { data: this.toMigrationField(existing), existed: true };
+    }
+
+    const created = await this.customFieldsService.create(project.id, dto);
+    this.logger.log('Migrated custom field created', {
+      fieldId: created.id,
+      projectId: project.id,
+      type: dto.type,
+    });
+    return { data: this.toMigrationField(created), existed: false };
+  }
+
+  private toMigrationField(field: {
+    id: string;
+    name: string;
+    type: unknown;
+    config: unknown;
+  }) {
     return {
-      data: fields.map((field) => ({
-        id: field.id,
-        name: field.name,
-        type: String(field.type),
-        options: (getFieldConfig(field).options ?? []).map((option) => ({
-          id: option.id,
-          name: option.name,
-        })),
+      id: field.id,
+      name: field.name,
+      type: String(field.type),
+      options: (getFieldConfig(field).options ?? []).map((option) => ({
+        id: option.id,
+        name: option.name,
       })),
     };
   }

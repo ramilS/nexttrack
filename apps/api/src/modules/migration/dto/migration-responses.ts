@@ -117,6 +117,16 @@ export const migrationCustomFieldsSchema = z.object({
   ),
 });
 
+export const migrationCustomFieldResultSchema = z.object({
+  data: z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    options: z.array(z.object({ id: z.string(), name: z.string() })),
+  }),
+  existed: z.boolean(),
+});
+
 export const migrationStatsSchema = z.object({
   projectKey: z.string(),
   projectId: z.guid(),
