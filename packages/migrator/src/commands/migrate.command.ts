@@ -53,6 +53,13 @@ export interface MigrateOptions {
 
 const VERSION = '0.1.0';
 
+// Mirrors the API's ATTACHMENT_MAX_FILE_SIZE (packages/shared): the upload
+// endpoint's multer limit hard-caps files at 50 MB and aborts the stream past
+// it (surfacing client-side as ECONNRESET, not a clean 413). Pre-skip larger
+// files with a clear message so the operator can handle them manually.
+const MAX_ATTACHMENT_MB = 50;
+const MAX_ATTACHMENT_BYTES = MAX_ATTACHMENT_MB * 1024 * 1024;
+
 // Register the TARGET project's real workflow-status ids, keyed by status name,
 // so issues resolve to a valid statusId (the FK). Name-based: the target
 // project's workflow must use status names matching the YouTrack states, or the
@@ -944,6 +951,19 @@ export class MigrateCommand {
           if (options.dryRun) {
             this.reporter.log(`[DRY] Would upload: ${att.name} (${att.size} bytes)`);
             completed++;
+            continue;
+          }
+
+          // A file over the target's hard cap can never upload — record it as a
+          // skip (visible in errors[]) instead of letting it ECONNRESET.
+          if ((att.size ?? 0) > MAX_ATTACHMENT_BYTES) {
+            const mb = Math.round((att.size ?? 0) / 1024 / 1024);
+            await this.recordError(
+              checkpoint,
+              'attachments',
+              `${att.id} "${att.name}"`,
+              new Error(`Skipped: ${mb}MB exceeds the ${MAX_ATTACHMENT_MB}MB limit — upload manually`),
+            );
             continue;
           }
 
