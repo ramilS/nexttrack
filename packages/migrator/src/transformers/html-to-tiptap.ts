@@ -65,9 +65,17 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
       case 'P':
       case 'DIV': {
         flush();
-        const inner = inlineFrom((node as HTMLElement).childNodes, []);
-        if (inner.some((n) => n.type !== 'hardBreak')) {
-          blocks.push({ type: 'paragraph', content: inner });
+        const el = node as HTMLElement;
+        // A div/p wrapping block content (wiki wrappers nest paragraphs, lists,
+        // collapsibles) is a transparent container — recurse so inner blocks
+        // keep their breaks; otherwise it's a single paragraph.
+        if (hasBlockChild(el)) {
+          blocks.push(...blocksFrom(el.childNodes));
+        } else {
+          const inner = inlineFrom(el.childNodes, []);
+          if (inner.some((n) => n.type !== 'hardBreak')) {
+            blocks.push({ type: 'paragraph', content: inner });
+          }
         }
         break;
       }
@@ -105,12 +113,32 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
         inline.push({ type: 'hardBreak' });
         break;
       default:
-        // Text or inline element (a, b, span, code, …) — accumulate.
-        inline.push(...inlineFrom([node], []));
+        // An unknown element wrapping block content (e.g. a wiki <details>
+        // collapsible, <section>) — treat as a transparent container so nested
+        // paragraphs keep their breaks instead of running together. Otherwise
+        // it's inline (a, b, span, code, summary label, …) — accumulate.
+        if (
+          node.nodeType === NodeType.ELEMENT_NODE &&
+          hasBlockChild(node as HTMLElement)
+        ) {
+          flush();
+          blocks.push(...blocksFrom((node as HTMLElement).childNodes));
+        } else {
+          inline.push(...inlineFrom([node], []));
+        }
     }
   }
   flush();
   return blocks;
+}
+
+const BLOCK_TAGS = new Set([
+  'DIV', 'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'UL', 'OL', 'LI', 'BLOCKQUOTE', 'PRE', 'DETAILS', 'SECTION', 'ARTICLE', 'TABLE',
+]);
+
+function hasBlockChild(el: HTMLElement): boolean {
+  return el.childNodes.some((n) => BLOCK_TAGS.has(tagOf(n)));
 }
 
 function listFrom(el: HTMLElement, type: 'bulletList' | 'orderedList'): TiptapDoc {

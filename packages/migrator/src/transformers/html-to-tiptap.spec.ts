@@ -65,6 +65,17 @@ describe('htmlToTiptap', () => {
   it('never yields an empty doc', () => {
     expect(htmlToTiptap('')).toEqual({ type: 'doc', content: [{ type: 'paragraph' }] });
   });
+
+  it('keeps block breaks inside a wiki wrapper / collapsible (no run-together text)', () => {
+    const doc = htmlToTiptap(
+      '<div class="wiki text prewrapped"><details><summary>Details</summary><p>line one</p><p>line two</p></details></div>',
+    );
+    expect(doc.content!.map((p) => p.content?.[0]?.text)).toEqual([
+      'Details',
+      'line one',
+      'line two',
+    ]);
+  });
 });
 
 describe('richTextToTiptap', () => {
