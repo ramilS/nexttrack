@@ -347,13 +347,14 @@ export class MigrateCommand {
   }
 
   // The ghost user absorbs authorship of content whose source account no longer
-  // exists in YouTrack. Idempotent by email; survives --resume via the id-map.
+  // exists in YouTrack. Named "Deleted User" to mirror how YouTrack itself
+  // renders removed accounts. Idempotent by email; survives --resume via the id-map.
   private async ensureFallbackUser(options: MigrateOptions): Promise<void> {
     if (options.dryRun || this.idMap.getFallbackUserId()) return;
     try {
       const result = await this.api.createMigratedUser({
-        email: 'migration.ghost@migrated.local',
-        name: 'YouTrack Migration',
+        email: 'deleted.user@migrated.local',
+        name: 'Deleted User',
         avatarUrl: null,
         isBlocked: true,
         migratedFrom: 'youtrack',
