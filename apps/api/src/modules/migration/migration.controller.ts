@@ -53,7 +53,10 @@ import {
 
 // Bulk admin import behind MigrationGuard (admin JWT + secret) — the global
 // per-IP throttle only breaks high-throughput migration; it is not a public route.
-@SkipThrottle()
+// The throttlers are NAMED (short/medium/long), so @SkipThrottle() with no args
+// (which only skips a bucket literally named "default") is a no-op here — each
+// named bucket must be opted out explicitly.
+@SkipThrottle({ short: true, medium: true, long: true })
 @Controller('admin/migration')
 @UseGuards(JwtAuthGuard, MigrationGuard)
 export class MigrationController {
