@@ -67,6 +67,17 @@ const setAttachmentMetadataSchema = z.object({
   originalCreatedAt: z.iso.datetime().optional(),
 });
 
+// Streamed attachment upload: file bytes are the raw request body; this
+// metadata rides in the query string. No size cap (migration carries files
+// that already existed in YouTrack).
+const migrationAttachmentMetaSchema = z.object({
+  filename: z.string().trim().min(1).max(500),
+  mimeType: z.string().trim().min(1).max(255),
+  size: z.coerce.number().int().min(0),
+  uploadedById: z.guid(),
+  originalCreatedAt: z.iso.datetime().optional(),
+});
+
 const sprintIssuesSchema = z.object({
   issueIds: z
     .array(z.guid())
@@ -151,5 +162,6 @@ export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprint
 export class MigrationCreateProjectDto extends createZodDto(migrationCreateProjectSchema) {}
 export class MigrationProjectResultDto extends createZodDto(migrationProjectResultSchema) {}
 export class SetAttachmentMetadataDto extends createZodDto(setAttachmentMetadataSchema) {}
+export class MigrationAttachmentMetaDto extends createZodDto(migrationAttachmentMetaSchema) {}
 export class MigrationCreateCustomFieldDto extends createZodDto(createCustomFieldSchema) {}
 export class MigrationCustomFieldResultDto extends createZodDto(migrationCustomFieldResultSchema) {}

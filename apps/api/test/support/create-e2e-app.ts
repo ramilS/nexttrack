@@ -124,6 +124,7 @@ const DRAIN_TIMEOUT_MS = 15_000;
 const mockStorageService = {
   onModuleInit: async () => {},
   uploadBuffer: async () => {},
+  uploadStream: async () => {},
   getSignedDownloadUrl: async () => 'https://mock-s3/file',
   deleteFile: async () => {},
   fileExists: async () => false,

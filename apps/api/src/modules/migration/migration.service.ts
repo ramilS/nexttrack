@@ -29,6 +29,10 @@ import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { generateDefaultWorkflow } from '@/modules/workflows/default-workflow';
 import { StatusCategory } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { extname } from 'path';
+import { Readable } from 'stream';
+import { AttachmentsStorageService } from '@/modules/attachments/attachments-storage.service';
+import { AttachmentsRepository } from '@/modules/attachments/attachments.repository';
 import { BoardsService } from '@/modules/boards/boards.service';
 import { SprintsService } from '@/modules/sprints/sprints.service';
 import type { CreateBoardParsed, CreateSprintInput } from '@repo/shared/schemas';
@@ -68,6 +72,8 @@ export class MigrationService {
     private projectsRepo: ProjectsRepository,
     private boardsService: BoardsService,
     private sprintsService: SprintsService,
+    private attachmentsStorage: AttachmentsStorageService,
+    private attachmentsRepo: AttachmentsRepository,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -475,6 +481,63 @@ export class MigrationService {
         : undefined,
     });
     return { success: true };
+  }
+
+  // Streamed attachment import: pipes the raw request body straight to S3
+  // (no in-memory buffering) and creates the row with the original author +
+  // date. Deliberately bypasses the interactive upload's 50 MB cap and MIME
+  // allow-list — migration is an admin-trusted bulk path carrying files that
+  // already existed in YouTrack. The source is trusted; do NOT reuse this for
+  // user-facing uploads.
+  async uploadAttachment(
+    issueId: string,
+    stream: Readable,
+    meta: {
+      filename: string;
+      mimeType: string;
+      size: number;
+      uploadedById: string;
+      originalCreatedAt?: string;
+    },
+  ) {
+    const projectId = await this.migrationRepo.findIssueProjectId(issueId);
+    if (!projectId) {
+      throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
+    }
+    this.assertBackdatingAllowed(Boolean(meta.originalCreatedAt));
+
+    const attachmentId = randomUUID();
+    const storagePath = `attachments/${issueId}/${attachmentId}${extname(meta.filename).toLowerCase()}`;
+
+    await this.attachmentsStorage.uploadStream(
+      stream,
+      storagePath,
+      meta.mimeType,
+      meta.size,
+    );
+
+    const raw = await this.attachmentsRepo.create({
+      id: attachmentId,
+      issueId,
+      uploadedById: meta.uploadedById,
+      filename: meta.filename,
+      storagePath,
+      mimeType: meta.mimeType,
+      size: meta.size,
+    });
+
+    if (meta.originalCreatedAt) {
+      await this.migrationRepo.setAttachmentMetadata(attachmentId, {
+        createdAt: new Date(meta.originalCreatedAt),
+      });
+    }
+
+    this.logger.log('Migrated attachment uploaded', {
+      attachmentId: raw.id,
+      issueId,
+      size: meta.size,
+    });
+    return { data: { id: raw.id } };
   }
 
   async getCustomFieldMap(projectKey: string) {

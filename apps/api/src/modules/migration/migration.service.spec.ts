@@ -16,6 +16,8 @@ import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { BoardsService } from '@/modules/boards/boards.service';
 import { SprintsService } from '@/modules/sprints/sprints.service';
+import { AttachmentsStorageService } from '@/modules/attachments/attachments-storage.service';
+import { AttachmentsRepository } from '@/modules/attachments/attachments.repository';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -33,6 +35,8 @@ describe('MigrationService', () => {
   let projectsRepo: { findEntityByKey: jest.Mock; createWithWorkflow: jest.Mock };
   let boardsService: { create: jest.Mock };
   let sprintsService: { create: jest.Mock; addIssues: jest.Mock };
+  let attachmentsStorage: { uploadStream: jest.Mock };
+  let attachmentsRepo: { create: jest.Mock };
   let tagsRepo: {
     findByNameInsensitive: jest.Mock;
     replaceIssueLinksBulk: jest.Mock;
@@ -100,6 +104,8 @@ describe('MigrationService', () => {
     };
     boardsService = { create: jest.fn() };
     sprintsService = { create: jest.fn(), addIssues: jest.fn() };
+    attachmentsStorage = { uploadStream: jest.fn().mockResolvedValue(undefined) };
+    attachmentsRepo = { create: jest.fn() };
     tagsRepo = {
       findByNameInsensitive: jest.fn().mockResolvedValue(null),
       replaceIssueLinksBulk: jest.fn().mockResolvedValue(undefined),
@@ -140,6 +146,8 @@ describe('MigrationService', () => {
         { provide: ProjectsRepository, useValue: projectsRepo },
         { provide: BoardsService, useValue: boardsService },
         { provide: SprintsService, useValue: sprintsService },
+        { provide: AttachmentsStorageService, useValue: attachmentsStorage },
+        { provide: AttachmentsRepository, useValue: attachmentsRepo },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -543,6 +551,58 @@ describe('MigrationService', () => {
         createdAt: new Date('2020-03-04T00:00:00.000Z'),
       });
       expect(result).toEqual({ success: true });
+    });
+  });
+
+  describe('uploadAttachment', () => {
+    const stream = { pipe: jest.fn() } as unknown as NodeJS.ReadableStream;
+    const meta = {
+      filename: 'diagram.pdf',
+      mimeType: 'application/pdf',
+      size: 123,
+      uploadedById: 'user-1',
+      originalCreatedAt: '2022-05-01T00:00:00.000Z',
+    };
+
+    it('throws NotFoundError when the issue does not exist', async () => {
+      repo.findIssueProjectId.mockResolvedValue(null);
+
+      await expect(
+        service.uploadAttachment('missing', stream as never, meta),
+      ).rejects.toThrow(NotFoundError);
+      expect(attachmentsStorage.uploadStream).not.toHaveBeenCalled();
+    });
+
+    it('streams to storage, creates the row, and backdates it', async () => {
+      repo.findIssueProjectId.mockResolvedValue('proj-1');
+      // Echo the id back (Prisma returns the id you set) so the generated id,
+      // the created row, and the backdate target all line up.
+      attachmentsRepo.create.mockImplementation(({ id }) => Promise.resolve({ id }));
+
+      const result = await service.uploadAttachment('issue-1', stream as never, meta);
+
+      const createdId = attachmentsRepo.create.mock.calls[0][0].id;
+      expect(createdId).toEqual(expect.any(String));
+
+      expect(attachmentsStorage.uploadStream).toHaveBeenCalledWith(
+        stream,
+        expect.stringContaining(`attachments/issue-1/${createdId}`),
+        'application/pdf',
+        123,
+      );
+      expect(attachmentsRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issueId: 'issue-1',
+          uploadedById: 'user-1',
+          filename: 'diagram.pdf',
+          mimeType: 'application/pdf',
+          size: 123,
+        }),
+      );
+      expect(repo.setAttachmentMetadata).toHaveBeenCalledWith(createdId, {
+        createdAt: new Date('2022-05-01T00:00:00.000Z'),
+      });
+      expect(result).toEqual({ data: { id: createdId } });
     });
   });
 

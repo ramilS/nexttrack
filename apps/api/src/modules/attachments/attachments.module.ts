@@ -11,6 +11,6 @@ import { ProjectsModule } from '@/modules/projects/projects.module';
   imports: [ActivitiesModule, IssuesModule, ProjectsModule],
   controllers: [AttachmentsController],
   providers: [AttachmentsService, AttachmentsStorageService, AttachmentsRepository],
-  exports: [AttachmentsService, AttachmentsStorageService],
+  exports: [AttachmentsService, AttachmentsStorageService, AttachmentsRepository],
 })
 export class AttachmentsModule {}

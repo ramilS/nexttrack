@@ -8,6 +8,7 @@ import { IssueLinksModule } from '@/modules/issue-links/issue-links.module';
 import { TimeTrackingModule } from '@/modules/time-tracking/time-tracking.module';
 import { BoardsModule } from '@/modules/boards/boards.module';
 import { SprintsModule } from '@/modules/sprints/sprints.module';
+import { AttachmentsModule } from '@/modules/attachments/attachments.module';
 import { MigrationController } from './migration.controller';
 import { MigrationService } from './migration.service';
 import { MigrationGuard } from './migration.guard';
@@ -24,6 +25,7 @@ import { MigrationRepository } from './migration.repository';
     TimeTrackingModule,
     BoardsModule,
     SprintsModule,
+    AttachmentsModule,
   ],
   controllers: [MigrationController],
   providers: [MigrationService, MigrationGuard, MigrationRepository],

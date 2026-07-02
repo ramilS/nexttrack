@@ -6,10 +6,13 @@ import {
   Param,
   Body,
   Query,
+  Req,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
+import { SkipTimeout } from '@/common/interceptors/skip-timeout.decorator';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { MigrationGuard } from './migration.guard';
@@ -47,6 +50,7 @@ import {
   MigrationProjectResultDto,
   MigrationCreateCustomFieldDto,
   MigrationCustomFieldResultDto,
+  MigrationAttachmentMetaDto,
   SetAttachmentMetadataDto,
   MigrationStatusesDto,
   AddMembersDto,
@@ -200,6 +204,20 @@ export class MigrationController {
     @Body() dto: SetAttachmentMetadataDto,
   ) {
     return this.migrationService.setAttachmentMetadata(attachmentId, dto);
+  }
+
+  // Raw-stream attachment upload — file bytes are the request body, metadata is
+  // in the query string. No size cap / MIME check (trusted bulk import), and
+  // exempt from the request timeout so large files aren't aborted.
+  @Post('issues/:issueId/attachments')
+  @SkipTimeout()
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  uploadAttachment(
+    @Param('issueId') issueId: string,
+    @Query() meta: MigrationAttachmentMetaDto,
+    @Req() req: Request,
+  ) {
+    return this.migrationService.uploadAttachment(issueId, req, meta);
   }
 
   @Post('projects')

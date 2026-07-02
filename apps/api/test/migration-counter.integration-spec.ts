@@ -216,6 +216,39 @@ describe('Migration Issue Counter (Integration)', () => {
     expect(stored?.value).toBe(backend.id);
   });
 
+  it('streams an attachment (any type/size), backdated to its original author + date', async () => {
+    const issueRes = await migrate(300, 'yt-att-300').expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const body = Buffer.from('fake executable bytes');
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${issueId}/attachments`)
+      .query({
+        filename: 'installer.exe',
+        // A type the interactive endpoint's allow-list would reject — proving
+        // the migration path bypasses it.
+        mimeType: 'application/x-msdownload',
+        size: body.length,
+        uploadedById: adminId,
+        originalCreatedAt: '2021-02-03T04:05:06.000Z',
+      })
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .set('Content-Type', 'application/octet-stream')
+      .send(body);
+    expect(res.status).toBe(201);
+    const attachmentId = res.body.data.data.id;
+
+    const stored = await ctx.prisma.attachment.findUniqueOrThrow({
+      where: { id: attachmentId },
+    });
+    expect(stored.filename).toBe('installer.exe');
+    expect(stored.mimeType).toBe('application/x-msdownload');
+    expect(stored.size).toBe(body.length);
+    expect(stored.uploadedById).toBe(adminId);
+    expect(stored.createdAt.toISOString()).toBe('2021-02-03T04:05:06.000Z');
+  });
+
   it('creates a non-parent issue link between two migrated issues', async () => {
     const sourceRes = await migrate(201, 'yt-link-src').expect(201);
     const targetRes = await migrate(202, 'yt-link-tgt').expect(201);
@@ -376,7 +409,16 @@ describe('Migration Backdating Gate (Integration)', () => {
   let statusId: string;
 
   beforeAll(async () => {
-    ctx = await createE2eApp();
+    // Pin backdating OFF explicitly — do NOT rely on the ambient env being
+    // unset (a developer's root .env may set MIGRATION_ALLOW_BACKDATED_RECORDS
+    // for a real migration run, which the harness would otherwise inherit).
+    ctx = await createE2eApp({
+      customize: (builder) =>
+        builder.overrideProvider(migrationConfig.KEY).useValue({
+          apiSecret: MIGRATION_SECRET,
+          allowBackdatedRecords: false,
+        }),
+    });
   }, 60_000);
 
   afterAll(async () => {
