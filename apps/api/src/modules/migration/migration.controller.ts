@@ -9,6 +9,7 @@ import {
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { MigrationGuard } from './migration.guard';
@@ -50,6 +51,9 @@ import {
   MigrationMembersResultDto,
 } from './migration.dto';
 
+// Bulk admin import behind MigrationGuard (admin JWT + secret) — the global
+// per-IP throttle only breaks high-throughput migration; it is not a public route.
+@SkipThrottle()
 @Controller('admin/migration')
 @UseGuards(JwtAuthGuard, MigrationGuard)
 export class MigrationController {
