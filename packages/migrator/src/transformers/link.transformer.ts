@@ -1,9 +1,26 @@
+import { YtIssueLink } from '../youtrack/types/yt-issue.type';
+
 export type FrontendLinkType =
   | 'BLOCKS'
   | 'IS_BLOCKED_BY'
   | 'RELATES_TO'
   | 'DUPLICATES'
   | 'IS_DUPLICATED_BY';
+
+// YouTrack has no native parent field — issue hierarchy is the "Subtask" link
+// (default name). An issue's parent is the target of its INWARD side
+// ("subtask of"); the OUTWARD side ("parent for") points at its children.
+const SUBTASK_LINK_TYPE = 'Subtask';
+
+export function resolveParentYtId(
+  links: YtIssueLink[] | undefined,
+): string | null {
+  const parentLink = (links ?? []).find(
+    (link) =>
+      link.linkType.name === SUBTASK_LINK_TYPE && link.direction === 'INWARD',
+  );
+  return parentLink?.issues[0]?.id ?? null;
+}
 
 interface LinkTypeMapping {
   outward: FrontendLinkType | null;

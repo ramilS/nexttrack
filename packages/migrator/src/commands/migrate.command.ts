@@ -21,7 +21,7 @@ import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { CustomFieldDefsExtractor } from '../extractors/custom-field-defs.extractor';
 import { buildCustomFieldDto, YtFieldDef } from '../transformers/custom-field-def.transformer';
 import { mapTagColor } from '../transformers/tag.transformer';
-import { mapYtLink } from '../transformers/link.transformer';
+import { mapYtLink, resolveParentYtId } from '../transformers/link.transformer';
 import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
 import { mapStatesToStatuses } from '../transformers/state.transformer';
 import { formatHttpError } from '../utils/http-error';
@@ -748,7 +748,9 @@ export class MigrateCommand {
       return;
     }
 
-    // Re-extract issues to get parent references
+    // Re-extract issues to resolve parent references. YouTrack has no native
+    // parent field — hierarchy is the INWARD "Subtask" link; fall back to a
+    // top-level `parent` for any config that populates it.
     let linked = 0;
 
     for await (const batch of this.issuesExtractor.extract(projectKey, {
@@ -756,10 +758,11 @@ export class MigrateCommand {
       batchSize: options.batchSize,
     })) {
       for (const ytIssue of batch) {
-        if (!ytIssue.parent) continue;
+        const parentYtId = ytIssue.parent?.id ?? resolveParentYtId(ytIssue.links);
+        if (!parentYtId) continue;
 
         const ourIssueId = this.idMap.getIssueId(ytIssue.id);
-        const ourParentId = this.idMap.getIssueId(ytIssue.parent.id);
+        const ourParentId = this.idMap.getIssueId(parentYtId);
 
         if (ourIssueId && ourParentId) {
           try {

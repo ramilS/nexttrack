@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mapYtLink } from './link.transformer';
+import { mapYtLink, resolveParentYtId } from './link.transformer';
 
 describe('mapYtLink', () => {
   it('maps Depend outward to BLOCKS and inward to IS_BLOCKED_BY', () => {
@@ -25,5 +25,32 @@ describe('mapYtLink', () => {
 
   it('skips unknown link types', () => {
     expect(mapYtLink('Frobnicate', 'OUTWARD')).toBeNull();
+  });
+});
+
+describe('resolveParentYtId', () => {
+  const parentLink = {
+    direction: 'INWARD' as const,
+    linkType: { name: 'Subtask', sourceToTarget: 'parent for', targetToSource: 'subtask of' },
+    issues: [{ id: 'yt-parent' }],
+  };
+
+  it('returns the parent id from the INWARD Subtask link', () => {
+    expect(resolveParentYtId([parentLink])).toBe('yt-parent');
+  });
+
+  it('ignores the OUTWARD Subtask side (those are children, not the parent)', () => {
+    const childLink = { ...parentLink, direction: 'OUTWARD' as const, issues: [{ id: 'yt-child' }] };
+    expect(resolveParentYtId([childLink])).toBeNull();
+  });
+
+  it('ignores non-Subtask link types', () => {
+    const relates = { ...parentLink, linkType: { name: 'Relates' } };
+    expect(resolveParentYtId([relates as never])).toBeNull();
+  });
+
+  it('returns null for no links', () => {
+    expect(resolveParentYtId(undefined)).toBeNull();
+    expect(resolveParentYtId([])).toBeNull();
   });
 });
