@@ -15,6 +15,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     abortOnError: false,
     bufferLogs: true,
+    // Body parsers (with a raised limit) are registered in configureApp so the
+    // limit is identical in prod and the test harness. Disable Nest's built-in
+    // 100kb parser to avoid a second, stricter parser running first.
+    bodyParser: false,
   });
 
   app.useLogger(app.get(PinoLogger));

@@ -233,7 +233,9 @@ export async function createE2eApp(
   // Create NestJS app with throttling disabled. `configureApp` applies the
   // same request-pipeline middleware (request id, helmet, cookie parser) the
   // production bootstrap uses, keeping prod ⇄ test behavior in parity.
-  const app = module.createNestApplication();
+  // Disable Nest's built-in body parser so configureApp's raised-limit parsers
+  // are authoritative here too (prod ⇄ test parity on the request body limit).
+  const app = module.createNestApplication({ bodyParser: false });
   configureApp(app);
 
   if (options.withWebSockets) {
