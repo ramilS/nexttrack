@@ -4,6 +4,7 @@ export const SEARCH_INDEXING_QUEUE = 'search-indexing';
 
 export const INDEX_ISSUE_JOB = 'index';
 export const DELETE_ISSUE_JOB = 'delete';
+export const REINDEX_PROJECT_JOB = 'reindex-project';
 
 export interface IndexIssueJobData {
   issueId: string;
@@ -14,7 +15,15 @@ export interface DeleteIssueJobData {
   issueId: string;
 }
 
-export type SearchIndexingJobData = IndexIssueJobData | DeleteIssueJobData;
+export interface ReindexProjectJobData {
+  projectId: string;
+  reason: string;
+}
+
+export type SearchIndexingJobData =
+  | IndexIssueJobData
+  | DeleteIssueJobData
+  | ReindexProjectJobData;
 
 /**
  * Retry/retention policy for search-indexing jobs. Exponential backoff covers

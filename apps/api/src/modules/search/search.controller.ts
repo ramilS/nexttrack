@@ -77,7 +77,9 @@ export class SearchController {
   @ApiEnvelope(ReindexResponseDto)
   async reindex(@Body() dto: ReindexDto) {
     if (dto.projectKey) {
-      return this.issueIndexer.reindexProjectByKey(dto.projectKey);
+      return dto.async
+        ? this.issueIndexer.scheduleProjectReindex(dto.projectKey)
+        : this.issueIndexer.reindexProjectByKey(dto.projectKey);
     }
     return this.issueIndexer.reindexAll();
   }

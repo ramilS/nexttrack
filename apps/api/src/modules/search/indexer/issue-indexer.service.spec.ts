@@ -3,6 +3,7 @@ import { IssueIndexerService } from './issue-indexer.service';
 import { SearchRepository, IndexerIssue } from '@/modules/search/search.repository';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
+import { IndexerHooksService } from './indexer-hooks.service';
 import { elasticsearchConfig } from '@/config';
 import { NotFoundError } from '@/common/errors/domain.errors';
 
@@ -17,6 +18,7 @@ describe('IssueIndexerService', () => {
   let service: IssueIndexerService;
   let searchRepo: { findForIndex: jest.Mock; findManyForIndex: jest.Mock };
   let projectsRepo: { findAllActiveIds: jest.Mock; findEntityByKey: jest.Mock };
+  let indexerHooks: { enqueueProjectReindex: jest.Mock };
   let es: Record<string, jest.Mock | string>;
 
   beforeEach(async () => {
@@ -37,12 +39,17 @@ describe('IssueIndexerService', () => {
       findEntityByKey: jest.fn().mockResolvedValue(null),
     };
 
+    indexerHooks = {
+      enqueueProjectReindex: jest.fn().mockResolvedValue(undefined),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         IssueIndexerService,
         { provide: SearchRepository, useValue: searchRepo },
         { provide: ProjectsRepository, useValue: projectsRepo },
         { provide: ElasticsearchService, useValue: es },
+        { provide: IndexerHooksService, useValue: indexerHooks },
         { provide: elasticsearchConfig.KEY, useValue: { indexerBatchSize: 100 } },
       ],
     }).compile();
@@ -284,6 +291,28 @@ describe('IssueIndexerService', () => {
 
       await expect(service.reindexProjectByKey('NOPE')).rejects.toThrow(NotFoundError);
       expect(es.bulk).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('scheduleProjectReindex', () => {
+    it('enqueues a background reindex without touching ES inline', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+
+      const result = await service.scheduleProjectReindex('DEVX');
+
+      expect(indexerHooks.enqueueProjectReindex).toHaveBeenCalledWith(
+        'proj-1',
+        expect.stringContaining('DEVX'),
+      );
+      expect(es.bulk).not.toHaveBeenCalled();
+      expect(result).toEqual({ queued: true, projectId: 'proj-1' });
+    });
+
+    it('throws NotFoundError for an unknown project key and enqueues nothing', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+
+      await expect(service.scheduleProjectReindex('NOPE')).rejects.toThrow(NotFoundError);
+      expect(indexerHooks.enqueueProjectReindex).not.toHaveBeenCalled();
     });
   });
 });

@@ -42,16 +42,24 @@ export const validateQuerySchema = z.object({
 });
 export type ValidateQueryInput = z.infer<typeof validateQuerySchema>;
 
-export const reindexSchema = z.object({
-  // Human-friendly project identifier (e.g. "DEVX"), case-insensitive. Omit to
-  // reindex every project.
-  projectKey: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .pipe(z.string().min(PROJECT_KEY_MIN).max(PROJECT_KEY_MAX).regex(PROJECT_KEY_REGEX))
-    .optional(),
-});
+export const reindexSchema = z
+  .object({
+    // Human-friendly project identifier (e.g. "DEVX"), case-insensitive. Omit to
+    // reindex every project.
+    projectKey: z
+      .string()
+      .trim()
+      .toUpperCase()
+      .pipe(z.string().min(PROJECT_KEY_MIN).max(PROJECT_KEY_MAX).regex(PROJECT_KEY_REGEX))
+      .optional(),
+    // Enqueue a background reindex and return immediately instead of reindexing
+    // inline (avoids blocking the request on a large project). Project-scoped.
+    async: z.boolean().optional(),
+  })
+  .refine((data) => !data.async || !!data.projectKey, {
+    message: 'async reindex requires a projectKey',
+    path: ['projectKey'],
+  });
 export type ReindexInput = z.infer<typeof reindexSchema>;
 
 // ─── Response schemas ────────────────────────────────────────
@@ -169,8 +177,11 @@ export const validateResponseSchema = z.object({
 export type ValidateResponse = z.infer<typeof validateResponseSchema>;
 
 export const reindexResponseSchema = z.object({
-  indexed: z.number().int().nonnegative(),
-  errors: z.number().int().nonnegative(),
+  // Present on a synchronous reindex; absent when the reindex was queued.
+  indexed: z.number().int().nonnegative().optional(),
+  errors: z.number().int().nonnegative().optional(),
   projectId: z.guid().optional(),
+  // True when the reindex was enqueued as a background job (async).
+  queued: z.boolean().optional(),
 });
 export type ReindexResponse = z.infer<typeof reindexResponseSchema>;

@@ -4,6 +4,7 @@ import { Queue } from 'bullmq';
 import {
   DELETE_ISSUE_JOB,
   INDEX_ISSUE_JOB,
+  REINDEX_PROJECT_JOB,
   SEARCH_INDEXING_JOB_OPTS,
   SEARCH_INDEXING_QUEUE,
   SearchIndexingJobData,
@@ -41,5 +42,18 @@ export class IndexerHooksService {
       SEARCH_INDEXING_JOB_OPTS,
     );
     this.logger.debug('Issue de-index scheduled', { issueId });
+  }
+
+  // Schedules a full project reindex off the request path. Used after a bulk
+  // import (migration), which writes issues directly and bypasses the per-issue
+  // hooks above — so a single background reindex catches them all, with the
+  // queue's retry/backoff covering a transient ES outage.
+  async enqueueProjectReindex(projectId: string, reason: string): Promise<void> {
+    await this.queue.add(
+      REINDEX_PROJECT_JOB,
+      { projectId, reason },
+      SEARCH_INDEXING_JOB_OPTS,
+    );
+    this.logger.log('Project reindex scheduled', { projectId, reason });
   }
 }
