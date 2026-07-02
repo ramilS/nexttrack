@@ -114,7 +114,8 @@ export class TimeLogsService {
   // Bulk import for the migration tool: creates IMPORT-sourced logs (each with
   // its original author + date), recalculates spent once, and skips per-log
   // activity records (a migration is not a user action). No archived-project
-  // block — migration must be able to import into any project state.
+  // block and no future-date guard — migration must faithfully carry historical
+  // data of any shape (dates are already ISO-validated at the DTO boundary).
   async importMany(
     issueId: string,
     entries: Array<{
@@ -136,7 +137,7 @@ export class TimeLogsService {
             issueId,
             userId: entry.userId,
             duration: entry.minutes,
-            date: this.parseDate(entry.date),
+            date: new Date(entry.date),
             description: entry.description,
             source: TimeLogSource.IMPORT,
           },

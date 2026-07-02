@@ -27,6 +27,7 @@ import {
   createIssueLinkSchema,
   createBoardSchema,
   createSprintSchema,
+  TIME_LOG_DURATION_MAX_MINUTES,
 } from '@repo/shared/schemas';
 
 const findUserByEmailQuerySchema = z.object({
@@ -51,7 +52,7 @@ const migrationTimeLogsSchema = z.object({
     .array(
       z.object({
         userId: z.guid(),
-        minutes: z.number().int().min(1).max(8_766_240),
+        minutes: z.number().int().min(1).max(TIME_LOG_DURATION_MAX_MINUTES),
         date: z.iso.datetime(),
         description: z.string().max(1000).nullable().optional(),
       }),

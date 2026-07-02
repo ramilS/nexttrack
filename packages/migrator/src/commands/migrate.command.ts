@@ -49,22 +49,6 @@ export interface MigrateOptions {
 
 const VERSION = '0.1.0';
 
-// Flags whose data is extracted from YouTrack but not yet loaded into the target.
-// The migration rejects them up front instead of running and silently doing
-// nothing. Remove an entry here once its loading path is implemented.
-// Flags whose loading is not yet implemented. Empty now that boards and
-// time-tracking both load; kept as the mechanism for any future stub flag.
-const UNSUPPORTED_FLAGS: {
-  key: 'withBoards' | 'withTimeTracking';
-  label: string;
-}[] = [];
-
-export function unsupportedMigrationFlags(
-  options: Pick<MigrateOptions, 'withBoards' | 'withTimeTracking'>,
-): string[] {
-  return UNSUPPORTED_FLAGS.filter((f) => options[f.key]).map((f) => f.label);
-}
-
 // Register the TARGET project's real workflow-status ids, keyed by status name,
 // so issues resolve to a valid statusId (the FK). Name-based: the target
 // project's workflow must use status names matching the YouTrack states, or the
@@ -119,16 +103,6 @@ export class MigrateCommand {
 
   async run(options: MigrateOptions): Promise<void> {
     this.init(options);
-
-    const unsupported = unsupportedMigrationFlags(options);
-    if (unsupported.length > 0) {
-      this.reporter.error(
-        `Not implemented yet: ${unsupported.join(', ')}. These entities are ` +
-          `extracted from YouTrack but not loaded into the target — remove the ` +
-          `flag(s) and migrate this data separately once support lands.`,
-      );
-      process.exit(1);
-    }
 
     const startTime = Date.now();
     let checkpoint: MigrationCheckpoint;
@@ -231,7 +205,7 @@ export class MigrateCommand {
         await this.migrateTags(projectKey, checkpoint, options);
       }
 
-      // Step 6: Comments
+      // Step 7: Comments
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Comments');
       for (const projectKey of options.projects) {
@@ -241,7 +215,7 @@ export class MigrateCommand {
         await this.migrateComments(projectKey, checkpoint, options);
       }
 
-      // Step 6: Attachments
+      // Step 8: Attachments
       if (options.withAttachments) {
         step++;
         this.reporter.section(step, totalSteps, 'Migrating Attachments');
@@ -253,7 +227,7 @@ export class MigrateCommand {
         }
       }
 
-      // Step 7: Time Logs
+      // Step 9: Time Logs
       if (options.withTimeTracking) {
         step++;
         this.reporter.section(step, totalSteps, 'Migrating Time Logs');
@@ -265,7 +239,7 @@ export class MigrateCommand {
         }
       }
 
-      // Step 8: Boards + sprints
+      // Step 10: Boards + sprints
       if (options.withBoards) {
         step++;
         this.reporter.section(step, totalSteps, 'Migrating Boards + Sprints');
@@ -1021,7 +995,9 @@ export class MigrateCommand {
         for (const ytSprint of ytBoard.sprints ?? []) {
           const sprintId = await this.api.createSprint(boardId, {
             name: ytSprint.name,
-            goal: ytSprint.goal,
+            // YouTrack returns goal: null (not absent) → coerce, since the
+            // target schema's goal is optional-but-not-nullable.
+            goal: ytSprint.goal || undefined,
             startDate: ytSprint.start
               ? new Date(ytSprint.start).toISOString()
               : undefined,

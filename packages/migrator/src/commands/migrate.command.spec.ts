@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import {
-  unsupportedMigrationFlags,
   registerStatusMap,
   registerCustomFieldMap,
 } from './migrate.command';
@@ -35,10 +34,3 @@ describe('registerCustomFieldMap', () => {
   });
 });
 
-describe('unsupportedMigrationFlags', () => {
-  it('returns empty — boards and time-tracking both load now', () => {
-    expect(
-      unsupportedMigrationFlags({ withBoards: true, withTimeTracking: true }),
-    ).toEqual([]);
-  });
-});
