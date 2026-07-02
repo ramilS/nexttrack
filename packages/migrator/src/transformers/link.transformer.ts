@@ -7,17 +7,29 @@ export type FrontendLinkType =
   | 'DUPLICATES'
   | 'IS_DUPLICATED_BY';
 
-// YouTrack has no native parent field — issue hierarchy is the "Subtask" link
-// (default name). An issue's parent is the target of its INWARD side
+// YouTrack has no native parent field — issue hierarchy is the aggregation
+// ("Subtask") link. An issue's parent is the target of its INWARD side
 // ("subtask of"); the OUTWARD side ("parent for") points at its children.
-const SUBTASK_LINK_TYPE = 'Subtask';
+//
+// Match by the type name OR its presentation strings ("parent for" /
+// "subtask of"), since the internal linkType.name can be renamed per instance
+// while the presentation stays. Case-insensitive.
+function isSubtaskLinkType(linkType: {
+  name?: string;
+  sourceToTarget?: string;
+  targetToSource?: string;
+}): boolean {
+  const parts = [linkType.name, linkType.sourceToTarget, linkType.targetToSource]
+    .filter((s): s is string => typeof s === 'string')
+    .map((s) => s.toLowerCase());
+  return parts.some((s) => s === 'subtask' || s.includes('subtask') || s.includes('parent'));
+}
 
 export function resolveParentYtId(
   links: YtIssueLink[] | undefined,
 ): string | null {
   const parentLink = (links ?? []).find(
-    (link) =>
-      link.linkType.name === SUBTASK_LINK_TYPE && link.direction === 'INWARD',
+    (link) => link.direction === 'INWARD' && isSubtaskLinkType(link.linkType),
   );
   return parentLink?.issues[0]?.id ?? null;
 }

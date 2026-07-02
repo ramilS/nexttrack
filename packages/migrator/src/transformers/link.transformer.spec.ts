@@ -39,6 +39,14 @@ describe('resolveParentYtId', () => {
     expect(resolveParentYtId([parentLink])).toBe('yt-parent');
   });
 
+  it('matches by presentation ("subtask of"/"parent for") when the type name differs', () => {
+    const renamed = {
+      ...parentLink,
+      linkType: { name: 'Aggregation', sourceToTarget: 'parent for', targetToSource: 'subtask of' },
+    };
+    expect(resolveParentYtId([renamed])).toBe('yt-parent');
+  });
+
   it('ignores the OUTWARD Subtask side (those are children, not the parent)', () => {
     const childLink = { ...parentLink, direction: 'OUTWARD' as const, issues: [{ id: 'yt-child' }] };
     expect(resolveParentYtId([childLink])).toBeNull();
