@@ -33,6 +33,7 @@ const TYPE_MAP: Record<string, IssueType> = {
   'Bug': 'BUG',
   'Task': 'TASK',
   'Feature': 'FEATURE',
+  'Story': 'STORY',
   'User Story': 'STORY',
   'Epic': 'EPIC',
   'Cosmetics': 'BUG',

@@ -318,6 +318,16 @@ describe('IssueTransformer first-class fields (from customFields)', () => {
     expect(dto.fieldValues).toEqual([]);
   });
 
+  it('maps YouTrack "Story" type to STORY (not the TASK default)', () => {
+    const transformer = new IssueTransformer();
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Type', value: { name: 'Story' }, $type: 'SingleEnumIssueCustomField' },
+      ],
+    });
+    expect(transformer.transform(issue, idMapWithReporter(), statuses).type).toBe('STORY');
+  });
+
   it('does not warn "no mapping" for first-class fields', () => {
     const sink = vi.fn();
     const transformer = new IssueTransformer(sink);
