@@ -256,6 +256,18 @@ export class MigrateCommand {
         }
       }
 
+      // Restore original timestamps. Later phases (parent links, time logs,
+      // sprint membership) update the issue row via Prisma, whose @updatedAt
+      // clobbers the backdated updated_at with the migration-run time — so the
+      // ES-backed list (sorted by updated) shows every touched issue as "just
+      // now". Re-stamp created/updated from the source. Runs BEFORE reindex so
+      // ES picks up the corrected values.
+      step++;
+      this.reporter.section(step, totalSteps, 'Restoring timestamps');
+      for (const projectKey of options.projects) {
+        await this.restoreTimestamps(projectKey, checkpoint, options);
+      }
+
       // Final step: trigger a background reindex per project. Migration writes
       // issues directly (bypassing the per-issue indexer hooks), so without this
       // the imported issues won't appear in the ES-backed issue list. Async: the
@@ -394,12 +406,53 @@ export class MigrateCommand {
   }
 
   private countSteps(options: MigrateOptions): number {
-    // users, projects, issues, parent-links, links, tags, comments, reindex
-    let steps = 8;
+    // users, projects, issues, parent-links, links, tags, comments,
+    // restore-timestamps, reindex
+    let steps = 9;
     if (options.withAttachments) steps++;
     if (options.withTimeTracking) steps++;
     if (options.withBoards) steps++;
     return steps;
+  }
+
+  // Re-stamp each issue's original created/updated from the source. Later
+  // phases update the issue row (parent, time logs, sprint membership) and
+  // Prisma's @updatedAt overwrites the backdated updated_at — this restores it
+  // so the ES-backed list (sorted by updated) shows YouTrack's dates. Runs
+  // before reindex; idempotent, so a --resume re-run is safe.
+  private async restoreTimestamps(
+    projectKey: string,
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+  ): Promise<void> {
+    if (options.dryRun) {
+      this.reporter.log(`[DRY] Would restore timestamps for ${projectKey}`);
+      return;
+    }
+
+    let restored = 0;
+    for await (const batch of this.issuesExtractor.extract(projectKey, {
+      withClosedIssues: options.withClosedIssues,
+      batchSize: options.batchSize,
+    })) {
+      for (const ytIssue of batch) {
+        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+        if (!ourIssueId) continue;
+        try {
+          await this.api.setOriginalDates(ourIssueId, {
+            createdAt: new Date(ytIssue.created).toISOString(),
+            updatedAt: new Date(ytIssue.updated).toISOString(),
+            resolvedAt: ytIssue.resolved
+              ? new Date(ytIssue.resolved).toISOString()
+              : null,
+          });
+          restored++;
+        } catch (err) {
+          await this.recordError(checkpoint, 'timestamps', ytIssue.id, err);
+        }
+      }
+    }
+    this.reporter.info(`Timestamps restored for ${projectKey}: ${restored}`);
   }
 
   private async recordError(
