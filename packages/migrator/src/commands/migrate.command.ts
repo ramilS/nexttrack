@@ -378,12 +378,12 @@ export class MigrateCommand {
     return steps;
   }
 
-  private recordError(
+  private async recordError(
     checkpoint: MigrationCheckpoint,
     phase: string,
     entityId: string,
     err: any,
-  ): void {
+  ): Promise<void> {
     const message = formatHttpError(err);
     checkpoint.errors.push({
       phase,
@@ -392,6 +392,11 @@ export class MigrateCommand {
       timestamp: new Date().toISOString(),
     });
     this.reporter.warn(`Error [${phase}] ${entityId}: ${message}`);
+    // Persist immediately: the periodic (every-100) save can be far away, and the
+    // live progress bar clobbers this warning line — so on-disk errors[] is the
+    // only reliable place to read the full failure text after an interrupted run.
+    checkpoint.idMap = this.idMap.serialize();
+    await this.checkpointService.save(checkpoint);
   }
 
   // ─── Phase implementations ───────────────────────────────────────────
@@ -423,7 +428,7 @@ export class MigrateCommand {
             this.reporter.log(`User already exists: ${ytUser.email}`);
           }
         } catch (err) {
-          this.recordError(checkpoint, 'users', ytUser.id, err);
+          await this.recordError(checkpoint, 'users', ytUser.id, err);
         }
 
         completed++;
@@ -480,7 +485,7 @@ export class MigrateCommand {
           statuses: mapStatesToStatuses(states),
         });
       } catch (err) {
-        this.recordError(checkpoint, 'projects', projectKey, err);
+        await this.recordError(checkpoint, 'projects', projectKey, err);
       }
     }
 
@@ -495,7 +500,7 @@ export class MigrateCommand {
         `Project ${projectKey}: registered ${statuses.length} statuses, ${fields.length} custom fields`,
       );
     } catch (err) {
-      this.recordError(checkpoint, 'projects', projectKey, err);
+      await this.recordError(checkpoint, 'projects', projectKey, err);
       this.reporter.warn(
         `Project ${projectKey}: could not fetch target status/custom-field maps — ` +
           `is the project created in the target system? Statuses will fall back to ` +
@@ -523,7 +528,7 @@ export class MigrateCommand {
           `Project ${projectKey}: ${members.length} users added as members`,
         );
       } catch (err) {
-        this.recordError(checkpoint, 'projects', projectKey, err);
+        await this.recordError(checkpoint, 'projects', projectKey, err);
       }
     }
 
@@ -579,7 +584,7 @@ export class MigrateCommand {
             ytIssue.id,
           );
         } catch (err) {
-          this.recordError(checkpoint, 'issues', ytIssue.id, err);
+          await this.recordError(checkpoint, 'issues', ytIssue.id, err);
         }
 
         completed++;
@@ -631,7 +636,7 @@ export class MigrateCommand {
             await this.api.setIssueParent(ourIssueId, ourParentId);
             linked++;
           } catch (err) {
-            this.recordError(
+            await this.recordError(
               checkpoint,
               'parentLinks',
               ytIssue.id,
@@ -696,7 +701,7 @@ export class MigrateCommand {
               await this.api.createIssueLink(sourceId, { type, targetIssueId: targetId });
               linked++;
             } catch (err) {
-              this.recordError(checkpoint, 'links', ytIssue.id, err);
+              await this.recordError(checkpoint, 'links', ytIssue.id, err);
             }
           }
         }
@@ -760,7 +765,7 @@ export class MigrateCommand {
           await this.api.linkIssueTags(ourIssueId, [...new Set(tagIds)]);
           tagged++;
         } catch (err) {
-          this.recordError(checkpoint, 'tags', ytIssue.id, err);
+          await this.recordError(checkpoint, 'tags', ytIssue.id, err);
         }
       }
       checkpoint.idMap = this.idMap.serialize();
@@ -801,7 +806,7 @@ export class MigrateCommand {
         try {
           comments = await this.commentsExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          this.recordError(checkpoint, 'comments', ytIssue.id, err);
+          await this.recordError(checkpoint, 'comments', ytIssue.id, err);
           continue;
         }
 
@@ -833,7 +838,7 @@ export class MigrateCommand {
             );
             completed++;
           } catch (err) {
-            this.recordError(checkpoint, 'comments', comment.id, err);
+            await this.recordError(checkpoint, 'comments', comment.id, err);
           }
         }
       }
@@ -874,7 +879,7 @@ export class MigrateCommand {
         try {
           attachments = await this.attachmentsExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          this.recordError(checkpoint, 'attachments', ytIssue.id, err);
+          await this.recordError(checkpoint, 'attachments', ytIssue.id, err);
           continue;
         }
 
@@ -905,7 +910,7 @@ export class MigrateCommand {
             }
             completed++;
           } catch (err) {
-            this.recordError(checkpoint, 'attachments', att.id, err);
+            await this.recordError(checkpoint, 'attachments', att.id, err);
           }
         }
       }
@@ -947,7 +952,7 @@ export class MigrateCommand {
         try {
           timeLogs = await this.timeLogsExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
+          await this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
           continue;
         }
 
@@ -982,7 +987,7 @@ export class MigrateCommand {
           await this.api.createTimeLogs(ourIssueId, entries);
           completed += entries.length;
         } catch (err) {
-          this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
+          await this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
         }
       }
     }
@@ -1049,7 +1054,7 @@ export class MigrateCommand {
           }
         }
       } catch (err) {
-        this.recordError(checkpoint, 'boards', ytBoard.id, err);
+        await this.recordError(checkpoint, 'boards', ytBoard.id, err);
       }
     }
 
