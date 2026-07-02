@@ -52,6 +52,16 @@ export class IssueIndexerService {
     return { queued: true, projectId: project.id };
   }
 
+  // Enqueue a background reindex for every active project (one job each, so a
+  // single project's failure retries independently). Returns immediately.
+  async scheduleAllReindex(): Promise<{ queued: true; projects: number }> {
+    const projectIds = await this.projectsRepo.findAllActiveIds();
+    for (const projectId of projectIds) {
+      await this.indexerHooks.enqueueProjectReindex(projectId, 'reindex-api:all');
+    }
+    return { queued: true, projects: projectIds.length };
+  }
+
   async indexIssue(issueId: string): Promise<'indexed' | 'removed'> {
     const issue = await this.searchRepo.findForIndex(issueId);
 

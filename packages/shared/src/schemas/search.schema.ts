@@ -42,24 +42,20 @@ export const validateQuerySchema = z.object({
 });
 export type ValidateQueryInput = z.infer<typeof validateQuerySchema>;
 
-export const reindexSchema = z
-  .object({
-    // Human-friendly project identifier (e.g. "DEVX"), case-insensitive. Omit to
-    // reindex every project.
-    projectKey: z
-      .string()
-      .trim()
-      .toUpperCase()
-      .pipe(z.string().min(PROJECT_KEY_MIN).max(PROJECT_KEY_MAX).regex(PROJECT_KEY_REGEX))
-      .optional(),
-    // Enqueue a background reindex and return immediately instead of reindexing
-    // inline (avoids blocking the request on a large project). Project-scoped.
-    async: z.boolean().optional(),
-  })
-  .refine((data) => !data.async || !!data.projectKey, {
-    message: 'async reindex requires a projectKey',
-    path: ['projectKey'],
-  });
+export const reindexSchema = z.object({
+  // Human-friendly project identifier (e.g. "DEVX"), case-insensitive. Omit to
+  // reindex every project.
+  projectKey: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .pipe(z.string().min(PROJECT_KEY_MIN).max(PROJECT_KEY_MAX).regex(PROJECT_KEY_REGEX))
+    .optional(),
+  // Enqueue a background reindex and return immediately instead of reindexing
+  // inline (avoids blocking the request — and the 30s timeout — on a large
+  // index). Works with or without projectKey (all active projects).
+  async: z.boolean().optional(),
+});
 export type ReindexInput = z.infer<typeof reindexSchema>;
 
 // ─── Response schemas ────────────────────────────────────────
@@ -183,5 +179,7 @@ export const reindexResponseSchema = z.object({
   projectId: z.guid().optional(),
   // True when the reindex was enqueued as a background job (async).
   queued: z.boolean().optional(),
+  // Number of projects enqueued (async, all-projects reindex).
+  projects: z.number().int().nonnegative().optional(),
 });
 export type ReindexResponse = z.infer<typeof reindexResponseSchema>;

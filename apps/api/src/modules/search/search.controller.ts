@@ -76,10 +76,16 @@ export class SearchController {
   @HttpCode(HttpStatus.OK)
   @ApiEnvelope(ReindexResponseDto)
   async reindex(@Body() dto: ReindexDto) {
-    if (dto.projectKey) {
-      return dto.async
+    // async: enqueue background job(s) and return immediately. Sync (default)
+    // reindexes inline — kept for callers that must wait for completion
+    // (e.g. the e2e harness seeds then reindexes before running tests).
+    if (dto.async) {
+      return dto.projectKey
         ? this.issueIndexer.scheduleProjectReindex(dto.projectKey)
-        : this.issueIndexer.reindexProjectByKey(dto.projectKey);
+        : this.issueIndexer.scheduleAllReindex();
+    }
+    if (dto.projectKey) {
+      return this.issueIndexer.reindexProjectByKey(dto.projectKey);
     }
     return this.issueIndexer.reindexAll();
   }

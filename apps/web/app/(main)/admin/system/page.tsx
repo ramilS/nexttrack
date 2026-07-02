@@ -16,7 +16,9 @@ export default function AdminSystemPage() {
   async function handleReindex() {
     setReindexing(true);
     try {
-      await apiClient.post('/search/reindex');
+      // async: the endpoint enqueues a background reindex and returns
+      // immediately, so a large index doesn't block the request (→ timeout).
+      await apiClient.post('/search/reindex', { async: true });
       toast.success('Reindex started successfully');
     } catch {
       toast.error('Failed to start reindex');
@@ -53,7 +55,7 @@ export default function AdminSystemPage() {
         open={reindexOpen}
         onOpenChange={setReindexOpen}
         title="Reindex all issues"
-        description="This will reindex all issues in Elasticsearch. This may take a while."
+        description="This reindexes all issues in Elasticsearch. It runs in the background and may take a few minutes."
         confirmLabel="Continue"
         onConfirm={handleReindex}
       />

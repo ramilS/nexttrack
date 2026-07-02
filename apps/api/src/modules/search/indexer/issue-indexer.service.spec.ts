@@ -315,4 +315,17 @@ describe('IssueIndexerService', () => {
       expect(indexerHooks.enqueueProjectReindex).not.toHaveBeenCalled();
     });
   });
+
+  describe('scheduleAllReindex', () => {
+    it('enqueues one background reindex per active project', async () => {
+      projectsRepo.findAllActiveIds.mockResolvedValue(['p1', 'p2', 'p3']);
+
+      const result = await service.scheduleAllReindex();
+
+      expect(indexerHooks.enqueueProjectReindex).toHaveBeenCalledTimes(3);
+      expect(indexerHooks.enqueueProjectReindex).toHaveBeenCalledWith('p1', expect.any(String));
+      expect(es.bulk).not.toHaveBeenCalled();
+      expect(result).toEqual({ queued: true, projects: 3 });
+    });
+  });
 });
