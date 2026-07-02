@@ -12,6 +12,9 @@ import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
 import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
 import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
+import { ProjectsRepository } from '@/modules/projects/projects.repository';
+import { BoardsService } from '@/modules/boards/boards.service';
+import { SprintsService } from '@/modules/sprints/sprints.service';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -25,6 +28,9 @@ describe('MigrationService', () => {
   let tagsService: { create: jest.Mock };
   let issueLinksService: { create: jest.Mock };
   let timeLogsService: { importMany: jest.Mock };
+  let projectsRepo: { findEntityByKey: jest.Mock };
+  let boardsService: { create: jest.Mock };
+  let sprintsService: { create: jest.Mock; addIssues: jest.Mock };
   let tagsRepo: {
     findByNameInsensitive: jest.Mock;
     replaceIssueLinksBulk: jest.Mock;
@@ -85,6 +91,9 @@ describe('MigrationService', () => {
     tagsService = { create: jest.fn() };
     issueLinksService = { create: jest.fn() };
     timeLogsService = { importMany: jest.fn().mockResolvedValue(0) };
+    projectsRepo = { findEntityByKey: jest.fn().mockResolvedValue(null) };
+    boardsService = { create: jest.fn() };
+    sprintsService = { create: jest.fn(), addIssues: jest.fn() };
     tagsRepo = {
       findByNameInsensitive: jest.fn().mockResolvedValue(null),
       replaceIssueLinksBulk: jest.fn().mockResolvedValue(undefined),
@@ -120,6 +129,9 @@ describe('MigrationService', () => {
         { provide: TagsRepository, useValue: tagsRepo },
         { provide: IssueLinksService, useValue: issueLinksService },
         { provide: TimeLogsService, useValue: timeLogsService },
+        { provide: ProjectsRepository, useValue: projectsRepo },
+        { provide: BoardsService, useValue: boardsService },
+        { provide: SprintsService, useValue: sprintsService },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -508,6 +520,59 @@ describe('MigrationService', () => {
       await expect(
         service.createIssueLink('issue-1', dto, 'admin-1'),
       ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('boards & sprints', () => {
+    it('createBoard throws NotFoundError when project not found', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+      await expect(
+        service.createBoard('NOPROJECT', { name: 'B', type: 'SCRUM' } as never, 'admin-1'),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('createBoard delegates to BoardsService and returns the id', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+      boardsService.create.mockResolvedValue({ id: 'board-1' });
+
+      const result = await service.createBoard(
+        'TEST',
+        { name: 'Scrum', type: 'SCRUM' } as never,
+        'admin-1',
+      );
+
+      expect(boardsService.create).toHaveBeenCalledWith(
+        { id: 'proj-1' },
+        { name: 'Scrum', type: 'SCRUM' },
+        'admin-1',
+      );
+      expect(result).toEqual({ data: { id: 'board-1' } });
+    });
+
+    it('createSprint delegates to SprintsService', async () => {
+      sprintsService.create.mockResolvedValue({ id: 'sprint-1' });
+
+      const result = await service.createSprint('board-1', { name: 'S1' } as never);
+
+      expect(sprintsService.create).toHaveBeenCalledWith('board-1', { name: 'S1' });
+      expect(result).toEqual({ data: { id: 'sprint-1' } });
+    });
+
+    it('addSprintIssues returns the added count', async () => {
+      sprintsService.addIssues.mockResolvedValue({ added: 3 });
+
+      const result = await service.addSprintIssues('board-1', 'sprint-1', [
+        'i1',
+        'i2',
+        'i3',
+      ]);
+
+      expect(sprintsService.addIssues).toHaveBeenCalledWith('board-1', 'sprint-1', [
+        'i1',
+        'i2',
+        'i3',
+      ]);
+      expect(result).toEqual({ added: 3 });
     });
   });
 

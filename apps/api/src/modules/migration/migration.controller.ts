@@ -37,6 +37,11 @@ import {
   MigrationLinkResultDto,
   MigrationTimeLogsDto,
   MigrationTimeLogsResultDto,
+  MigrationCreateBoardDto,
+  MigrationCreateSprintDto,
+  MigrationSprintIssuesDto,
+  MigrationEntityIdResultDto,
+  MigrationSprintIssuesResultDto,
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
@@ -165,5 +170,34 @@ export class MigrationController {
     @Body() dto: MigrationTimeLogsDto,
   ) {
     return this.migrationService.createTimeLogs(issueId, dto.entries);
+  }
+
+  @Post('projects/:projectKey/boards')
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  createBoard(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: MigrationCreateBoardDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.migrationService.createBoard(projectKey, dto, userId);
+  }
+
+  @Post('boards/:boardId/sprints')
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  createSprint(
+    @Param('boardId') boardId: string,
+    @Body() dto: MigrationCreateSprintDto,
+  ) {
+    return this.migrationService.createSprint(boardId, dto);
+  }
+
+  @Post('boards/:boardId/sprints/:sprintId/issues')
+  @ApiEnvelope(MigrationSprintIssuesResultDto, { status: HttpStatus.CREATED })
+  addSprintIssues(
+    @Param('boardId') boardId: string,
+    @Param('sprintId') sprintId: string,
+    @Body() dto: MigrationSprintIssuesDto,
+  ) {
+    return this.migrationService.addSprintIssues(boardId, sprintId, dto.issueIds);
   }
 }

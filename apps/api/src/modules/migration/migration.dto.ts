@@ -19,8 +19,15 @@ import {
   migrationTagLinkResultSchema,
   migrationLinkResultSchema,
   migrationTimeLogsResultSchema,
+  migrationEntityIdResultSchema,
+  migrationSprintIssuesResultSchema,
 } from './dto/migration-responses';
-import { createTagSchema, createIssueLinkSchema } from '@repo/shared/schemas';
+import {
+  createTagSchema,
+  createIssueLinkSchema,
+  createBoardSchema,
+  createSprintSchema,
+} from '@repo/shared/schemas';
 
 const findUserByEmailQuerySchema = z.object({
   email: z.email(),
@@ -28,6 +35,15 @@ const findUserByEmailQuerySchema = z.object({
 
 const setIssueParentSchema = z.object({
   parentId: z.guid(),
+});
+
+const sprintIssuesSchema = z.object({
+  issueIds: z
+    .array(z.guid())
+    .min(1)
+    .refine((arr) => new Set(arr).size === arr.length, {
+      message: 'Duplicate values not allowed',
+    }),
 });
 
 const migrationTimeLogsSchema = z.object({
@@ -97,3 +113,8 @@ export class MigrationCreateLinkDto extends createZodDto(createIssueLinkSchema) 
 export class MigrationLinkResultDto extends createZodDto(migrationLinkResultSchema) {}
 export class MigrationTimeLogsDto extends createZodDto(migrationTimeLogsSchema) {}
 export class MigrationTimeLogsResultDto extends createZodDto(migrationTimeLogsResultSchema) {}
+export class MigrationCreateBoardDto extends createZodDto(createBoardSchema) {}
+export class MigrationCreateSprintDto extends createZodDto(createSprintSchema) {}
+export class MigrationSprintIssuesDto extends createZodDto(sprintIssuesSchema) {}
+export class MigrationEntityIdResultDto extends createZodDto(migrationEntityIdResultSchema) {}
+export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprintIssuesResultSchema) {}

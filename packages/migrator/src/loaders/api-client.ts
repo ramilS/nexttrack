@@ -167,6 +167,46 @@ export class OurApiClient {
     });
   }
 
+  async createBoard(
+    projectKey: string,
+    dto: { name: string; type: 'KANBAN' | 'SCRUM' },
+  ): Promise<string> {
+    return retry(async () => {
+      const { data } = await this.http.post(
+        `/admin/migration/projects/${projectKey}/boards`,
+        dto,
+      );
+      return unwrapEnvelope<{ data: { id: string } }>(data).data.id;
+    });
+  }
+
+  async createSprint(
+    boardId: string,
+    dto: { name: string; goal?: string; startDate?: string; endDate?: string },
+  ): Promise<string> {
+    return retry(async () => {
+      const { data } = await this.http.post(
+        `/admin/migration/boards/${boardId}/sprints`,
+        dto,
+      );
+      return unwrapEnvelope<{ data: { id: string } }>(data).data.id;
+    });
+  }
+
+  async addSprintIssues(
+    boardId: string,
+    sprintId: string,
+    issueIds: string[],
+  ): Promise<void> {
+    if (issueIds.length === 0) return;
+    await retry(async () => {
+      await this.http.post(
+        `/admin/migration/boards/${boardId}/sprints/${sprintId}/issues`,
+        { issueIds },
+      );
+    });
+  }
+
   async createTimeLogs(
     issueId: string,
     entries: Array<{

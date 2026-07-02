@@ -210,6 +210,38 @@ describe('Migration Issue Counter (Integration)', () => {
     expect(logs).toHaveLength(2);
     expect(logs.every((l) => l.source === 'IMPORT')).toBe(true);
   });
+
+  it('creates a board + sprint and assigns a migrated issue to it', async () => {
+    const boardRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/projects/${projectKey}/boards`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ name: 'Migrated Board', type: 'SCRUM' });
+    expect(boardRes.status).toBe(201);
+    const boardId = boardRes.body.data.data.id;
+
+    const sprintRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/boards/${boardId}/sprints`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ name: 'Sprint 1', goal: 'Ship it' });
+    expect(sprintRes.status).toBe(201);
+    const sprintId = sprintRes.body.data.data.id;
+
+    const issueRes = await migrate(220, 'yt-sprint-220').expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const addRes = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/boards/${boardId}/sprints/${sprintId}/issues`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({ issueIds: [issueId] });
+    expect(addRes.status).toBe(201);
+    expect(addRes.body.data.added).toBe(1);
+
+    const issue = await ctx.prisma.issue.findUnique({ where: { id: issueId } });
+    expect(issue?.sprintId).toBe(sprintId);
+  });
 });
 
 describe('Migration Backdating Gate (Integration)', () => {

@@ -16,6 +16,7 @@ import { IssuesExtractor } from '../extractors/issues.extractor';
 import { CommentsExtractor } from '../extractors/comments.extractor';
 import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
+import { BoardsExtractor } from '../extractors/boards.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink } from '../transformers/link.transformer';
@@ -50,9 +51,12 @@ const VERSION = '0.1.0';
 // Flags whose data is extracted from YouTrack but not yet loaded into the target.
 // The migration rejects them up front instead of running and silently doing
 // nothing. Remove an entry here once its loading path is implemented.
-const UNSUPPORTED_FLAGS: { key: 'withBoards'; label: string }[] = [
-  { key: 'withBoards', label: '--with-boards' },
-];
+// Flags whose loading is not yet implemented. Empty now that boards and
+// time-tracking both load; kept as the mechanism for any future stub flag.
+const UNSUPPORTED_FLAGS: {
+  key: 'withBoards' | 'withTimeTracking';
+  label: string;
+}[] = [];
 
 export function unsupportedMigrationFlags(
   options: Pick<MigrateOptions, 'withBoards' | 'withTimeTracking'>,
@@ -106,6 +110,7 @@ export class MigrateCommand {
   private commentsExtractor!: CommentsExtractor;
   private attachmentsExtractor!: AttachmentsExtractor;
   private timeLogsExtractor!: TimeLogsExtractor;
+  private boardsExtractor!: BoardsExtractor;
   private teamExtractor!: TeamExtractor;
 
   private userTransformer!: UserTransformer;
@@ -259,6 +264,18 @@ export class MigrateCommand {
         }
       }
 
+      // Step 8: Boards + sprints
+      if (options.withBoards) {
+        step++;
+        this.reporter.section(step, totalSteps, 'Migrating Boards + Sprints');
+        for (const projectKey of options.projects) {
+          if (checkpoint.progress.boards[projectKey]?.status === 'COMPLETED') {
+            continue;
+          }
+          await this.migrateBoards(projectKey, checkpoint, options);
+        }
+      }
+
       await this.checkpointService.markCompleted(checkpoint);
       this.summary.printSummary(checkpoint, startTime);
     } catch (err: any) {
@@ -295,6 +312,7 @@ export class MigrateCommand {
     this.commentsExtractor = new CommentsExtractor(this.yt);
     this.attachmentsExtractor = new AttachmentsExtractor(this.yt);
     this.timeLogsExtractor = new TimeLogsExtractor(this.yt);
+    this.boardsExtractor = new BoardsExtractor(this.yt);
     this.teamExtractor = new TeamExtractor(this.yt);
 
     this.userTransformer = new UserTransformer();
@@ -977,5 +995,70 @@ export class MigrateCommand {
       { status: 'COMPLETED', completed, total: completed },
     );
     this.reporter.done(`Time Logs [${projectKey}]: ${completed} processed`);
+  }
+
+  // Each YouTrack agile board becomes one SCRUM board (so sprints can hold
+  // issues). Sprints run after all issues exist, so their membership resolves
+  // via the id-map. A board shared across projects is recreated per project —
+  // acceptable for the common single-project migration.
+  private async migrateBoards(
+    projectKey: string,
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+  ): Promise<void> {
+    await this.checkpointService.updateProgress(checkpoint, 'boards', projectKey, {
+      status: 'IN_PROGRESS',
+    });
+
+    let sprintsCreated = 0;
+    const ytBoards = await this.boardsExtractor.extractForProject(projectKey);
+
+    for (const ytBoard of ytBoards) {
+      if (options.dryRun) {
+        this.reporter.log(
+          `[DRY] Would create board "${ytBoard.name}" with ${ytBoard.sprints?.length ?? 0} sprints`,
+        );
+        continue;
+      }
+
+      try {
+        const boardId = await this.api.createBoard(projectKey, {
+          name: ytBoard.name,
+          type: 'SCRUM',
+        });
+
+        for (const ytSprint of ytBoard.sprints ?? []) {
+          const sprintId = await this.api.createSprint(boardId, {
+            name: ytSprint.name,
+            goal: ytSprint.goal,
+            startDate: ytSprint.start
+              ? new Date(ytSprint.start).toISOString()
+              : undefined,
+            endDate: ytSprint.finish
+              ? new Date(ytSprint.finish).toISOString()
+              : undefined,
+          });
+          sprintsCreated++;
+
+          const issueIds = (ytSprint.issues ?? [])
+            .map((issue) => this.idMap.getIssueId(issue.id))
+            .filter((id): id is string => id !== null);
+          if (issueIds.length > 0) {
+            await this.api.addSprintIssues(boardId, sprintId, issueIds);
+          }
+        }
+      } catch (err) {
+        this.recordError(checkpoint, 'boards', ytBoard.id, err);
+      }
+    }
+
+    await this.checkpointService.updateProgress(checkpoint, 'boards', projectKey, {
+      status: 'COMPLETED',
+      completed: sprintsCreated,
+      total: sprintsCreated,
+    });
+    this.reporter.done(
+      `Boards [${projectKey}]: ${ytBoards.length} boards, ${sprintsCreated} sprints`,
+    );
   }
 }

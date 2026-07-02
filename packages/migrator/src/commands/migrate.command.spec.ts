@@ -1,52 +1,10 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import {
-  MigrateCommand,
-  MigrateOptions,
   unsupportedMigrationFlags,
   registerStatusMap,
   registerCustomFieldMap,
 } from './migrate.command';
 import { IdMapService } from '../id-map/id-map.service';
-
-const baseOptions: MigrateOptions = {
-  sourceUrl: 'https://yt.example.com',
-  sourceToken: 'perm:x',
-  targetUrl: 'http://localhost:3001',
-  targetToken: 'jwt',
-  migrationSecret: 'x'.repeat(32),
-  projects: ['DEVX'],
-  allProjects: false,
-  withAttachments: false,
-  withTimeTracking: false,
-  withBoards: false,
-  withClosedIssues: false,
-  dryRun: false,
-  resume: false,
-  checkpointFile: './cp.json',
-  concurrency: 3,
-  batchSize: 50,
-  rateLimit: 10,
-  verbose: false,
-};
-
-describe('MigrateCommand unsupported-flag guard', () => {
-  it('aborts with exit code 1 before doing any work when --with-boards is set', async () => {
-    const command = new MigrateCommand();
-    const exit = vi
-      .spyOn(process, 'exit')
-      .mockImplementation(((code?: string | number | null): never => {
-        throw new Error(`exit:${code}`);
-      }));
-
-    try {
-      await expect(
-        command.run({ ...baseOptions, withBoards: true }),
-      ).rejects.toThrow('exit:1');
-    } finally {
-      exit.mockRestore();
-    }
-  });
-});
 
 describe('registerStatusMap', () => {
   it('registers target status ids keyed by status name', () => {
@@ -78,21 +36,9 @@ describe('registerCustomFieldMap', () => {
 });
 
 describe('unsupportedMigrationFlags', () => {
-  it('flags --with-boards (loading not yet implemented)', () => {
+  it('returns empty — boards and time-tracking both load now', () => {
     expect(
-      unsupportedMigrationFlags({ withBoards: true, withTimeTracking: false }),
-    ).toEqual(['--with-boards']);
-  });
-
-  it('does NOT flag --with-time-tracking (now supported)', () => {
-    expect(
-      unsupportedMigrationFlags({ withBoards: false, withTimeTracking: true }),
-    ).toEqual([]);
-  });
-
-  it('returns empty when neither is set', () => {
-    expect(
-      unsupportedMigrationFlags({ withBoards: false, withTimeTracking: false }),
+      unsupportedMigrationFlags({ withBoards: true, withTimeTracking: true }),
     ).toEqual([]);
   });
 });

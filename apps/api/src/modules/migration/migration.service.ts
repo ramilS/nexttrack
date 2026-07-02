@@ -23,6 +23,10 @@ import { RolesRepository } from '@/modules/roles/roles.repository';
 import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
 import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
+import { ProjectsRepository } from '@/modules/projects/projects.repository';
+import { BoardsService } from '@/modules/boards/boards.service';
+import { SprintsService } from '@/modules/sprints/sprints.service';
+import type { CreateBoardParsed, CreateSprintInput } from '@repo/shared/schemas';
 import type { CreateTagInput, CreateIssueLinkInput } from '@repo/shared/schemas';
 import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
 
@@ -55,6 +59,9 @@ export class MigrationService {
     private tagsRepo: TagsRepository,
     private issueLinksService: IssueLinksService,
     private timeLogsService: TimeLogsService,
+    private projectsRepo: ProjectsRepository,
+    private boardsService: BoardsService,
+    private sprintsService: SprintsService,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -331,6 +338,41 @@ export class MigrationService {
       })),
     );
     return { created };
+  }
+
+  async createBoard(projectKey: string, dto: CreateBoardParsed, userId: string) {
+    const project = await this.projectsRepo.findEntityByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    const board = await this.boardsService.create(project, dto, userId);
+    this.logger.log('Migrated board created', {
+      boardId: board.id,
+      projectId: project.id,
+    });
+    return { data: { id: board.id } };
+  }
+
+  async createSprint(boardId: string, dto: CreateSprintInput) {
+    const sprint = await this.sprintsService.create(boardId, dto);
+    this.logger.log('Migrated sprint created', { sprintId: sprint.id, boardId });
+    return { data: { id: sprint.id } };
+  }
+
+  async addSprintIssues(
+    boardId: string,
+    sprintId: string,
+    issueIds: string[],
+  ) {
+    const result = await this.sprintsService.addIssues(
+      boardId,
+      sprintId,
+      issueIds,
+    );
+    return { added: result.added };
   }
 
   async getCustomFieldMap(projectKey: string) {
