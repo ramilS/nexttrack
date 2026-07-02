@@ -58,6 +58,22 @@ describe('IssueTransformer custom-field mapping', () => {
     expect(sink).not.toHaveBeenCalled();
   });
 
+  it('maps a Single*Owned* bundle field to its option id (real YouTrack $type)', () => {
+    const transformer = new IssueTransformer();
+    const idMap = idMapWithReporter();
+    idMap.registerCustomField('Subsystem', 'nt-field-sub');
+    idMap.registerEnumOption('Subsystem', 'Backend', 'nt-opt-backend');
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Subsystem', value: { name: 'Backend' }, $type: 'SingleOwnedIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMap, statusMap);
+
+    expect(dto.fieldValues).toEqual([{ fieldId: 'nt-field-sub', value: 'nt-opt-backend' }]);
+  });
+
   it('drops an enum field whose option is unmapped and reports unresolved-value', () => {
     const sink = vi.fn();
     const transformer = new IssueTransformer(sink);

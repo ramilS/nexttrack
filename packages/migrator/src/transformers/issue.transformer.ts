@@ -239,14 +239,23 @@ export class IssueTransformer {
     idMap: IdMapService,
   ): unknown {
     switch (fieldType) {
+      // Bundle-backed fields (enum/state/owned/build/version) — YouTrack uses
+      // the Single*/Multi* prefixes (e.g. SingleOwnedIssueCustomField); each
+      // element carries the option in `value.name`.
       case 'SingleEnumIssueCustomField':
       case 'EnumIssueCustomField':
       case 'MultiEnumIssueCustomField':
       case 'StateIssueCustomField':
       case 'StateMachineIssueCustomField':
+      case 'SingleVersionIssueCustomField':
       case 'VersionIssueCustomField':
+      case 'MultiVersionIssueCustomField':
+      case 'SingleOwnedIssueCustomField':
       case 'OwnedIssueCustomField':
+      case 'MultiOwnedIssueCustomField':
+      case 'SingleBuildIssueCustomField':
       case 'BuildIssueCustomField':
+      case 'MultiBuildIssueCustomField':
         return idMap.getEnumOptionId(fieldName, value.name) ?? undefined;
       case 'SingleUserIssueCustomField':
       case 'UserIssueCustomField':
