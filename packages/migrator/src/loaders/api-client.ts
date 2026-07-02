@@ -167,6 +167,23 @@ export class OurApiClient {
     });
   }
 
+  async createTimeLogs(
+    issueId: string,
+    entries: Array<{
+      userId: string;
+      minutes: number;
+      date: string;
+      description: string | null;
+    }>,
+  ): Promise<void> {
+    if (entries.length === 0) return;
+    await retry(async () => {
+      await this.http.post(`/admin/migration/issues/${issueId}/time-logs`, {
+        entries,
+      });
+    });
+  }
+
   async createIssueLink(
     sourceIssueId: string,
     dto: { type: string; targetIssueId: string },

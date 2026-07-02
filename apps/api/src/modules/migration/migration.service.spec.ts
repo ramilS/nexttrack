@@ -11,6 +11,7 @@ import { RolesRepository } from '@/modules/roles/roles.repository';
 import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
 import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
+import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
@@ -23,6 +24,7 @@ describe('MigrationService', () => {
   let rolesRepo: { findAll: jest.Mock };
   let tagsService: { create: jest.Mock };
   let issueLinksService: { create: jest.Mock };
+  let timeLogsService: { importMany: jest.Mock };
   let tagsRepo: {
     findByNameInsensitive: jest.Mock;
     replaceIssueLinksBulk: jest.Mock;
@@ -82,6 +84,7 @@ describe('MigrationService', () => {
     };
     tagsService = { create: jest.fn() };
     issueLinksService = { create: jest.fn() };
+    timeLogsService = { importMany: jest.fn().mockResolvedValue(0) };
     tagsRepo = {
       findByNameInsensitive: jest.fn().mockResolvedValue(null),
       replaceIssueLinksBulk: jest.fn().mockResolvedValue(undefined),
@@ -116,6 +119,7 @@ describe('MigrationService', () => {
         { provide: TagsService, useValue: tagsService },
         { provide: TagsRepository, useValue: tagsRepo },
         { provide: IssueLinksService, useValue: issueLinksService },
+        { provide: TimeLogsService, useValue: timeLogsService },
         { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
@@ -504,6 +508,23 @@ describe('MigrationService', () => {
       await expect(
         service.createIssueLink('issue-1', dto, 'admin-1'),
       ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('createTimeLogs', () => {
+    it('imports entries via TimeLogsService and returns the count', async () => {
+      timeLogsService.importMany.mockResolvedValue(2);
+
+      const result = await service.createTimeLogs('issue-1', [
+        { userId: 'u1', minutes: 30, date: '2023-01-01T00:00:00.000Z' },
+        { userId: 'u2', minutes: 60, date: '2023-01-02T00:00:00.000Z', description: 'x' },
+      ]);
+
+      expect(timeLogsService.importMany).toHaveBeenCalledWith('issue-1', [
+        { userId: 'u1', minutes: 30, date: '2023-01-01T00:00:00.000Z', description: null },
+        { userId: 'u2', minutes: 60, date: '2023-01-02T00:00:00.000Z', description: 'x' },
+      ]);
+      expect(result).toEqual({ created: 2 });
     });
   });
 

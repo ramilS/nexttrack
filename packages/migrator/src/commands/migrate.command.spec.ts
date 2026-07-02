@@ -78,21 +78,21 @@ describe('registerCustomFieldMap', () => {
 });
 
 describe('unsupportedMigrationFlags', () => {
-  it('flags both --with-boards and --with-time-tracking when set', () => {
+  it('flags --with-boards (loading not yet implemented)', () => {
     expect(
-      unsupportedMigrationFlags({ withBoards: true, withTimeTracking: true }),
-    ).toEqual(['--with-boards', '--with-time-tracking']);
+      unsupportedMigrationFlags({ withBoards: true, withTimeTracking: false }),
+    ).toEqual(['--with-boards']);
+  });
+
+  it('does NOT flag --with-time-tracking (now supported)', () => {
+    expect(
+      unsupportedMigrationFlags({ withBoards: false, withTimeTracking: true }),
+    ).toEqual([]);
   });
 
   it('returns empty when neither is set', () => {
     expect(
       unsupportedMigrationFlags({ withBoards: false, withTimeTracking: false }),
     ).toEqual([]);
-  });
-
-  it('flags only the flag that is set', () => {
-    expect(
-      unsupportedMigrationFlags({ withBoards: false, withTimeTracking: true }),
-    ).toEqual(['--with-time-tracking']);
   });
 });

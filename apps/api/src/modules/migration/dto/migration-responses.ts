@@ -84,6 +84,10 @@ export const migrationTagLinkResultSchema = z.object({
   linked: z.number().int().nonnegative(),
 });
 
+export const migrationTimeLogsResultSchema = z.object({
+  created: z.number().int().nonnegative(),
+});
+
 export const migrationLinkResultSchema = z.object({
   data: z.object({ id: z.guid() }).nullable(),
   existed: z.boolean(),

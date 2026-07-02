@@ -185,6 +185,31 @@ describe('Migration Issue Counter (Integration)', () => {
     expect(link).not.toBeNull();
     expect(link?.type).toBe('RELATES_TO');
   });
+
+  it('imports time logs and recalculates issue.spent', async () => {
+    const issueRes = await migrate(210, 'yt-tl-210').expect(201);
+    const issueId = issueRes.body.data.data.id;
+
+    const res = await request(ctx.app.getHttpServer())
+      .post(`/admin/migration/issues/${issueId}/time-logs`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send({
+        entries: [
+          { userId: adminId, minutes: 30, date: '2023-01-01T00:00:00.000Z' },
+          { userId: adminId, minutes: 90, date: '2023-01-02T00:00:00.000Z', description: 'work' },
+        ],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.data.created).toBe(2);
+
+    const issue = await ctx.prisma.issue.findUnique({ where: { id: issueId } });
+    expect(issue?.spent).toBe(120);
+
+    const logs = await ctx.prisma.timeLog.findMany({ where: { issueId } });
+    expect(logs).toHaveLength(2);
+    expect(logs.every((l) => l.source === 'IMPORT')).toBe(true);
+  });
 });
 
 describe('Migration Backdating Gate (Integration)', () => {

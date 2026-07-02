@@ -50,9 +50,8 @@ const VERSION = '0.1.0';
 // Flags whose data is extracted from YouTrack but not yet loaded into the target.
 // The migration rejects them up front instead of running and silently doing
 // nothing. Remove an entry here once its loading path is implemented.
-const UNSUPPORTED_FLAGS: { key: 'withBoards' | 'withTimeTracking'; label: string }[] = [
+const UNSUPPORTED_FLAGS: { key: 'withBoards'; label: string }[] = [
   { key: 'withBoards', label: '--with-boards' },
-  { key: 'withTimeTracking', label: '--with-time-tracking' },
 ];
 
 export function unsupportedMigrationFlags(
@@ -935,21 +934,38 @@ export class MigrateCommand {
           continue;
         }
 
-        for (const entry of timeLogs) {
-          if (options.dryRun) {
-            this.reporter.log(
-              `[DRY] Would create time log: ${entry.duration?.minutes}m on ${projectKey}-${ytIssue.numberInProject}`,
-            );
-            completed++;
-            continue;
-          }
-
-          // Time log creation is not yet in migration API
-          // This would need a dedicated endpoint
-          this.reporter.log(
-            `Time log migration for individual entries not yet implemented via API`,
+        // Author falls back to the ghost user; entries with no resolvable
+        // author (and no ghost) or a non-positive duration are dropped.
+        const entries = timeLogs
+          .filter((entry) => (entry.duration?.minutes ?? 0) > 0)
+          .map((entry) => ({
+            userId:
+              this.idMap.getUserId(entry.author.id) ??
+              this.idMap.getFallbackUserId(),
+            minutes: entry.duration.minutes,
+            date: new Date(entry.date).toISOString(),
+            description: entry.text ?? null,
+          }))
+          .filter(
+            (entry): entry is { userId: string } & typeof entry =>
+              entry.userId !== null,
           );
-          completed++;
+
+        if (entries.length === 0) continue;
+
+        if (options.dryRun) {
+          this.reporter.log(
+            `[DRY] Would import ${entries.length} time logs on ${projectKey}-${ytIssue.numberInProject}`,
+          );
+          completed += entries.length;
+          continue;
+        }
+
+        try {
+          await this.api.createTimeLogs(ourIssueId, entries);
+          completed += entries.length;
+        } catch (err) {
+          this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
         }
       }
     }

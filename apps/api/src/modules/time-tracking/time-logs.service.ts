@@ -111,6 +111,46 @@ export class TimeLogsService {
     return log;
   }
 
+  // Bulk import for the migration tool: creates IMPORT-sourced logs (each with
+  // its original author + date), recalculates spent once, and skips per-log
+  // activity records (a migration is not a user action). No archived-project
+  // block — migration must be able to import into any project state.
+  async importMany(
+    issueId: string,
+    entries: Array<{
+      userId: string;
+      minutes: number;
+      date: string;
+      description: string | null;
+    }>,
+  ): Promise<number> {
+    const ctx = await this.issuesRepo.findCreateContext(issueId);
+    if (!ctx) {
+      throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
+    }
+
+    await this.txService.run(async (tx) => {
+      for (const entry of entries) {
+        await this.timeLogsRepo.create(
+          {
+            issueId,
+            userId: entry.userId,
+            duration: entry.minutes,
+            date: this.parseDate(entry.date),
+            description: entry.description,
+            source: TimeLogSource.IMPORT,
+          },
+          tx,
+        );
+      }
+      await this.recalculateSpent(issueId, tx);
+    });
+
+    this.reindexSpent(issueId);
+    this.logger.log('Time logs imported', { issueId, count: entries.length });
+    return entries.length;
+  }
+
   async update(
     issueId: string,
     logId: string,

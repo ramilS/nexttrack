@@ -18,6 +18,7 @@ import {
   migrationTagResultSchema,
   migrationTagLinkResultSchema,
   migrationLinkResultSchema,
+  migrationTimeLogsResultSchema,
 } from './dto/migration-responses';
 import { createTagSchema, createIssueLinkSchema } from '@repo/shared/schemas';
 
@@ -27,6 +28,19 @@ const findUserByEmailQuerySchema = z.object({
 
 const setIssueParentSchema = z.object({
   parentId: z.guid(),
+});
+
+const migrationTimeLogsSchema = z.object({
+  entries: z
+    .array(
+      z.object({
+        userId: z.guid(),
+        minutes: z.number().int().min(1).max(8_766_240),
+        date: z.iso.datetime(),
+        description: z.string().max(1000).nullable().optional(),
+      }),
+    )
+    .min(1),
 });
 
 const linkIssueTagsSchema = z.object({
@@ -81,3 +95,5 @@ export class MigrationTagResultDto extends createZodDto(migrationTagResultSchema
 export class MigrationTagLinkResultDto extends createZodDto(migrationTagLinkResultSchema) {}
 export class MigrationCreateLinkDto extends createZodDto(createIssueLinkSchema) {}
 export class MigrationLinkResultDto extends createZodDto(migrationLinkResultSchema) {}
+export class MigrationTimeLogsDto extends createZodDto(migrationTimeLogsSchema) {}
+export class MigrationTimeLogsResultDto extends createZodDto(migrationTimeLogsResultSchema) {}

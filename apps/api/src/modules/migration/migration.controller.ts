@@ -35,6 +35,8 @@ import {
   MigrationTagLinkResultDto,
   MigrationCreateLinkDto,
   MigrationLinkResultDto,
+  MigrationTimeLogsDto,
+  MigrationTimeLogsResultDto,
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
@@ -154,5 +156,14 @@ export class MigrationController {
     @CurrentUser('id') userId: string,
   ) {
     return this.migrationService.createIssueLink(issueId, dto, userId);
+  }
+
+  @Post('issues/:issueId/time-logs')
+  @ApiEnvelope(MigrationTimeLogsResultDto, { status: HttpStatus.CREATED })
+  createTimeLogs(
+    @Param('issueId') issueId: string,
+    @Body() dto: MigrationTimeLogsDto,
+  ) {
+    return this.migrationService.createTimeLogs(issueId, dto.entries);
   }
 }

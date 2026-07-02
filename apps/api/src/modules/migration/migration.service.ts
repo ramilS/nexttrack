@@ -22,6 +22,7 @@ import { ProjectMembersRepository } from '@/modules/projects/project-members.rep
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
+import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
 import type { CreateTagInput, CreateIssueLinkInput } from '@repo/shared/schemas';
 import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
 
@@ -53,6 +54,7 @@ export class MigrationService {
     private tagsService: TagsService,
     private tagsRepo: TagsRepository,
     private issueLinksService: IssueLinksService,
+    private timeLogsService: TimeLogsService,
     @Inject(migrationConfig.KEY)
     private migration: ConfigType<typeof migrationConfig>,
   ) {}
@@ -308,6 +310,27 @@ export class MigrationService {
       }
       throw err;
     }
+  }
+
+  async createTimeLogs(
+    issueId: string,
+    entries: Array<{
+      userId: string;
+      minutes: number;
+      date: string;
+      description?: string | null;
+    }>,
+  ) {
+    const created = await this.timeLogsService.importMany(
+      issueId,
+      entries.map((entry) => ({
+        userId: entry.userId,
+        minutes: entry.minutes,
+        date: entry.date,
+        description: entry.description ?? null,
+      })),
+    );
+    return { created };
   }
 
   async getCustomFieldMap(projectKey: string) {
