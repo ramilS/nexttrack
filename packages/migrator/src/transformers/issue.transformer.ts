@@ -1,5 +1,6 @@
 import { YtIssue, YtCustomField } from '../youtrack/types/yt-issue.type';
 import { IdMapService } from '../id-map/id-map.service';
+import { markdownToTiptap } from './markdown-to-tiptap';
 
 type IssueType = 'TASK' | 'BUG' | 'STORY' | 'EPIC' | 'FEATURE';
 type Priority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -82,7 +83,7 @@ export class IssueTransformer {
     return {
       title: ytIssue.summary,
       description: ytIssue.description
-        ? this.convertMarkdownToTiptap(ytIssue.description)
+        ? markdownToTiptap(ytIssue.description)
         : null,
       type: TYPE_MAP[ytIssue.type?.name ?? ''] ?? 'TASK',
       priority: PRIORITY_MAP[ytIssue.priority?.name ?? ''] ?? 'MEDIUM',
@@ -112,20 +113,6 @@ export class IssueTransformer {
   private getInitialStatus(statusMap: Map<string, string>): string {
     const first = statusMap.values().next();
     return first.value ?? '';
-  }
-
-  private convertMarkdownToTiptap(markdown: string): any {
-    // Simple paragraph-based conversion
-    // A full implementation would use markdown-it + tiptap serializer
-    const paragraphs = markdown.split(/\n\n+/).filter(Boolean);
-
-    return {
-      type: 'doc',
-      content: paragraphs.map((p) => ({
-        type: 'paragraph',
-        content: [{ type: 'text', text: p.replace(/\n/g, ' ') }],
-      })),
-    };
   }
 
   private mapCustomFields(

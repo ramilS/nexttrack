@@ -20,6 +20,7 @@ import { BoardsExtractor } from '../extractors/boards.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink } from '../transformers/link.transformer';
+import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -831,20 +832,10 @@ export class MigrateCommand {
               continue;
             }
 
-            const body = {
-              type: 'doc',
-              content: [
-                {
-                  type: 'paragraph',
-                  content: [{ type: 'text', text: comment.text }],
-                },
-              ],
-            };
-
             await this.api.createComment(
               ourIssueId,
               authorId,
-              body,
+              markdownToTiptap(comment.text),
               new Date(comment.created).toISOString(),
             );
             completed++;

@@ -241,6 +241,22 @@ describe('IssueTransformer custom-field mapping', () => {
     expect(dto.estimate).toBeNull();
   });
 
+  it('converts a markdown description into structured Tiptap (not one flat paragraph)', () => {
+    const transformer = new IssueTransformer();
+    const dto = transformer.transform(
+      buildYtIssue({ description: '# H\n\n- a\n- b' }),
+      idMapWithReporter(),
+      statusMap,
+    );
+
+    expect(dto.description.content[0]).toEqual({
+      type: 'heading',
+      attrs: { level: 1 },
+      content: [{ type: 'text', text: 'H' }],
+    });
+    expect(dto.description.content[1].type).toBe('bulletList');
+  });
+
   it('is usable without a sink', () => {
     const transformer = new IssueTransformer();
     const dto = transformer.transform(
