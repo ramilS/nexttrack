@@ -947,9 +947,28 @@ export class MigrateCommand {
           continue;
         }
 
+        // Idempotency: the upload endpoint is not dedup-aware, so on a --resume
+        // (or a partial retry) already-uploaded files would duplicate. Read the
+        // issue's existing attachments once and skip matches by name+size.
+        let existing = new Set<string>();
+        if (!options.dryRun && attachments.length > 0) {
+          try {
+            const rows = await this.api.listAttachments(ourIssueId);
+            existing = new Set(rows.map((a) => `${a.filename}:${a.size}`));
+          } catch (err) {
+            await this.recordError(checkpoint, 'attachments', ytIssue.id, err);
+            continue;
+          }
+        }
+
         for (const att of attachments) {
           if (options.dryRun) {
             this.reporter.log(`[DRY] Would upload: ${att.name} (${att.size} bytes)`);
+            completed++;
+            continue;
+          }
+
+          if (existing.has(`${att.name}:${att.size}`)) {
             completed++;
             continue;
           }

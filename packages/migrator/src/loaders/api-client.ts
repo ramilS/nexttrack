@@ -189,6 +189,18 @@ export class OurApiClient {
     });
   }
 
+  async listAttachments(
+    issueId: string,
+  ): Promise<Array<{ filename: string; size: number }>> {
+    return retry(async () => {
+      const { data } = await this.http.get(`/issues/${issueId}/attachments`);
+      const list = unwrapEnvelope<{
+        data: Array<{ filename: string; size: number }>;
+      }>(data).data;
+      return list.map((a) => ({ filename: a.filename, size: a.size }));
+    });
+  }
+
   async setAttachmentMetadata(
     attachmentId: string,
     meta: { uploadedById?: string; originalCreatedAt?: string },
