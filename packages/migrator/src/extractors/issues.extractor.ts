@@ -9,7 +9,6 @@ const ISSUE_FIELDS = [
   'state(id,name,isResolved)',
   'assignee(id,login,email,name,avatarUrl)',
   'reporter(id,login,email,name)',
-  'parent(id,numberInProject)',
   'sprint(id,name)',
   'tags(id,name,color)',
   'links(direction,linkType(name,sourceToTarget,targetToSource),issues(id))',

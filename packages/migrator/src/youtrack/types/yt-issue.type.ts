@@ -11,7 +11,6 @@ export interface YtIssue {
   state?: { id: string; name: string; isResolved?: boolean };
   assignee?: YtUserRef;
   reporter: YtUserRef;
-  parent?: { id: string; numberInProject: number };
   sprint?: { id: string; name: string };
   tags?: { id: string; name: string; color?: any }[];
   links?: YtIssueLink[];

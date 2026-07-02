@@ -817,8 +817,9 @@ export class MigrateCommand {
     }
 
     // Re-extract issues to resolve parent references. YouTrack has no native
-    // parent field — hierarchy is the INWARD "Subtask" link; fall back to a
-    // top-level `parent` for any config that populates it.
+    // parent field — the top-level `Issue.parent` is an IssueLink wrapper whose
+    // id is the LINK id, not the parent issue. Hierarchy is the INWARD "Subtask"
+    // link, resolved via resolveParentYtId.
     let linked = 0;
 
     for await (const batch of this.issuesExtractor.extract(projectKey, {
@@ -826,7 +827,7 @@ export class MigrateCommand {
       batchSize: options.batchSize,
     })) {
       for (const ytIssue of batch) {
-        const parentYtId = ytIssue.parent?.id ?? resolveParentYtId(ytIssue.links);
+        const parentYtId = resolveParentYtId(ytIssue.links);
         if (!parentYtId) continue;
 
         const ourIssueId = this.idMap.getIssueId(ytIssue.id);

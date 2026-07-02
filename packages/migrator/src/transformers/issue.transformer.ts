@@ -109,9 +109,10 @@ export class IssueTransformer {
       statusId,
       assigneeId: assigneeRef ? idMap.getUserId(assigneeRef.id) : null,
       reporterId: this.resolveReporter(ytIssue, idMap),
-      parentId: ytIssue.parent
-        ? idMap.getIssueId(ytIssue.parent.id)
-        : null,
+      // Parent is set by the dedicated parent-links phase (from the INWARD
+      // Subtask link). YouTrack's Issue.parent is an IssueLink wrapper, not the
+      // parent issue, and the parent may not exist yet at create time anyway.
+      parentId: null,
       dueDate: ytIssue.dueDate
         ? new Date(ytIssue.dueDate).toISOString()
         : null,
