@@ -45,11 +45,16 @@ describe('mapActivity', () => {
     expect(m.payload).toEqual({ field: 'Story points', from: null, to: '13' });
   });
 
-  it('maps summary/description text edits without dumping the text', () => {
-    expect(mapActivity(base({ $type: 'TextMarkupActivityItem', field: { name: 'summary' }, added: 'x', removed: 'y' })))
-      .toMatchObject({ type: 'TITLE_CHANGE', payload: {} });
-    expect(mapActivity(base({ $type: 'TextMarkupActivityItem', field: { name: 'description' }, added: 'x', removed: 'y' })))
-      .toMatchObject({ type: 'DESCRIPTION_CHANGE', payload: {} });
+  it('maps summary/description text edits, carrying before/after for a diff', () => {
+    expect(mapActivity(base({ $type: 'TextMarkupActivityItem', field: { name: 'summary' }, added: 'new', removed: 'old' })))
+      .toMatchObject({ type: 'TITLE_CHANGE', payload: { from: 'old', to: 'new' } });
+    expect(mapActivity(base({ $type: 'TextMarkupActivityItem', field: { name: 'description' }, added: 'new', removed: 'old' })))
+      .toMatchObject({ type: 'DESCRIPTION_CHANGE', payload: { from: 'old', to: 'new' } });
+  });
+
+  it('extracts text from {text}/array-wrapped markup shapes and empties nulls', () => {
+    expect(mapActivity(base({ $type: 'TextMarkupActivityItem', field: { name: 'description' }, added: [{ text: 'hi' }], removed: null })))
+      .toMatchObject({ type: 'DESCRIPTION_CHANGE', payload: { from: '', to: 'hi' } });
   });
 
   it('maps a tag addition', () => {

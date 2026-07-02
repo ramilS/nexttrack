@@ -48,6 +48,21 @@ function elementLabel(el: unknown): string | null {
   return String(el);
 }
 
+// TextMarkupActivityItem before/after is the field's markup, shaped as a raw
+// string, a {text}/{markup} object, or a single-element array of those. Returns
+// '' (not null) for an empty side so a diff still renders (e.g. first draft).
+function markupText(value: unknown): string {
+  if (value == null) return '';
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(markupText).join('');
+  if (typeof value === 'object') {
+    const o = value as { text?: unknown; markup?: unknown };
+    if (typeof o.text === 'string') return o.text;
+    if (typeof o.markup === 'string') return o.markup;
+  }
+  return '';
+}
+
 export function mapActivity(activity: YtActivity): MappedActivity {
   const base = {
     authorYtId: activity.author?.id,
@@ -59,11 +74,14 @@ export function mapActivity(activity: YtActivity): MappedActivity {
     return { ...base, type: 'ISSUE_CREATED', payload: {} };
   }
   if (activity.$type === 'TextMarkupActivityItem') {
-    // Don't dump the full before/after text into the payload — just record that
-    // the field changed (the current value already lives on the issue).
+    // Carry the before/after markup so the UI can render a word-level diff
+    // (YouTrack shows a red/green diff for description/summary edits). This text
+    // is historical — it is NOT recoverable from the current issue value — so it
+    // must live in the payload.
+    const payload = { from: markupText(activity.removed), to: markupText(activity.added) };
     return field === 'summary'
-      ? { ...base, type: 'TITLE_CHANGE', payload: {} }
-      : { ...base, type: 'DESCRIPTION_CHANGE', payload: {} };
+      ? { ...base, type: 'TITLE_CHANGE', payload }
+      : { ...base, type: 'DESCRIPTION_CHANGE', payload };
   }
 
   return {
