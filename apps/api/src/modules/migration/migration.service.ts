@@ -53,6 +53,25 @@ import type {
   MigrationIssue,
 } from './dto/migration-responses';
 
+const DEFAULT_STATUS_COLOR = '#6b7280';
+
+// Workflow status colors are persisted as #RRGGBB — the read schema
+// (workflowStatusSchema) enforces exactly six hex digits. YouTrack states can
+// carry a 3-digit (#fff) or otherwise non-conforming color, which the loose
+// migration request schema (color: z.string()) lets through. Normalize here so
+// the stored value always satisfies the response schema; otherwise the project
+// and statuses endpoints 500 with a ZodSerializationException after migration.
+export function normalizeStatusColor(color?: string): string {
+  if (!color) return DEFAULT_STATUS_COLOR;
+  if (/^#[0-9a-fA-F]{6}$/.test(color)) return color.toLowerCase();
+  const short = /^#([0-9a-fA-F])([0-9a-fA-F])([0-9a-fA-F])$/.exec(color);
+  if (short) {
+    const [, r, g, b] = short;
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  return DEFAULT_STATUS_COLOR;
+}
+
 @Injectable()
 export class MigrationService {
   private readonly logger = new AppLogger(MigrationService.name);
@@ -410,7 +429,7 @@ export class MigrationService {
     const seedStatuses = statuses.map((s, i) => ({
       id: randomUUID(),
       name: s.name,
-      color: s.color ?? '#6b7280',
+      color: normalizeStatusColor(s.color),
       category: s.category,
       isInitial: s.isInitial,
       isResolved: s.isResolved,

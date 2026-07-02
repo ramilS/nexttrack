@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { Readable } from 'stream';
 import { ConflictError, NotFoundError } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
-import { MigrationService } from './migration.service';
+import { MigrationService, normalizeStatusColor } from './migration.service';
 import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
@@ -854,5 +854,24 @@ describe('MigrationService', () => {
         counts: { issues: 5, comments: 10, attachments: 2, timeLogs: 3 },
       });
     });
+  });
+});
+
+describe('normalizeStatusColor', () => {
+  it('keeps a valid 6-digit hex (lowercased)', () => {
+    expect(normalizeStatusColor('#1A2B3C')).toBe('#1a2b3c');
+  });
+
+  it('expands a 3-digit hex to 6 digits (YouTrack sends #fff)', () => {
+    expect(normalizeStatusColor('#fff')).toBe('#ffffff');
+    expect(normalizeStatusColor('#0a0')).toBe('#00aa00');
+  });
+
+  it('falls back to the default for missing or non-hex colors', () => {
+    expect(normalizeStatusColor(undefined)).toBe('#6b7280');
+    expect(normalizeStatusColor('')).toBe('#6b7280');
+    expect(normalizeStatusColor('red')).toBe('#6b7280');
+    expect(normalizeStatusColor('#12345')).toBe('#6b7280');
+    expect(normalizeStatusColor('#12345678')).toBe('#6b7280');
   });
 });
