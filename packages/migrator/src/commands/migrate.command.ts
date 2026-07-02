@@ -256,6 +256,25 @@ export class MigrateCommand {
         }
       }
 
+      // Final step: trigger a background reindex per project. Migration writes
+      // issues directly (bypassing the per-issue indexer hooks), so without this
+      // the imported issues won't appear in the ES-backed issue list. Async: the
+      // search-indexing worker rebuilds the index off the request path.
+      step++;
+      this.reporter.section(step, totalSteps, 'Scheduling search reindex');
+      if (options.dryRun) {
+        this.reporter.log('[DRY] Would schedule a reindex per project');
+      } else {
+        for (const projectKey of options.projects) {
+          try {
+            await this.api.reindexProject(projectKey);
+            this.reporter.info(`Reindex queued for ${projectKey}`);
+          } catch (err) {
+            await this.recordError(checkpoint, 'reindex', projectKey, err);
+          }
+        }
+      }
+
       await this.checkpointService.markCompleted(checkpoint);
       this.summary.printSummary(checkpoint, startTime);
     } catch (err: any) {
@@ -375,7 +394,8 @@ export class MigrateCommand {
   }
 
   private countSteps(options: MigrateOptions): number {
-    let steps = 7; // users, projects, issues, parent-links, links, tags, comments
+    // users, projects, issues, parent-links, links, tags, comments, reindex
+    let steps = 8;
     if (options.withAttachments) steps++;
     if (options.withTimeTracking) steps++;
     if (options.withBoards) steps++;

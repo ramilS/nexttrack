@@ -197,6 +197,16 @@ export class OurApiClient {
     });
   }
 
+  // Enqueue a background reindex for the project (async) — the endpoint
+  // returns immediately; the search-indexing worker rebuilds the ES index.
+  // Migration writes issues directly (bypassing per-issue indexer hooks), so
+  // this single call makes the imported issues searchable.
+  async reindexProject(projectKey: string): Promise<void> {
+    await retry(async () => {
+      await this.http.post('/search/reindex', { projectKey, async: true });
+    });
+  }
+
   async listAttachments(
     issueId: string,
   ): Promise<Array<{ filename: string; size: number }>> {

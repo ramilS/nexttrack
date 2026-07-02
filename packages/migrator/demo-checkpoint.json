@@ -1,7 +1,7 @@
 {
   "version": "0.1.0",
   "startedAt": "2026-07-02T10:36:19.319Z",
-  "updatedAt": "2026-07-02T10:42:16.708Z",
+  "updatedAt": "2026-07-02T10:50:55.855Z",
   "config": {
     "sourceUrl": "https://numberone.myjetbrains.com/youtrack",
     "targetUrl": "http://localhost:3001",
@@ -2362,6 +2362,840 @@
       "entityId": "70-50022",
       "message": "Cannot read properties of undefined (reading 'map')",
       "timestamp": "2026-07-02T10:42:16.707Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50386",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:20.465Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50380",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:23.642Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50346",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:26.817Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50277",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:30.744Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50264",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:34.153Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50252",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:37.811Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50244",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:41.533Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50240",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:44.830Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-50089",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:48.852Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48306",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:52.027Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49895",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:42:57.102Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49864",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:00.281Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49847",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:03.926Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49845",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:07.102Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49551",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:12.261Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48661",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:15.670Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47769",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:19.092Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49573",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:22.277Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49556",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:25.576Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49546",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:28.768Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49541",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:31.960Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49530",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:35.166Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49411",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:39.813Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49407",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:42.998Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49333",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:47.311Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49329",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:50.630Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49294",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:54.683Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49288",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:43:58.404Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49285",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:01.652Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49016",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:06.995Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49013",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:10.180Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49012",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:13.369Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-49009",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:16.573Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48997",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:19.760Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48956",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:23.431Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48944",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:26.640Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48942",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:29.838Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48931",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:33.018Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48929",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:36.178Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48927",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:39.346Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48925",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:42.512Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48879",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:45.904Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48866",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:49.191Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48862",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:52.370Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48853",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:55.770Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48847",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:44:58.957Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48843",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:02.158Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48841",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:05.355Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48814",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:09.113Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48806",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:12.434Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48793",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:15.605Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48784",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:18.904Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48715",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:23.738Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48712",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:26.912Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48710",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:30.091Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48187",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:35.216Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48183",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:38.506Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48175",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:41.930Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48478",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:45.786Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48058",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:51.870Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48051",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:55.164Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-48024",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:45:58.469Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47898",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:02.394Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47782",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:05.797Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47780",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:08.979Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47689",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:13.647Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47677",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:17.476Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47463",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:22.520Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47317",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:26.917Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47273",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:31.318Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46980",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:34.860Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-36997",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:38.471Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-47002",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:42.222Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46914",
+      "message": "GET http://localhost:3001/api/issues/22e4f84f-8cf7-429a-a9f1-0fd318a30fa5/attachments → no response (ECONNREFUSED)",
+      "timestamp": "2026-07-02T10:46:45.762Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46899",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:49.436Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46882",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:53.354Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46754",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:56.572Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46687",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:46:59.887Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46735",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:03.612Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46701",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:06.815Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46635",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:10.347Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46633",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:13.527Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46632",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:16.724Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46617",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:20.513Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46130",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:25.476Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46352",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:29.760Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46214",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:33.439Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46189",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:36.630Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46187",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:39.823Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46176",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:43.121Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46122",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:46.303Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45996",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:49.501Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45967",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:54.134Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45603",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:47:58.021Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45597",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:22.410Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45171",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:25.873Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45162",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:29.050Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44220",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:32.214Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-43289",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:35.390Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-46044",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:38.814Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45951",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:41.993Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45714",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:46.497Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45708",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:49.684Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45694",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:53.114Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45686",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:56.426Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45684",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:48:59.627Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45648",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:02.936Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45642",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:06.245Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45640",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:09.418Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45638",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:12.607Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45636",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:15.792Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45629",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:19.086Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45479",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:26.007Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45092",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:29.443Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45043",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:32.623Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44424",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:36.148Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-43852",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:39.327Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45433",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:43.046Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45425",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:46.233Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45219",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:50.525Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45155",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:53.818Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45128",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:49:57.006Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45115",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:00.426Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45113",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:03.601Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45111",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:06.772Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45090",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:09.958Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45028",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:14.529Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45021",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:17.830Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-45019",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:20.999Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44998",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:24.315Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44965",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:27.608Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44958",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:30.785Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44951",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:34.191Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44949",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:37.360Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44923",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:41.739Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44908",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:45.522Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44906",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:48.693Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44627",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:52.502Z"
+    },
+    {
+      "phase": "attachments",
+      "entityId": "70-44364",
+      "message": "Cannot read properties of undefined (reading 'map')",
+      "timestamp": "2026-07-02T10:50:55.853Z"
     }
   ]
 }
