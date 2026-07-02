@@ -27,6 +27,25 @@ describe('formatHttpError', () => {
     );
   });
 
+  it('renders Zod field errors from the details object (no more [object Object])', () => {
+    const err = axiosError({
+      config: { method: 'post', baseURL: 'http://localhost:3001/api', url: '/admin/migration/users' } as any,
+      response: {
+        status: 400,
+        data: {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Validation failed',
+            details: { avatarUrl: ['Invalid URL'] },
+          },
+        },
+      },
+    });
+    expect(formatHttpError(err)).toBe(
+      'POST http://localhost:3001/api/admin/migration/users → 400 [VALIDATION_ERROR]: Validation failed {"avatarUrl":["Invalid URL"]}',
+    );
+  });
+
   it('reports connection failures with no response', () => {
     const err = axiosError({
       code: 'ECONNREFUSED',

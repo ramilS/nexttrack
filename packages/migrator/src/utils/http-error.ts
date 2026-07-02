@@ -21,23 +21,42 @@ export function formatHttpError(err: unknown): string {
   }
 
   const body = ax.response.data as
-    | { error?: { code?: string; message?: string } | string; message?: string; error_description?: string }
+    | {
+        error?:
+          | { code?: string; message?: unknown; details?: unknown }
+          | string;
+        message?: unknown;
+        error_description?: string;
+      }
     | string
     | undefined;
 
   let code: string | undefined;
-  let detail: string | undefined;
+  let detail: unknown;
+  let details: unknown;
   if (typeof body === 'string') {
     detail = body.slice(0, 300);
   } else if (body) {
     const nested = typeof body.error === 'object' ? body.error : undefined;
     code = nested?.code ?? (typeof body.error === 'string' ? body.error : undefined);
     detail = nested?.message ?? body.message ?? body.error_description;
+    // Zod field errors ({ field: [messages] }) — the actionable part of a 400.
+    details = nested?.details;
   }
 
   return (
     `${method} ${url} → ${ax.response.status}` +
     (code ? ` [${code}]` : '') +
-    (detail ? `: ${detail}` : '')
+    (detail != null ? `: ${stringify(detail)}` : '') +
+    (details != null ? ` ${stringify(details)}` : '')
   );
+}
+
+function stringify(value: unknown): string {
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
