@@ -1,6 +1,6 @@
 import { YtIssue, YtCustomField } from '../youtrack/types/yt-issue.type';
 import { IdMapService } from '../id-map/id-map.service';
-import { markdownToTiptap } from './markdown-to-tiptap';
+import { richTextToTiptap } from './rich-text';
 import {
   isFirstClassField,
   ytFieldType,
@@ -101,7 +101,7 @@ export class IssueTransformer {
     return {
       title: ytIssue.summary,
       description: ytIssue.description
-        ? markdownToTiptap(ytIssue.description)
+        ? richTextToTiptap(ytIssue.description)
         : null,
       type: TYPE_MAP[typeName] ?? 'TASK',
       priority: PRIORITY_MAP[priorityName] ?? 'MEDIUM',

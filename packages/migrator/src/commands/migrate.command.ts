@@ -22,7 +22,7 @@ import { CustomFieldDefsExtractor } from '../extractors/custom-field-defs.extrac
 import { buildCustomFieldDto, YtFieldDef } from '../transformers/custom-field-def.transformer';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink, resolveParentYtId } from '../transformers/link.transformer';
-import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
+import { richTextToTiptap } from '../transformers/rich-text';
 import { mapStatesToStatuses } from '../transformers/state.transformer';
 import { formatHttpError } from '../utils/http-error';
 
@@ -967,7 +967,7 @@ export class MigrateCommand {
             await this.api.createComment(
               ourIssueId,
               authorId,
-              markdownToTiptap(comment.text),
+              richTextToTiptap(comment.text),
               new Date(comment.created).toISOString(),
             );
             completed++;

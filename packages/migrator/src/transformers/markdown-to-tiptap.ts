@@ -1,6 +1,9 @@
 import MarkdownIt from 'markdown-it';
 
-const md = new MarkdownIt('commonmark', {
+// Default preset (not 'commonmark') so `linkify` actually runs — the commonmark
+// preset disables the linkify rule regardless of the option, leaving bare URLs
+// as plain text.
+const md = new MarkdownIt({
   html: false,
   linkify: true,
   breaks: false,
