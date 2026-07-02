@@ -202,9 +202,9 @@ export class OurApiClient {
   ): Promise<Array<{ filename: string; size: number }>> {
     return retry(async () => {
       const { data } = await this.http.get(`/issues/${issueId}/attachments`);
-      const list = unwrapEnvelope<{
-        data: Array<{ filename: string; size: number }>;
-      }>(data).data;
+      // This is the regular list endpoint: the envelope's data IS the array
+      // (unlike the migration endpoints, which return { data, existed }).
+      const list = unwrapEnvelope<Array<{ filename: string; size: number }>>(data);
       return list.map((a) => ({ filename: a.filename, size: a.size }));
     });
   }
