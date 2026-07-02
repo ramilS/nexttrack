@@ -1,6 +1,11 @@
 import { YtIssue, YtCustomField } from '../youtrack/types/yt-issue.type';
 import { IdMapService } from '../id-map/id-map.service';
 import { markdownToTiptap } from './markdown-to-tiptap';
+import {
+  isFirstClassField,
+  ytFieldType,
+  FIRST_CLASS_FIELD_TYPES,
+} from './field-classification';
 
 type IssueType = 'TASK' | 'BUG' | 'STORY' | 'EPIC' | 'FEATURE';
 type Priority = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
@@ -76,21 +81,32 @@ export class IssueTransformer {
     statusMap: Map<string, string>,
     opts?: TransformOptions,
   ): CreateIssueMigrationDto {
+    // YouTrack keeps Type/State/Assignee/Priority in customFields, NOT as
+    // top-level Issue attributes (top-level comes back empty). Read them from
+    // customFields, falling back to any top-level value for configs that do
+    // expose it.
+    const stateName =
+      this.fieldByType(ytIssue, FIRST_CLASS_FIELD_TYPES)?.value?.name ??
+      ytIssue.state?.name ??
+      null;
     const statusId =
-      (ytIssue.state?.name ? statusMap.get(ytIssue.state.name) : null) ??
+      (stateName ? statusMap.get(stateName) : null) ??
       this.getInitialStatus(statusMap);
+
+    const typeName = this.fieldByName(ytIssue, 'Type')?.value?.name ?? ytIssue.type?.name ?? '';
+    const priorityName =
+      this.fieldByName(ytIssue, 'Priority')?.value?.name ?? ytIssue.priority?.name ?? '';
+    const assigneeRef = this.fieldByName(ytIssue, 'Assignee')?.value ?? ytIssue.assignee;
 
     return {
       title: ytIssue.summary,
       description: ytIssue.description
         ? markdownToTiptap(ytIssue.description)
         : null,
-      type: TYPE_MAP[ytIssue.type?.name ?? ''] ?? 'TASK',
-      priority: PRIORITY_MAP[ytIssue.priority?.name ?? ''] ?? 'MEDIUM',
+      type: TYPE_MAP[typeName] ?? 'TASK',
+      priority: PRIORITY_MAP[priorityName] ?? 'MEDIUM',
       statusId,
-      assigneeId: ytIssue.assignee
-        ? idMap.getUserId(ytIssue.assignee.id)
-        : null,
+      assigneeId: assigneeRef ? idMap.getUserId(assigneeRef.id) : null,
       reporterId: this.resolveReporter(ytIssue, idMap),
       parentId: ytIssue.parent
         ? idMap.getIssueId(ytIssue.parent.id)
@@ -115,11 +131,24 @@ export class IssueTransformer {
     return first.value ?? '';
   }
 
+  private fieldByName(ytIssue: YtIssue, name: string): YtCustomField | undefined {
+    return ytIssue.customFields?.find((f) => f.name === name);
+  }
+
+  private fieldByType(ytIssue: YtIssue, types: Set<string>): YtCustomField | undefined {
+    return ytIssue.customFields?.find((f) => types.has(ytFieldType(f)));
+  }
+
   private mapCustomFields(
     ytFields: YtCustomField[],
     idMap: IdMapService,
   ): { fieldId: string; value: any }[] {
     return ytFields.flatMap((ytField) => {
+      // Type/State/Assignee/Priority are migrated as native Issue attributes,
+      // not custom-field values — skip them here (also silences their bogus
+      // "no mapping" warnings).
+      if (isFirstClassField(ytField)) return [];
+
       const ourFieldId = idMap.getCustomFieldId(ytField.name);
       if (!ourFieldId) {
         this.noteUnmapped(ytField.name, 'no-field-mapping');

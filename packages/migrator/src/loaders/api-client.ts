@@ -4,6 +4,7 @@ import { Readable } from 'stream';
 import { retry } from '../utils/retry';
 import { CreateUserMigrationDto } from '../transformers/user.transformer';
 import { CreateIssueMigrationDto } from '../transformers/issue.transformer';
+import { CreateCustomFieldDto } from '../transformers/custom-field-def.transformer';
 import { YtAttachment } from '../youtrack/types/yt-issue.type';
 
 /**
@@ -164,6 +165,25 @@ export class OurApiClient {
       return unwrapEnvelope<{ data: { id: string; name: string }; existed: boolean }>(
         data,
       );
+    });
+  }
+
+  async createCustomField(
+    projectKey: string,
+    dto: CreateCustomFieldDto,
+  ): Promise<{
+    data: { id: string; name: string; options: Array<{ id: string; name: string }> };
+    existed: boolean;
+  }> {
+    return retry(async () => {
+      const { data } = await this.http.post(
+        `/admin/migration/projects/${projectKey}/custom-fields`,
+        dto,
+      );
+      return unwrapEnvelope<{
+        data: { id: string; name: string; options: Array<{ id: string; name: string }> };
+        existed: boolean;
+      }>(data);
     });
   }
 

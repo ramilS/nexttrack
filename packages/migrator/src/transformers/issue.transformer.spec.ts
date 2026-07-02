@@ -268,3 +268,78 @@ describe('IssueTransformer custom-field mapping', () => {
     expect(dto.fieldValues).toEqual([]);
   });
 });
+
+describe('IssueTransformer first-class fields (from customFields)', () => {
+  const statuses = new Map<string, string>([
+    ['Open', 'status-open'],
+    ['Done', 'status-done'],
+  ]);
+
+  it('reads Type/Priority/State/Assignee from customFields, not empty top-level', () => {
+    const transformer = new IssueTransformer();
+    const idMap = idMapWithReporter();
+    idMap.registerUser('yt-assignee', 'nt-assignee');
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Type', value: { name: 'Bug' }, $type: 'SingleEnumIssueCustomField' },
+        { name: 'Priority', value: { name: 'Critical' }, $type: 'SingleEnumIssueCustomField' },
+        { name: 'State', value: { name: 'Done' }, $type: 'StateIssueCustomField' },
+        {
+          name: 'Assignee',
+          value: { id: 'yt-assignee', login: 'a' },
+          $type: 'SingleUserIssueCustomField',
+        },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMap, statuses);
+
+    expect(dto.type).toBe('BUG');
+    expect(dto.priority).toBe('CRITICAL');
+    expect(dto.statusId).toBe('status-done');
+    expect(dto.assigneeId).toBe('nt-assignee');
+    // First-class fields are NOT emitted as custom-field values.
+    expect(dto.fieldValues).toEqual([]);
+  });
+
+  it('does not warn "no mapping" for first-class fields', () => {
+    const sink = vi.fn();
+    const transformer = new IssueTransformer(sink);
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'State', value: { name: 'Done' }, $type: 'StateIssueCustomField' },
+        { name: 'Assignee', value: null, $type: 'SingleUserIssueCustomField' },
+      ],
+    });
+
+    transformer.transform(issue, idMapWithReporter(), statuses);
+
+    expect(sink).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the initial status when the mapped state is unknown', () => {
+    const transformer = new IssueTransformer();
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'State', value: { name: 'Nonexistent' }, $type: 'StateIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMapWithReporter(), statuses);
+
+    expect(dto.statusId).toBe('status-open'); // first entry
+  });
+
+  it('leaves assignee null when the Assignee field is empty', () => {
+    const transformer = new IssueTransformer();
+    const issue = buildYtIssue({
+      customFields: [
+        { name: 'Assignee', value: null, $type: 'SingleUserIssueCustomField' },
+      ],
+    });
+
+    const dto = transformer.transform(issue, idMapWithReporter(), statuses);
+
+    expect(dto.assigneeId).toBeNull();
+  });
+});

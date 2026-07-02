@@ -18,6 +18,8 @@ import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 import { BoardsExtractor } from '../extractors/boards.extractor';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
+import { CustomFieldDefsExtractor } from '../extractors/custom-field-defs.extractor';
+import { buildCustomFieldDto } from '../transformers/custom-field-def.transformer';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink } from '../transformers/link.transformer';
 import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
@@ -99,6 +101,7 @@ export class MigrateCommand {
   private timeLogsExtractor!: TimeLogsExtractor;
   private boardsExtractor!: BoardsExtractor;
   private teamExtractor!: TeamExtractor;
+  private fieldDefsExtractor!: CustomFieldDefsExtractor;
 
   private userTransformer!: UserTransformer;
   private issueTransformer!: IssueTransformer;
@@ -291,6 +294,7 @@ export class MigrateCommand {
     this.timeLogsExtractor = new TimeLogsExtractor(this.yt);
     this.boardsExtractor = new BoardsExtractor(this.yt);
     this.teamExtractor = new TeamExtractor(this.yt);
+    this.fieldDefsExtractor = new CustomFieldDefsExtractor(this.yt);
 
     this.userTransformer = new UserTransformer();
     this.issueTransformer = new IssueTransformer((field) =>
@@ -449,6 +453,44 @@ export class MigrateCommand {
     this.reporter.done(`Users: ${completed} migrated`);
   }
 
+  // Derive the project's custom-field definitions from YouTrack and create the
+  // genuine ones in the target (idempotent by name). Skips first-class fields
+  // and bundle fields with no observed values / unsupported types, reporting a
+  // one-line summary. Values are mapped later via the registered field map.
+  private async createCustomFields(
+    projectKey: string,
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+  ): Promise<void> {
+    const defs = await this.fieldDefsExtractor.collect(projectKey);
+    let created = 0;
+    const skipped: string[] = [];
+
+    for (const def of defs) {
+      const result = buildCustomFieldDto(def);
+      if (result.kind === 'skip') {
+        if (result.reason !== 'first-class') skipped.push(`${def.name} (${result.reason})`);
+        continue;
+      }
+      if (options.dryRun) {
+        this.reporter.log(`[DRY] Would create custom field ${def.name} (${result.dto.type})`);
+        created++;
+        continue;
+      }
+      try {
+        await this.api.createCustomField(projectKey, result.dto);
+        created++;
+      } catch (err) {
+        await this.recordError(checkpoint, 'projects', `${projectKey}:field:${def.name}`, err);
+      }
+    }
+
+    this.reporter.info(
+      `Project ${projectKey}: ${created} custom fields provisioned` +
+        (skipped.length ? `, skipped ${skipped.join(', ')}` : ''),
+    );
+  }
+
   private async migrateProject(
     projectKey: string,
     checkpoint: MigrationCheckpoint,
@@ -488,6 +530,12 @@ export class MigrateCommand {
         await this.recordError(checkpoint, 'projects', projectKey, err);
       }
     }
+
+    // Provision the project's custom fields in the target BEFORE reading the
+    // field map below — so YouTrack custom-field values map onto real fields
+    // instead of being dropped. First-class fields (Type/State/Assignee/
+    // Priority) are excluded; they migrate as native Issue attributes.
+    await this.createCustomFields(projectKey, checkpoint, options);
 
     // Register the target's REAL status and custom-field ids (by name) so issues
     // map to valid ids instead of dropping. Read-only.
