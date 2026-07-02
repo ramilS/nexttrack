@@ -242,6 +242,44 @@ describe('Migration Issue Counter (Integration)', () => {
     const issue = await ctx.prisma.issue.findUnique({ where: { id: issueId } });
     expect(issue?.sprintId).toBe(sprintId);
   });
+
+  it('creates a project (idempotent) with a workflow provisioned from YouTrack states', async () => {
+    const body = {
+      key: 'NEWP',
+      name: 'New Project',
+      description: 'auto-created',
+      statuses: [
+        { name: 'Submitted', category: 'UNSTARTED', isInitial: true, isResolved: false, ordinal: 0 },
+        { name: 'Fixed', category: 'DONE', isInitial: false, isResolved: true, ordinal: 1 },
+      ],
+    };
+
+    const first = await request(ctx.app.getHttpServer())
+      .post('/admin/migration/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send(body);
+    expect(first.status).toBe(201);
+    expect(first.body.data.existed).toBe(false);
+    const newProjectId = first.body.data.data.id;
+
+    // Workflow statuses provisioned by name (so issue status mapping resolves).
+    const statuses = await ctx.prisma.workflowStatus.findMany({
+      where: { workflow: { projectId: newProjectId, isDefault: true } },
+      orderBy: { ordinal: 'asc' },
+    });
+    expect(statuses.map((s) => s.name)).toEqual(['Submitted', 'Fixed']);
+    expect(statuses.find((s) => s.isInitial)?.name).toBe('Submitted');
+
+    // Re-create → idempotent.
+    const second = await request(ctx.app.getHttpServer())
+      .post('/admin/migration/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('x-migration-secret', MIGRATION_SECRET)
+      .send(body);
+    expect(second.body.data.existed).toBe(true);
+    expect(second.body.data.data.id).toBe(newProjectId);
+  });
 });
 
 describe('Migration Backdating Gate (Integration)', () => {

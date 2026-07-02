@@ -42,6 +42,8 @@ import {
   MigrationSprintIssuesDto,
   MigrationEntityIdResultDto,
   MigrationSprintIssuesResultDto,
+  MigrationCreateProjectDto,
+  MigrationProjectResultDto,
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
@@ -170,6 +172,15 @@ export class MigrationController {
     @Body() dto: MigrationTimeLogsDto,
   ) {
     return this.migrationService.createTimeLogs(issueId, dto.entries);
+  }
+
+  @Post('projects')
+  @ApiEnvelope(MigrationProjectResultDto, { status: HttpStatus.CREATED })
+  createProject(
+    @Body() dto: MigrationCreateProjectDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.migrationService.createProject(dto, userId);
   }
 
   @Post('projects/:projectKey/boards')

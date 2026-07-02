@@ -92,6 +92,11 @@ export const migrationEntityIdResultSchema = z.object({
   data: z.object({ id: z.guid() }),
 });
 
+export const migrationProjectResultSchema = z.object({
+  data: z.object({ id: z.guid() }),
+  existed: z.boolean(),
+});
+
 export const migrationSprintIssuesResultSchema = z.object({
   added: z.number().int().nonnegative(),
 });

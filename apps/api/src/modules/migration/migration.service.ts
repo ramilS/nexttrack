@@ -24,6 +24,9 @@ import { TagsService } from '@/modules/tags/tags.service';
 import { TagsRepository } from '@/modules/tags/tags.repository';
 import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
+import { generateDefaultWorkflow } from '@/modules/workflows/default-workflow';
+import { StatusCategory } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { BoardsService } from '@/modules/boards/boards.service';
 import { SprintsService } from '@/modules/sprints/sprints.service';
 import type { CreateBoardParsed, CreateSprintInput } from '@repo/shared/schemas';
@@ -338,6 +341,86 @@ export class MigrationService {
       })),
     );
     return { created };
+  }
+
+  // Idempotent by key. Provisions the target workflow from the YouTrack states
+  // the migrator sends (so issue statuses map by name); empty statuses → the
+  // built-in default workflow.
+  async createProject(
+    dto: {
+      key: string;
+      name: string;
+      description?: string | null;
+      statuses: Array<{
+        name: string;
+        category: StatusCategory;
+        isInitial: boolean;
+        isResolved: boolean;
+        ordinal: number;
+        color?: string;
+      }>;
+    },
+    userId: string,
+  ) {
+    const existing = await this.projectsRepo.findEntityByKey(dto.key);
+    if (existing) {
+      return { data: { id: existing.id }, existed: true };
+    }
+
+    const project = await this.projectsRepo.createWithWorkflow(
+      {
+        key: dto.key,
+        name: dto.name,
+        description: dto.description ?? null,
+        color: null,
+        iconUrl: null,
+        isPrivate: false,
+        createdById: userId,
+      },
+      this.buildWorkflowSeed(dto.statuses),
+    );
+    this.logger.log('Migrated project created', {
+      projectId: project.id,
+      key: dto.key,
+    });
+    return { data: { id: project.id }, existed: false };
+  }
+
+  private buildWorkflowSeed(
+    statuses: Array<{
+      name: string;
+      category: StatusCategory;
+      isInitial: boolean;
+      isResolved: boolean;
+      ordinal: number;
+      color?: string;
+    }>,
+  ) {
+    if (statuses.length === 0) return generateDefaultWorkflow();
+
+    const seedStatuses = statuses.map((s, i) => ({
+      id: randomUUID(),
+      name: s.name,
+      color: s.color ?? '#6b7280',
+      category: s.category,
+      isInitial: s.isInitial,
+      isResolved: s.isResolved,
+      ordinal: s.ordinal ?? i,
+    }));
+    // Exactly one initial status is required; default to the first.
+    if (!seedStatuses.some((s) => s.isInitial)) {
+      seedStatuses[0]!.isInitial = true;
+    }
+    // Permissive transitions: from anywhere to any status, so the migrated
+    // workflow stays usable in the UI (YouTrack's transition rules aren't ported).
+    const transitions = seedStatuses.map((s) => ({
+      id: randomUUID(),
+      name: `To ${s.name}`,
+      fromStatusId: '*',
+      toStatusId: s.id,
+      requiredRole: null,
+    }));
+    return { name: 'Default', isDefault: true, statuses: seedStatuses, transitions };
   }
 
   async createBoard(projectKey: string, dto: CreateBoardParsed, userId: string) {

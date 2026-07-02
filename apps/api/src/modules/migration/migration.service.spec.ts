@@ -28,7 +28,7 @@ describe('MigrationService', () => {
   let tagsService: { create: jest.Mock };
   let issueLinksService: { create: jest.Mock };
   let timeLogsService: { importMany: jest.Mock };
-  let projectsRepo: { findEntityByKey: jest.Mock };
+  let projectsRepo: { findEntityByKey: jest.Mock; createWithWorkflow: jest.Mock };
   let boardsService: { create: jest.Mock };
   let sprintsService: { create: jest.Mock; addIssues: jest.Mock };
   let tagsRepo: {
@@ -91,7 +91,10 @@ describe('MigrationService', () => {
     tagsService = { create: jest.fn() };
     issueLinksService = { create: jest.fn() };
     timeLogsService = { importMany: jest.fn().mockResolvedValue(0) };
-    projectsRepo = { findEntityByKey: jest.fn().mockResolvedValue(null) };
+    projectsRepo = {
+      findEntityByKey: jest.fn().mockResolvedValue(null),
+      createWithWorkflow: jest.fn().mockResolvedValue({ id: 'new-proj' }),
+    };
     boardsService = { create: jest.fn() };
     sprintsService = { create: jest.fn(), addIssues: jest.fn() };
     tagsRepo = {
@@ -520,6 +523,52 @@ describe('MigrationService', () => {
       await expect(
         service.createIssueLink('issue-1', dto, 'admin-1'),
       ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('createProject', () => {
+    const statuses = [
+      { name: 'Open', category: 'UNSTARTED' as const, isInitial: false, isResolved: false, ordinal: 0 },
+      { name: 'Fixed', category: 'DONE' as const, isInitial: false, isResolved: true, ordinal: 1 },
+    ];
+
+    it('is idempotent — returns the existing project with existed=true', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+
+      const result = await service.createProject(
+        { key: 'DEVX', name: 'DevX', statuses },
+        'admin-1',
+      );
+
+      expect(result).toEqual({ data: { id: 'proj-1' }, existed: true });
+      expect(projectsRepo.createWithWorkflow).not.toHaveBeenCalled();
+    });
+
+    it('provisions a workflow from the YouTrack statuses and forces one initial', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+
+      const result = await service.createProject(
+        { key: 'DEVX', name: 'DevX', description: 'x', statuses },
+        'admin-1',
+      );
+
+      expect(result).toEqual({ data: { id: 'new-proj' }, existed: false });
+      const [input, workflow] = projectsRepo.createWithWorkflow.mock.calls[0];
+      expect(input).toMatchObject({ key: 'DEVX', name: 'DevX', createdById: 'admin-1' });
+      expect(workflow.statuses.map((s: { name: string }) => s.name)).toEqual(['Open', 'Fixed']);
+      expect(workflow.statuses.filter((s: { isInitial: boolean }) => s.isInitial)).toHaveLength(1);
+      expect(workflow.statuses[0].isInitial).toBe(true); // first, since none flagged
+      expect(workflow.transitions).toHaveLength(2); // permissive *→each
+    });
+
+    it('falls back to the default workflow when no statuses are supplied', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+
+      await service.createProject({ key: 'DEVX', name: 'DevX', statuses: [] }, 'admin-1');
+
+      const [, workflow] = projectsRepo.createWithWorkflow.mock.calls[0];
+      expect(workflow.name).toBe('Default');
+      expect(workflow.statuses.length).toBeGreaterThan(0);
     });
   });
 

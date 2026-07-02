@@ -34,9 +34,9 @@ Markdown to Tiptap. Projects themselves must be pre-created (see Prerequisites).
 - A running YouTrack instance you can reach over HTTP.
 - A running NextTrack API (dev: `http://localhost:3001`) with the migration
   endpoints enabled (see below).
-- The **target project already created** in NextTrack with the **same project
-  key** as in YouTrack — the migration API does *not* create projects and returns
-  `MIGRATION_PROJECT_NOT_FOUND` if it is missing.
+- Nothing to pre-create: the migrator **creates the target project itself**
+  (idempotent by key), provisioning its workflow from the YouTrack project's
+  State values so issue statuses map by name. Re-runs reuse the existing project.
 
 ## The four credentials, and where to get each
 

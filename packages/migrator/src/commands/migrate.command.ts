@@ -21,6 +21,7 @@ import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink } from '../transformers/link.transformer';
 import { markdownToTiptap } from '../transformers/markdown-to-tiptap';
+import { mapStatesToStatuses } from '../transformers/state.transformer';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -462,11 +463,28 @@ export class MigrateCommand {
 
     const ytProject = projects[0]!;
 
-    // The target project (with its workflow + custom fields) must already exist
-    // in NextTrack — the migrator does not create it. Register the target's REAL
-    // status and custom-field ids (by name) so issues map to valid ids instead
-    // of dropping. Read-only, so it runs in dry-run too (enables field/status
-    // validation during a preview).
+    // Create the target project (idempotent by key) with a workflow provisioned
+    // from the YouTrack states, so statuses map by name. Skipped in dry-run.
+    const states = await this.projectsExtractor.getStates(ytProject.id);
+    if (options.dryRun) {
+      this.reporter.log(
+        `[DRY] Would ensure project ${projectKey} exists (${states.length} states)`,
+      );
+    } else {
+      try {
+        await this.api.createProject({
+          key: projectKey,
+          name: ytProject.name,
+          description: ytProject.description ?? null,
+          statuses: mapStatesToStatuses(states),
+        });
+      } catch (err) {
+        this.recordError(checkpoint, 'projects', projectKey, err);
+      }
+    }
+
+    // Register the target's REAL status and custom-field ids (by name) so issues
+    // map to valid ids instead of dropping. Read-only.
     try {
       const statuses = await this.api.getStatusMap(projectKey);
       registerStatusMap(this.idMap, projectKey, statuses);

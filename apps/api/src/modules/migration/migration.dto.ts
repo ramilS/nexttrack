@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { StatusCategory } from '@prisma/client';
 import { createUserMigrationSchema } from './dto/create-user-migration.dto';
 import { createIssueMigrationSchema } from './dto/create-issue-migration.dto';
 import { setDatesSchema } from './dto/set-dates.dto';
@@ -21,6 +22,7 @@ import {
   migrationTimeLogsResultSchema,
   migrationEntityIdResultSchema,
   migrationSprintIssuesResultSchema,
+  migrationProjectResultSchema,
 } from './dto/migration-responses';
 import {
   createTagSchema,
@@ -36,6 +38,26 @@ const findUserByEmailQuerySchema = z.object({
 
 const setIssueParentSchema = z.object({
   parentId: z.guid(),
+});
+
+const migrationCreateProjectSchema = z.object({
+  key: z.string().min(1).max(10),
+  name: z.string().trim().min(1).max(255),
+  description: z.string().nullable().optional(),
+  // Workflow statuses derived from the YouTrack project's State bundle. Empty →
+  // the target's default workflow.
+  statuses: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(100),
+        category: z.enum(StatusCategory),
+        isInitial: z.boolean(),
+        isResolved: z.boolean(),
+        ordinal: z.number().int().min(0),
+        color: z.string().optional(),
+      }),
+    )
+    .default([]),
 });
 
 const sprintIssuesSchema = z.object({
@@ -119,3 +141,5 @@ export class MigrationCreateSprintDto extends createZodDto(createSprintSchema) {
 export class MigrationSprintIssuesDto extends createZodDto(sprintIssuesSchema) {}
 export class MigrationEntityIdResultDto extends createZodDto(migrationEntityIdResultSchema) {}
 export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprintIssuesResultSchema) {}
+export class MigrationCreateProjectDto extends createZodDto(migrationCreateProjectSchema) {}
+export class MigrationProjectResultDto extends createZodDto(migrationProjectResultSchema) {}

@@ -167,6 +167,26 @@ export class OurApiClient {
     });
   }
 
+  async createProject(dto: {
+    key: string;
+    name: string;
+    description?: string | null;
+    statuses: Array<{
+      name: string;
+      category: string;
+      isInitial: boolean;
+      isResolved: boolean;
+      ordinal: number;
+      color?: string;
+    }>;
+  }): Promise<string> {
+    return retry(async () => {
+      const { data } = await this.http.post('/admin/migration/projects', dto);
+      return unwrapEnvelope<{ data: { id: string }; existed: boolean }>(data)
+        .data.id;
+    });
+  }
+
   async createBoard(
     projectKey: string,
     dto: { name: string; type: 'KANBAN' | 'SCRUM' },
