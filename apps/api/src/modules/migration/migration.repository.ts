@@ -78,6 +78,10 @@ export class MigrationRepository {
     return this.prisma.user.findFirst({ where: { email } });
   }
 
+  async findUserByYtId(ytId: string): Promise<MigrationUserRow | null> {
+    return this.prisma.user.findUnique({ where: { ytId } });
+  }
+
   async createUser(input: MigrationUserCreateInput): Promise<MigrationUserRow> {
     return this.prisma.user.create({
       data: {

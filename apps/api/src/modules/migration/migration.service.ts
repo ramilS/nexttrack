@@ -98,7 +98,12 @@ export class MigrationService {
   ) {}
 
   async createUser(dto: CreateUserMigrationDto) {
-    const existing = await this.migrationRepo.findUserByEmail(dto.email);
+    // Idempotent by email OR ytId: a re-run must reuse an existing migrated
+    // user even if its email changed between runs (e.g. the ghost user), rather
+    // than hitting the unique ytId constraint (→ 409).
+    const existing =
+      (await this.migrationRepo.findUserByEmail(dto.email)) ??
+      (dto.ytId ? await this.migrationRepo.findUserByYtId(dto.ytId) : null);
     if (existing) {
       return { data: this.toMigrationUser(existing), existed: true };
     }

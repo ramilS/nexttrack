@@ -114,6 +114,7 @@ describe('MigrationService', () => {
 
     repo = {
       findUserByEmail: jest.fn().mockResolvedValue(null),
+      findUserByYtId: jest.fn().mockResolvedValue(null),
       createUser: jest.fn(),
       findProjectByKey: jest.fn().mockResolvedValue(null),
       findIssueByYtId: jest.fn().mockResolvedValue(null),
@@ -190,6 +191,17 @@ describe('MigrationService', () => {
           migratedFrom: 'youtrack',
         }),
       );
+    });
+
+    it('reuses an existing user matched by ytId when the email changed (no 409)', async () => {
+      repo.findUserByEmail.mockResolvedValue(null);
+      repo.findUserByYtId.mockResolvedValue(mockUser({ ytId: 'yt-user-1' }));
+
+      const result = await service.createUser({ ...dto, email: 'renamed@example.com' });
+
+      expect(result.existed).toBe(true);
+      expect(repo.findUserByYtId).toHaveBeenCalledWith('yt-user-1');
+      expect(repo.createUser).not.toHaveBeenCalled();
     });
   });
 
