@@ -6,7 +6,7 @@ import {
   HashtagNode,
   SortNode,
   FilterValue,
-} from '@/modules/search/query-language/ast.types';
+} from '@repo/shared/query-language';
 
 interface QueryContext {
   currentUserId: string;

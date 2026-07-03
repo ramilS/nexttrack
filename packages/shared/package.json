@@ -38,6 +38,10 @@
     "./schemas/*": {
       "types": "./src/schemas/*.ts",
       "default": "./dist/schemas/*.js"
+    },
+    "./query-language": {
+      "types": "./src/query-language/index.ts",
+      "default": "./dist/query-language/index.js"
     }
   },
   "scripts": {

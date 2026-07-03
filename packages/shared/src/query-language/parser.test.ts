@@ -1,3 +1,4 @@
+import { describe, it, expect } from 'vitest';
 import { Lexer } from './lexer';
 import { Parser } from './parser';
 import { ParsedQuery } from './ast.types';

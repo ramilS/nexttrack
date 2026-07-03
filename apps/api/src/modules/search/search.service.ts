@@ -14,11 +14,8 @@ import {
   SearchHydrationRow,
   SearchRepository,
 } from './search.repository';
-import { Lexer } from './query-language/lexer';
-import { Parser } from './query-language/parser';
-import type {
-  ParsedQuery,
-} from './query-language/ast.types';
+import { Lexer, Parser } from '@repo/shared/query-language';
+import type { ParsedQuery } from '@repo/shared/query-language';
 import type {
   ParseError,
   SearchIssue,

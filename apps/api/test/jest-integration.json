@@ -25,6 +25,7 @@
     "^@repo/shared/auth-methods$": "<rootDir>/../../../packages/shared/src/contracts/auth-methods",
     "^@repo/shared/schemas$": "<rootDir>/../../../packages/shared/src/schemas/index",
     "^@repo/shared/schemas/(.*)$": "<rootDir>/../../../packages/shared/src/schemas/$1",
+    "^@repo/shared/query-language$": "<rootDir>/../../../packages/shared/src/query-language/index",
     "^@repo/shared$": "<rootDir>/../../../packages/shared/src/index"
   },
   "testTimeout": 60000

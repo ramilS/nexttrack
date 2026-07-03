@@ -2,7 +2,7 @@ import { EsQueryBuilderService } from './es-query-builder.service';
 import {
   ParsedQuery,
   FilterValue,
-} from '@/modules/search/query-language/ast.types';
+} from '@repo/shared/query-language';
 
 /**
  * Recursive object shape for the Elasticsearch query DSL the builder emits.

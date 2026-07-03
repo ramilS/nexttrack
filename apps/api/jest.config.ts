@@ -25,6 +25,8 @@ const config: Config = {
     '^@repo/shared/invite$': '<rootDir>/../../../packages/shared/src/constants/invite',
     '^@repo/shared/schemas$': '<rootDir>/../../../packages/shared/src/schemas/index',
     '^@repo/shared/schemas/(.*)$': '<rootDir>/../../../packages/shared/src/schemas/$1',
+    '^@repo/shared/query-language$':
+      '<rootDir>/../../../packages/shared/src/query-language/index',
     '^@repo/shared$': '<rootDir>/../../../packages/shared/src/index',
   },
 };
