@@ -1,0 +1,27 @@
+---
+---
+
+<section id="features" class="mx-auto max-w-5xl px-6 py-24" data-reveal>
+  <p class="text-accent-hi text-sm font-semibold">Command palette</p>
+  <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+    Everything is one keystroke away
+  </h2>
+  <p class="text-fg-muted mt-4 max-w-2xl">
+    Create issues, jump to projects, change statuses, run searches — without leaving the
+    keyboard. This very page runs one:
+  </p>
+  <button
+    id="open-palette-btn"
+    type="button"
+    class="border-line bg-panel hover:bg-panel-hi mt-6 flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm transition-colors"
+  >
+    Try it now
+    <span class="border-line bg-panel-hi rounded border px-1.5 py-0.5 font-mono text-xs">⌘K</span>
+  </button>
+</section>
+
+<script>
+  document.getElementById('open-palette-btn')?.addEventListener('click', () => {
+    window.dispatchEvent(new Event('nexttrack:open-palette'));
+  });
+</script>

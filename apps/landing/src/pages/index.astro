@@ -3,7 +3,9 @@ import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Hero from '../components/Hero.astro';
 import Stats from '../components/Stats.astro';
+import PaletteHint from '../components/PaletteHint.astro';
 import QueryPlayground from '../islands/QueryPlayground';
+import CommandPalette from '../islands/CommandPalette';
 ---
 
 <Layout
@@ -30,5 +32,8 @@ import QueryPlayground from '../islands/QueryPlayground';
         <QueryPlayground client:visible />
       </div>
     </section>
+
+    <PaletteHint />
+    <CommandPalette client:load />
   </main>
 </Layout>
