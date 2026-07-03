@@ -33,6 +33,13 @@
   --muted: oklch(0.965 0 0);
   --muted-foreground: oklch(0.45 0 0);
 
+  /* Code syntax highlighting (highlight.js tokens in editor code blocks) */
+  --code-key: oklch(0.5 0.18 265);
+  --code-string: oklch(0.5 0.14 150);
+  --code-number: oklch(0.55 0.15 60);
+  --code-literal: oklch(0.52 0.2 300);
+  --code-comment: oklch(0.6 0.02 260);
+
   /* Accent: hover & active backgrounds */
   --accent: oklch(0.94 0 0);
   --accent-foreground: oklch(0.205 0 0);
@@ -123,6 +130,13 @@
 
   --muted: oklch(0.2 0 0);
   --muted-foreground: oklch(0.6 0 0);
+
+  /* Code syntax highlighting — brighter tokens for the dark code-block bg */
+  --code-key: oklch(0.75 0.13 265);
+  --code-string: oklch(0.78 0.13 150);
+  --code-number: oklch(0.8 0.12 65);
+  --code-literal: oklch(0.75 0.16 300);
+  --code-comment: oklch(0.6 0.02 260);
 
   --accent: oklch(0.22 0 0);
   --accent-foreground: oklch(0.93 0 0);
@@ -321,6 +335,9 @@
 
 .tiptap pre {
   background: var(--muted);
+  /* prose sets --tw-prose-pre-code to a light color (it assumes a dark code bg);
+     our bg is light --muted, so force a readable foreground here. */
+  color: var(--foreground);
   border-radius: 0.5rem;
   padding: 0.75rem 1rem;
   font-family: var(--font-mono);
@@ -331,6 +348,39 @@
   background: none;
   color: inherit;
   padding: 0;
+}
+
+/* highlight.js token colors (lowlight auto-detects language when none is set).
+   Scoped to editor code blocks; colors come from the --code-* design tokens so
+   they adapt to light/dark. */
+.tiptap pre code .hljs-attr,
+.tiptap pre code .hljs-attribute,
+.tiptap pre code .hljs-property,
+.tiptap pre code .hljs-title,
+.tiptap pre code .hljs-name,
+.tiptap pre code .hljs-selector-tag {
+  color: var(--code-key);
+}
+.tiptap pre code .hljs-string,
+.tiptap pre code .hljs-regexp,
+.tiptap pre code .hljs-symbol {
+  color: var(--code-string);
+}
+.tiptap pre code .hljs-number,
+.tiptap pre code .hljs-bullet {
+  color: var(--code-number);
+}
+.tiptap pre code .hljs-literal,
+.tiptap pre code .hljs-keyword,
+.tiptap pre code .hljs-built_in,
+.tiptap pre code .hljs-type,
+.tiptap pre code .hljs-meta {
+  color: var(--code-literal);
+}
+.tiptap pre code .hljs-comment,
+.tiptap pre code .hljs-quote {
+  color: var(--code-comment);
+  font-style: italic;
 }
 
 .tiptap img {
