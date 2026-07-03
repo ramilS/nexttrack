@@ -1,0 +1,21 @@
+---
+const stats = [
+  { value: '1800+', label: 'automated tests' },
+  { value: '30+', label: 'backend modules' },
+  { value: 'MIT', label: 'licensed forever' },
+  { value: '100%', label: 'your infrastructure' },
+];
+---
+
+<section class="border-line border-y">
+  <div class="mx-auto grid max-w-6xl grid-cols-2 divide-x divide-[var(--color-line)] sm:grid-cols-4">
+    {
+      stats.map((stat) => (
+        <div class="px-6 py-8 text-center">
+          <div class="text-2xl font-bold tracking-tight">{stat.value}</div>
+          <div class="text-fg-muted mt-1 text-sm">{stat.label}</div>
+        </div>
+      ))
+    }
+  </div>
+</section>

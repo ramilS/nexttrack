@@ -1,0 +1,61 @@
+---
+import { Image } from 'astro:assets';
+import screenshot from '../assets/screenshot-issues.png';
+
+const repoUrl = 'https://github.com/ramilS/nexttrack';
+---
+
+<section id="top" class="relative overflow-hidden pt-32 pb-16">
+  <div
+    aria-hidden="true"
+    class="pointer-events-none absolute inset-0 [background-image:linear-gradient(to_right,oklch(0.3_0.02_285/0.25)_1px,transparent_1px),linear-gradient(to_bottom,oklch(0.3_0.02_285/0.25)_1px,transparent_1px)] [background-size:56px_56px] [mask-image:radial-gradient(ellipse_70%_60%_at_50%_0%,black,transparent)]"
+  >
+  </div>
+  <div class="relative mx-auto max-w-6xl px-6 text-center">
+    <p class="text-fg-muted border-line bg-panel mx-auto mb-6 w-fit rounded-full border px-3 py-1 text-xs">
+      Open source · MIT · Self-hosted
+    </p>
+    <h1 class="mx-auto max-w-3xl text-5xl font-bold tracking-tight text-balance sm:text-6xl">
+      The open-source issue tracker that keeps up with you
+    </h1>
+    <p class="text-fg-muted mx-auto mt-6 max-w-2xl text-lg text-pretty">
+      YouTrack-grade queries, Linear-grade speed. Boards, sprints, docs and real-time
+      collaboration — on your own infrastructure, with your data.
+    </p>
+    <div class="mt-8 flex items-center justify-center gap-4">
+      <a
+        href={repoUrl}
+        target="_blank"
+        rel="noopener"
+        class="bg-accent hover:bg-accent-hi rounded-lg px-5 py-2.5 text-sm font-semibold text-white transition-colors"
+      >
+        ★ Star on GitHub
+      </a>
+      <a
+        href="#self-host"
+        class="border-line bg-panel hover:bg-panel-hi rounded-lg border px-5 py-2.5 text-sm font-semibold transition-colors"
+      >
+        Self-host in 5 min
+      </a>
+    </div>
+    <p class="text-fg-muted mt-6 text-xs">
+      Press <kbd class="border-line bg-panel rounded border px-1.5 py-0.5 font-mono">⌘K</kbd>
+      anywhere on this page
+    </p>
+    <div class="relative mx-auto mt-14 max-w-5xl" data-reveal>
+      <div
+        aria-hidden="true"
+        class="absolute -inset-8 rounded-[2rem] bg-[radial-gradient(ellipse_at_top,oklch(0.62_0.21_285/0.25),transparent_65%)] blur-2xl"
+      >
+      </div>
+      <div class="border-line bg-panel relative overflow-hidden rounded-xl border shadow-2xl">
+        <div class="border-line flex items-center gap-1.5 border-b px-4 py-2.5">
+          <span class="size-2.5 rounded-full bg-rose-400/70"></span>
+          <span class="size-2.5 rounded-full bg-amber-300/70"></span>
+          <span class="size-2.5 rounded-full bg-emerald-400/70"></span>
+        </div>
+        <Image src={screenshot} alt="NextTrack issue list with query filtering" class="w-full" loading="eager" />
+      </div>
+    </div>
+  </div>
+</section>

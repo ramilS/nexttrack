@@ -1,15 +1,17 @@
 ---
-import '../styles/global.css';
+import Layout from '../layouts/Layout.astro';
+import Nav from '../components/Nav.astro';
+import Hero from '../components/Hero.astro';
+import Stats from '../components/Stats.astro';
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>NextTrack</title>
-  </head>
-  <body class="font-sans">
-    <h1 class="text-accent p-8 text-3xl font-bold">NextTrack landing scaffold</h1>
-  </body>
-</html>
+<Layout
+  title="NextTrack — open-source issue tracker with a real query language"
+  description="Self-hosted, MIT-licensed project tracker: YouTrack-style query language, agile boards, sprints, knowledge base and real-time collaboration."
+>
+  <Nav />
+  <main>
+    <Hero />
+    <Stats />
+  </main>
+</Layout>

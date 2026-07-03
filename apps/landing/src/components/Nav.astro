@@ -1,0 +1,40 @@
+---
+const repoUrl = 'https://github.com/ramilS/nexttrack';
+---
+
+<header class="border-line/60 bg-page/70 fixed inset-x-0 top-0 z-40 border-b backdrop-blur">
+  <nav class="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+    <a href="#top" class="text-lg font-bold tracking-tight">
+      Next<span class="text-accent-hi">Track</span>
+    </a>
+    <div class="text-fg-muted hidden items-center gap-6 text-sm sm:flex">
+      <a href="#features" class="hover:text-fg transition-colors">Features</a>
+      <a href="#query-language" class="hover:text-fg transition-colors">Query language</a>
+      <a href="#self-host" class="hover:text-fg transition-colors">Self-host</a>
+    </div>
+    <a
+      href={repoUrl}
+      target="_blank"
+      rel="noopener"
+      class="border-line bg-panel hover:bg-panel-hi flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors"
+    >
+      <span aria-hidden="true">★</span> Star on GitHub
+      <span id="gh-star-count" class="text-fg-muted tabular-nums"></span>
+    </a>
+  </nav>
+</header>
+
+<script>
+  const el = document.getElementById('gh-star-count');
+  if (el) {
+    // Best-effort decoration: rate-limited/offline GitHub API must never break the page.
+    fetch('https://api.github.com/repos/ramilS/nexttrack')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { stargazers_count?: number } | null) => {
+        if (typeof data?.stargazers_count === 'number') {
+          el.textContent = String(data.stargazers_count);
+        }
+      })
+      .catch(() => undefined);
+  }
+</script>
