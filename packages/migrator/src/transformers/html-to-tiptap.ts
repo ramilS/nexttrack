@@ -18,6 +18,13 @@ const HEADING_LEVELS: Record<string, number> = {
   H1: 1, H2: 2, H3: 3, H4: 4, H5: 5, H6: 6,
 };
 
+export interface HtmlToTiptapOptions {
+  // Resolve a YouTrack internal user id (from `<a data-user-id>`) to our user id.
+  // Used to turn YouTrack user-mention links into native `mention` nodes instead
+  // of leaving links that point back at YouTrack.
+  resolveUserMention?: (ytUserId: string) => string | null;
+}
+
 // Bare URL matcher for autolinking plain-text runs (YouTrack wiki HTML carries
 // raw links like http://prntscr.com/… as text, not <a> tags).
 const URL_RE = /https?:\/\/[^\s<>()]+[^\s<>().,;:!?]/g;
@@ -28,9 +35,9 @@ const URL_RE = /https?:\/\/[^\s<>()]+[^\s<>().,;:!?]/g;
  * Tiptap JSON. Uses a real HTML parser (not regex) so nested markup, links and
  * lists survive; unknown tags degrade to their text content.
  */
-export function htmlToTiptap(html: string): TiptapDoc {
+export function htmlToTiptap(html: string, opts: HtmlToTiptapOptions = {}): TiptapDoc {
   const root = parse(html);
-  const content = blocksFrom(root.childNodes);
+  const content = blocksFrom(root.childNodes, opts);
   return {
     type: 'doc',
     content: content.length ? content : [{ type: 'paragraph' }],
@@ -49,7 +56,7 @@ function tagOf(node: Node): string {
 
 // Block-level walk: element children become their own block nodes; loose text
 // and inline elements are buffered into paragraphs, flushed at each block.
-function blocksFrom(nodes: Node[]): TiptapDoc[] {
+function blocksFrom(nodes: Node[], opts: HtmlToTiptapOptions): TiptapDoc[] {
   const blocks: TiptapDoc[] = [];
   let inline: TiptapDoc[] = [];
   const flush = () => {
@@ -68,9 +75,9 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
         // collapsibles) is a transparent container — recurse so inner blocks
         // keep their breaks; otherwise it's a single paragraph.
         if (hasBlockChild(el)) {
-          blocks.push(...blocksFrom(el.childNodes));
+          blocks.push(...blocksFrom(el.childNodes, opts));
         } else {
-          blocks.push(...segmentInlineToBlocks(inlineFrom(el.childNodes, [])));
+          blocks.push(...segmentInlineToBlocks(inlineFrom(el.childNodes, [], opts)));
         }
         break;
       }
@@ -79,20 +86,20 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
         blocks.push({
           type: 'heading',
           attrs: { level: HEADING_LEVELS[tag] },
-          content: inlineFrom((node as HTMLElement).childNodes, []),
+          content: inlineFrom((node as HTMLElement).childNodes, [], opts),
         });
         break;
       }
       case 'UL': case 'OL': {
         flush();
-        blocks.push(listFrom(node as HTMLElement, tag === 'OL' ? 'orderedList' : 'bulletList'));
+        blocks.push(listFrom(node as HTMLElement, tag === 'OL' ? 'orderedList' : 'bulletList', opts));
         break;
       }
       case 'BLOCKQUOTE': {
         flush();
         blocks.push({
           type: 'blockquote',
-          content: blocksFrom((node as HTMLElement).childNodes),
+          content: blocksFrom((node as HTMLElement).childNodes, opts),
         });
         break;
       }
@@ -111,7 +118,7 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
         const el = node as HTMLElement;
         const summaryEl = el.childNodes.find((n) => tagOf(n) === 'SUMMARY');
         const summary = (summaryEl ? (summaryEl as HTMLElement).text : '').trim() || 'Details';
-        const body = blocksFrom(el.childNodes.filter((n) => tagOf(n) !== 'SUMMARY'));
+        const body = blocksFrom(el.childNodes.filter((n) => tagOf(n) !== 'SUMMARY'), opts);
         blocks.push({
           type: 'details',
           attrs: { summary },
@@ -131,9 +138,9 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
           hasBlockChild(node as HTMLElement)
         ) {
           flush();
-          blocks.push(...blocksFrom((node as HTMLElement).childNodes));
+          blocks.push(...blocksFrom((node as HTMLElement).childNodes, opts));
         } else {
-          inline.push(...inlineFrom([node], []));
+          inline.push(...inlineFrom([node], [], opts));
         }
     }
   }
@@ -223,11 +230,15 @@ function lineText(line: TiptapDoc[]): string {
     .join('');
 }
 
-function listFrom(el: HTMLElement, type: 'bulletList' | 'orderedList'): TiptapDoc {
+function listFrom(
+  el: HTMLElement,
+  type: 'bulletList' | 'orderedList',
+  opts: HtmlToTiptapOptions,
+): TiptapDoc {
   const items = el.childNodes
     .filter((n) => tagOf(n) === 'LI')
     .map((li) => {
-      const inner = blocksFrom((li as HTMLElement).childNodes);
+      const inner = blocksFrom((li as HTMLElement).childNodes, opts);
       return {
         type: 'listItem',
         content: inner.length ? inner : [{ type: 'paragraph' }],
@@ -238,7 +249,7 @@ function listFrom(el: HTMLElement, type: 'bulletList' | 'orderedList'): TiptapDo
 
 // Inline walk: text nodes → text (with autolinked URLs), <a> → link mark,
 // b/i/code/… → the corresponding mark, <br> → hardBreak, other → recurse.
-function inlineFrom(nodes: Node[], marks: Mark[]): TiptapDoc[] {
+function inlineFrom(nodes: Node[], marks: Mark[], opts: HtmlToTiptapOptions): TiptapDoc[] {
   const out: TiptapDoc[] = [];
   for (const node of nodes) {
     if (isText(node)) {
@@ -252,15 +263,29 @@ function inlineFrom(nodes: Node[], marks: Mark[]): TiptapDoc[] {
       continue;
     }
     if (tag === 'A') {
+      // A YouTrack user-mention link (`<a data-user-id>`) → our `mention` node,
+      // or plain text if that user wasn't migrated — never keep the external
+      // YouTrack URL. Non-user <a> stay real links (screenshots, docs, …).
+      const ytUserId = el.getAttribute('data-user-id');
+      if (ytUserId) {
+        const userId = opts.resolveUserMention?.(ytUserId) ?? null;
+        const label = el.text.trim() || 'user';
+        out.push(
+          userId
+            ? { type: 'mention', attrs: { id: userId, label } }
+            : textNode(label, marks),
+        );
+        continue;
+      }
       const href = el.getAttribute('href');
       const linkMarks = href
         ? [...marks, { type: 'link', attrs: { href } }]
         : marks;
-      out.push(...inlineFrom(el.childNodes, linkMarks));
+      out.push(...inlineFrom(el.childNodes, linkMarks, opts));
       continue;
     }
     const mark = MARK_TAGS[tag];
-    out.push(...inlineFrom(el.childNodes, mark ? [...marks, mark] : marks));
+    out.push(...inlineFrom(el.childNodes, mark ? [...marks, mark] : marks, opts));
   }
   return out;
 }

@@ -1035,7 +1035,9 @@ export class MigrateCommand {
             await this.api.createComment(
               ourIssueId,
               authorId,
-              richTextToTiptap(comment.text),
+              richTextToTiptap(comment.text, {
+                resolveUserMention: (id) => this.idMap.getUserId(id) ?? null,
+              }),
               new Date(comment.created).toISOString(),
             );
             completed++;

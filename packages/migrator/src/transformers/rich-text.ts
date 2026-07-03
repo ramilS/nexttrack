@@ -1,5 +1,5 @@
 import { markdownToTiptap, TiptapDoc } from './markdown-to-tiptap';
-import { htmlToTiptap } from './html-to-tiptap';
+import { htmlToTiptap, HtmlToTiptapOptions } from './html-to-tiptap';
 
 // YouTrack bodies are usually markdown, but wiki-era comments/descriptions
 // arrive as rendered HTML (<div class="wiki …">, <p>, <br>, <a>, lists). Route
@@ -8,6 +8,6 @@ import { htmlToTiptap } from './html-to-tiptap';
 const HTML_TAG_RE =
   /<\/?(?:div|p|br|a|ul|ol|li|b|i|strong|em|span|pre|code|blockquote|h[1-6]|table|img)\b[^>]*>/i;
 
-export function richTextToTiptap(text: string): TiptapDoc {
-  return HTML_TAG_RE.test(text) ? htmlToTiptap(text) : markdownToTiptap(text);
+export function richTextToTiptap(text: string, opts?: HtmlToTiptapOptions): TiptapDoc {
+  return HTML_TAG_RE.test(text) ? htmlToTiptap(text, opts) : markdownToTiptap(text);
 }

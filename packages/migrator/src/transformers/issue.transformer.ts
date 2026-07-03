@@ -102,7 +102,9 @@ export class IssueTransformer {
     return {
       title: ytIssue.summary,
       description: ytIssue.description
-        ? richTextToTiptap(ytIssue.description)
+        ? richTextToTiptap(ytIssue.description, {
+            resolveUserMention: (id) => idMap.getUserId(id) ?? null,
+          })
         : null,
       type: TYPE_MAP[typeName] ?? 'TASK',
       priority: PRIORITY_MAP[priorityName] ?? 'MEDIUM',

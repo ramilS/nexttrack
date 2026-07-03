@@ -27,6 +27,25 @@ describe('htmlToTiptap', () => {
     ]);
   });
 
+  it('turns a YouTrack user-mention link into a mention node (mapped id)', () => {
+    const doc = htmlToTiptap(
+      '<p>hi <a href="https://yt/youtrack/users/ramil_s" data-user-id="25-338">Ramil Sayetov</a></p>',
+      { resolveUserMention: (ytId) => (ytId === '25-338' ? 'our-user-1' : null) },
+    );
+    expect(doc.content![0].content).toEqual([
+      { type: 'text', text: 'hi ' },
+      { type: 'mention', attrs: { id: 'our-user-1', label: 'Ramil Sayetov' } },
+    ]);
+  });
+
+  it('falls back to plain text (no YouTrack link) for an unmigrated user mention', () => {
+    const doc = htmlToTiptap(
+      '<p><a href="https://yt/youtrack/users/gone" data-user-id="9-9">Gone User</a></p>',
+      { resolveUserMention: () => null },
+    );
+    expect(doc.content![0].content).toEqual([{ type: 'text', text: 'Gone User' }]);
+  });
+
   it('autolinks a bare URL in text', () => {
     const doc = htmlToTiptap('<div>screenshot http://prntscr.com/mtitrc here</div>');
     expect(doc.content![0].content).toEqual([
