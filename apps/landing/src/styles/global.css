@@ -1,0 +1,37 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+
+@theme {
+  --color-page: oklch(0.14 0.012 285);
+  --color-panel: oklch(0.18 0.014 285);
+  --color-panel-hi: oklch(0.22 0.016 285);
+  --color-line: oklch(0.28 0.015 285);
+  --color-fg: oklch(0.93 0.006 285);
+  --color-fg-muted: oklch(0.64 0.012 285);
+  --color-accent: oklch(0.62 0.21 285);
+  --color-accent-hi: oklch(0.74 0.18 300);
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
+
+body {
+  background: var(--color-page);
+  color: var(--color-fg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(16px);
+    transition: opacity 0.6s ease, transform 0.6s ease;
+  }
+  [data-reveal].revealed {
+    opacity: 1;
+    transform: none;
+  }
+}
