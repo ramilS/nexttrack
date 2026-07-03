@@ -6,6 +6,8 @@
 ![Docker](https://github.com/your-org/next_track/actions/workflows/docker.yml/badge.svg)
 ![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
 
+**[🌐 Live landing & interactive demos](https://ramils.github.io/nexttrack/)**
+
 ---
 
 ## Features

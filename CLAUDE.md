@@ -21,6 +21,7 @@ Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN
 - `apps/api` — NestJS 11 API, Prisma 7 (Postgres), BullMQ jobs, Socket.IO realtime (incl. `modules/ai-docs` — AI-assisted doc updates, see `ai-docs.md`)
 - `apps/web` — Next.js 15 (App Router), React 19, TanStack Query, zustand, base-ui shadcn
 - `apps/e2e` — Playwright E2E suite (drives the built web+api); `test:e2e` runs here, NOT in `apps/web`
+- `apps/landing` — Astro 7 static landing for GitHub Pages (React islands for demos; deployed by `.github/workflows/pages.yml`; imports the query-language parser from `@repo/shared/query-language`)
 - `packages/shared` — Zod schemas, error codes, permission/role enums shared by both apps
 - `packages/migrator` — YouTrack → NextTrack import CLI (`@repo/migrator`: extractors/transformers/loaders)
 - `packages/test-support` — Testcontainers helpers (`@repo/test-support`) for API integration tests
