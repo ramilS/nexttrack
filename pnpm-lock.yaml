@@ -311,6 +311,9 @@ importers:
       astro:
         specifier: ^7.0.6
         version: 7.0.6(@emnapi/core@1.11.1)(@emnapi/runtime@1.11.1)(@types/node@24.12.0)(ioredis@5.10.0)(jiti@2.7.0)(rollup@4.62.2)(terser@5.48.0)(tsx@4.22.4)(yaml@2.9.0)
+      lucide-react:
+        specifier: ^0.577.0
+        version: 0.577.0(react@19.2.7)
       react:
         specifier: ^19.2.7
         version: 19.2.7
@@ -18894,6 +18897,10 @@ snapshots:
   lucide-react@0.577.0(react@19.2.0):
     dependencies:
       react: 19.2.0
+
+  lucide-react@0.577.0(react@19.2.7):
+    dependencies:
+      react: 19.2.7
 
   luxon@3.7.2: {}
 

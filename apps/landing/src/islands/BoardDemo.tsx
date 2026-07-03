@@ -12,10 +12,10 @@ const AUTOPLAY_FROM: BoardColumnName = 'In Progress';
 const AUTOPLAY_TO: BoardColumnName = 'Done';
 
 const PRIORITY_BORDER: Record<MockIssue['priority'], string> = {
-  Urgent: 'border-l-rose-500',
-  High: 'border-l-orange-400',
-  Medium: 'border-l-amber-300',
-  Low: 'border-l-sky-400',
+  Urgent: 'border-l-[var(--color-priority-urgent)]',
+  High: 'border-l-[var(--color-priority-high)]',
+  Medium: 'border-l-[var(--color-priority-medium)]',
+  Low: 'border-l-[var(--color-priority-low)]',
 };
 
 type Columns = Record<BoardColumnName, string[]>;

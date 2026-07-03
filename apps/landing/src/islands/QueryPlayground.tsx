@@ -1,4 +1,14 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState, type CSSProperties, type ElementType } from 'react';
+import {
+  AlertTriangle,
+  SignalHigh,
+  SignalMedium,
+  SignalLow,
+  Bug,
+  Lightbulb,
+  CheckSquare,
+  BookOpen,
+} from 'lucide-react';
 import { Lexer, Parser } from '@repo/shared/query-language';
 import type { ParsedQuery, TokenType } from '@repo/shared/query-language';
 import { MOCK_ISSUES, type MockIssue } from '../lib/mock-issues';
@@ -29,19 +39,54 @@ const PRESETS = [
 
 const FIELD_HINTS = ['status:', 'priority:', 'type:', 'assignee:', 'tag:', '#unresolved', 'sort by:'];
 
-const PRIORITY_BAR: Record<MockIssue['priority'], string> = {
-  Urgent: 'bg-rose-500',
-  High: 'bg-orange-400',
-  Medium: 'bg-amber-300',
-  Low: 'bg-sky-400',
+interface PriorityConfig {
+  icon: ElementType;
+  className: string;
+}
+
+const PRIORITY_CONFIG: Record<MockIssue['priority'], PriorityConfig> = {
+  Urgent: { icon: AlertTriangle, className: 'text-[var(--color-priority-urgent)]' },
+  High: { icon: SignalHigh, className: 'text-[var(--color-priority-high)]' },
+  Medium: { icon: SignalMedium, className: 'text-[var(--color-priority-medium)]' },
+  Low: { icon: SignalLow, className: 'text-[var(--color-priority-low)]' },
 };
 
-const STATUS_CLASS: Record<MockIssue['status'], string> = {
-  'To Do': 'bg-zinc-500/20 text-zinc-300',
-  'In Progress': 'bg-blue-500/20 text-blue-300',
-  'In Review': 'bg-violet-500/20 text-violet-300',
-  Done: 'bg-emerald-500/20 text-emerald-300',
+interface TypeConfig {
+  icon: ElementType;
+  className: string;
+}
+
+const TYPE_CONFIG: Record<MockIssue['type'], TypeConfig> = {
+  Bug: { icon: Bug, className: 'text-[var(--color-destructive)]' },
+  Feature: { icon: Lightbulb, className: 'text-[var(--color-warning)]' },
+  Task: { icon: CheckSquare, className: 'text-[var(--color-info)]' },
+  Story: { icon: BookOpen, className: 'text-[var(--color-success)]' },
 };
+
+const STATUS_TOKEN: Record<MockIssue['status'], string> = {
+  'To Do': 'var(--color-status-todo)',
+  'In Progress': 'var(--color-status-in-progress)',
+  'In Review': 'var(--color-status-in-review)',
+  Done: 'var(--color-status-done)',
+};
+
+const TAG_HEX: Record<string, string> = {
+  backend: '#3b82f6',
+  frontend: '#8b5cf6',
+  search: '#eab308',
+  docs: '#22c55e',
+  realtime: '#ec4899',
+  infra: '#f97316',
+  api: '#a855f7',
+  boards: '#3b82f6',
+  'knowledge-base': '#22c55e',
+  auth: '#ef4444',
+};
+const DEFAULT_TAG_HEX = '#6b7280';
+
+function tagHex(tag: string): string {
+  return TAG_HEX[tag] ?? DEFAULT_TAG_HEX;
+}
 
 interface Segment {
   text: string;
@@ -153,25 +198,56 @@ export default function QueryPlayground() {
           {results.length} of {MOCK_ISSUES.length} issues
         </p>
         <ul>
-          {results.map((issue) => (
-            <li
-              key={issue.key}
-              className="border-line/60 grid grid-cols-[4px_auto_1fr_auto] items-center gap-x-3 border-b px-5 py-2.5 text-sm last:border-b-0 sm:grid-cols-[4px_auto_1fr_auto_auto_auto]"
-            >
-              <span className={`h-4 w-1 rounded-full ${PRIORITY_BAR[issue.priority]}`} aria-hidden="true" />
-              <span className="text-fg-muted font-mono text-xs">{issue.key}</span>
-              <span className="truncate">{issue.title}</span>
-              <span className={`rounded-full px-2 py-0.5 text-xs ${STATUS_CLASS[issue.status]}`}>
-                {issue.status}
-              </span>
-              <span className="text-fg-muted hidden text-xs sm:block">
-                {issue.assignee ?? '—'}
-              </span>
-              <span className="text-fg-muted hidden font-mono text-xs sm:block">
-                {issue.tags.map((t) => `#${t}`).join(' ')}
-              </span>
-            </li>
-          ))}
+          {results.map((issue) => {
+            const PriorityIcon = PRIORITY_CONFIG[issue.priority].icon;
+            const TypeIcon = TYPE_CONFIG[issue.type].icon;
+            return (
+              <li
+                key={issue.key}
+                className="grid grid-cols-[18px_18px_auto_1fr_auto_auto_24px] items-center gap-x-2.5 border-b border-[var(--color-border)] px-4 py-2.5 text-sm transition-colors last:border-b-0 hover:bg-[var(--color-app-accent)]/60"
+              >
+                <PriorityIcon
+                  className={`size-4 ${PRIORITY_CONFIG[issue.priority].className}`}
+                  aria-label={`Priority: ${issue.priority}`}
+                />
+                <TypeIcon
+                  className={`size-3.5 ${TYPE_CONFIG[issue.type].className}`}
+                  aria-label={issue.type}
+                />
+                <span className="whitespace-nowrap font-mono text-xs text-[var(--color-fg-muted)]">
+                  {issue.key}
+                </span>
+                <span className="truncate text-sm text-fg">{issue.title}</span>
+                <div className="flex items-center gap-1.5">
+                  {issue.tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="tag-badge inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium leading-none"
+                      style={{ '--tag': tagHex(tag) } as CSSProperties}
+                    >
+                      {tag}
+                    </span>
+                  ))}
+                </div>
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="size-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: STATUS_TOKEN[issue.status] }}
+                  />
+                  <span className="whitespace-nowrap text-xs font-medium text-[var(--color-fg-muted)]">
+                    {issue.status}
+                  </span>
+                </span>
+                {issue.assignee ? (
+                  <span className="flex size-6 items-center justify-center rounded-full bg-panel-hi text-[11px] font-medium text-fg-muted">
+                    {issue.assignee.charAt(0).toUpperCase()}
+                  </span>
+                ) : (
+                  <span className="size-6" />
+                )}
+              </li>
+            );
+          })}
           {results.length === 0 && (
             <li className="text-fg-muted px-5 py-8 text-center text-sm">
               No issues match this query — try one of the presets above.
