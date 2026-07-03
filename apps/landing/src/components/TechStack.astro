@@ -1,0 +1,21 @@
+---
+const stack = [
+  'NestJS 11', 'Next.js 16', 'React 19', 'PostgreSQL 16', 'Prisma 7',
+  'Elasticsearch 9', 'Valkey 9', 'MinIO / S3', 'Socket.IO', 'BullMQ', 'Tailwind CSS 4',
+];
+---
+
+<section class="border-line border-y">
+  <div class="mx-auto max-w-6xl px-6 py-12">
+    <p class="text-fg-muted text-center text-sm">Built on boring, battle-tested infrastructure</p>
+    <div class="mt-6 flex flex-wrap items-center justify-center gap-3">
+      {
+        stack.map((name) => (
+          <span class="border-line bg-panel text-fg-muted rounded-full border px-3.5 py-1.5 font-mono text-xs">
+            {name}
+          </span>
+        ))
+      }
+    </div>
+  </div>
+</section>

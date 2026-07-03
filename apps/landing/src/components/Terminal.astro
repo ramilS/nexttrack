@@ -1,0 +1,66 @@
+---
+const commands = [
+  'git clone https://github.com/ramilS/nexttrack.git',
+  'cd nexttrack/infra && docker compose up -d',
+  'pnpm install && pnpm dev',
+];
+const allCommands = commands.join('\n');
+---
+
+<section id="self-host" class="mx-auto max-w-5xl px-6 py-24" data-reveal>
+  <p class="text-accent-hi text-sm font-semibold">Self-host</p>
+  <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+    Your data. Your server. Five minutes.
+  </h2>
+  <p class="text-fg-muted mt-4 max-w-2xl">
+    One compose file brings up Postgres, Valkey, Elasticsearch and MinIO. No usage tiers,
+    no seat pricing, no data leaving your network.
+  </p>
+  <div class="border-line mt-8 overflow-hidden rounded-xl border bg-black/40 shadow-2xl">
+    <div class="border-line flex items-center justify-between border-b px-4 py-2.5">
+      <div class="flex items-center gap-1.5">
+        <span class="size-2.5 rounded-full bg-rose-400/70"></span>
+        <span class="size-2.5 rounded-full bg-amber-300/70"></span>
+        <span class="size-2.5 rounded-full bg-emerald-400/70"></span>
+      </div>
+      <button
+        id="copy-commands"
+        type="button"
+        data-commands={allCommands}
+        class="text-fg-muted hover:text-fg text-xs transition-colors"
+      >
+        Copy
+      </button>
+    </div>
+    <div class="p-5 font-mono text-sm leading-7">
+      {
+        commands.map((command) => (
+          <p>
+            <span class="text-accent-hi select-none">$ </span>
+            <span class="text-fg">{command}</span>
+          </p>
+        ))
+      }
+      <p class="text-fg-muted mt-2">
+        <span class="select-none"># </span>web on :3000 · api on :3001 — full guide in the README
+      </p>
+    </div>
+  </div>
+</section>
+
+<script>
+  const button = document.getElementById('copy-commands');
+  button?.addEventListener('click', () => {
+    const commands = button.getAttribute('data-commands') ?? '';
+    navigator.clipboard.writeText(commands).then(
+      () => {
+        button.textContent = 'Copied!';
+        setTimeout(() => (button.textContent = 'Copy'), 1500);
+      },
+      () => {
+        button.textContent = 'Copy failed';
+        setTimeout(() => (button.textContent = 'Copy'), 1500);
+      },
+    );
+  });
+</script>

@@ -4,6 +4,10 @@ import Nav from '../components/Nav.astro';
 import Hero from '../components/Hero.astro';
 import Stats from '../components/Stats.astro';
 import PaletteHint from '../components/PaletteHint.astro';
+import FeatureGrid from '../components/FeatureGrid.astro';
+import TechStack from '../components/TechStack.astro';
+import Terminal from '../components/Terminal.astro';
+import Footer from '../components/Footer.astro';
 import QueryPlayground from '../islands/QueryPlayground';
 import CommandPalette from '../islands/CommandPalette';
 import BoardDemo from '../islands/BoardDemo';
@@ -34,6 +38,8 @@ import BoardDemo from '../islands/BoardDemo';
       </div>
     </section>
 
+    <PaletteHint />
+
     <section id="board" class="mx-auto max-w-5xl px-6 py-24" data-reveal>
       <p class="text-accent-hi text-sm font-semibold">Boards & real-time</p>
       <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
@@ -48,7 +54,10 @@ import BoardDemo from '../islands/BoardDemo';
       </div>
     </section>
 
-    <PaletteHint />
-    <CommandPalette client:load />
+    <FeatureGrid />
+    <TechStack />
+    <Terminal />
   </main>
+  <Footer />
+  <CommandPalette client:load />
 </Layout>
