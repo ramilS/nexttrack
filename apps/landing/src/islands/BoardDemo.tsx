@@ -254,7 +254,7 @@ export default function BoardDemo() {
         style={{ left: cursor.x, top: cursor.y }}
       >
         <svg width="20" height="20" viewBox="0 0 24 24" className={cursor.pressed ? 'scale-90' : ''}>
-          <path d="M5 3l14 8-6.5 1.5L9 19z" fill="oklch(0.74 0.18 300)" stroke="white" strokeWidth={1.5} />
+          <path d="M5 3l14 8-6.5 1.5L9 19z" fill="var(--color-accent-hi)" stroke="white" strokeWidth={1.5} />
         </svg>
         <span className="bg-accent mt-0.5 ml-3 inline-block rounded-full px-2 py-0.5 text-xs font-medium text-white">
           Alex
