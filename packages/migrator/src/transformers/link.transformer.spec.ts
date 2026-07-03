@@ -2,14 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { mapYtLink, resolveParentYtId } from './link.transformer';
 
 describe('mapYtLink', () => {
-  it('maps Depend outward to BLOCKS and inward to IS_BLOCKED_BY', () => {
+  // A directed YouTrack link appears on BOTH endpoints (OUTWARD on the source,
+  // INWARD on the target). We create it once from the OUTWARD side; INWARD is
+  // skipped so we don't make two rows (BLOCKS(A→B) + DEPENDS_ON(B→A)) for one
+  // relationship — the target renders the inverse perspective from the one row.
+  it('maps Depend OUTWARD to BLOCKS and skips INWARD (created from the other side)', () => {
     expect(mapYtLink('Depend', 'OUTWARD')).toBe('BLOCKS');
-    expect(mapYtLink('Depend', 'INWARD')).toBe('IS_BLOCKED_BY');
+    expect(mapYtLink('Depend', 'INWARD')).toBeNull();
   });
 
-  it('maps Duplicate both directions', () => {
+  it('maps Duplicate OUTWARD to DUPLICATES and skips INWARD', () => {
     expect(mapYtLink('Duplicate', 'OUTWARD')).toBe('DUPLICATES');
-    expect(mapYtLink('Duplicate', 'INWARD')).toBe('IS_DUPLICATED_BY');
+    expect(mapYtLink('Duplicate', 'INWARD')).toBeNull();
   });
 
   it('emits a symmetric Relates link once (OUTWARD/BOTH only)', () => {

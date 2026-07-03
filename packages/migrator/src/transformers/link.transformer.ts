@@ -34,34 +34,33 @@ export function resolveParentYtId(
   return parentLink?.issues[0]?.id ?? null;
 }
 
-interface LinkTypeMapping {
-  outward: FrontendLinkType | null;
-  inward: FrontendLinkType | null;
-  symmetric?: boolean;
-}
-
 // Keyed by YouTrack linkType.name (default instance names — verify against the
-// source instance during the pilot). Subtask is null: parent-child is handled
-// by the dedicated parent-links phase, not as a generic link.
-const YT_LINKTYPE_MAP: Record<string, LinkTypeMapping> = {
-  Depend: { outward: 'BLOCKS', inward: 'IS_BLOCKED_BY' },
-  Duplicate: { outward: 'DUPLICATES', inward: 'IS_DUPLICATED_BY' },
-  Relates: { outward: 'RELATES_TO', inward: null, symmetric: true },
-  Subtask: { outward: null, inward: null },
+// source instance during the pilot). Maps to the OUTWARD-side target type only.
+// Subtask is null: parent-child is handled by the dedicated parent-links phase,
+// not as a generic link.
+const YT_LINKTYPE_OUTWARD: Record<string, FrontendLinkType | null> = {
+  Depend: 'BLOCKS',
+  Duplicate: 'DUPLICATES',
+  Relates: 'RELATES_TO',
+  Subtask: null,
 };
 
 /**
  * Maps a YouTrack link (type name + direction) to the target link type.
- * Returns null when the link must be skipped: unknown type, subtask, or the
- * INWARD side of a symmetric link (each symmetric pair is emitted once, from
- * the OUTWARD/BOTH side, to avoid double-creation).
+ *
+ * Emits ONLY from the OUTWARD (or symmetric BOTH) side; INWARD always returns
+ * null. YouTrack returns a directed link on BOTH endpoints (OUTWARD on the
+ * source, INWARD on the target), so creating from both sides makes two rows for
+ * one relationship — e.g. BLOCKS(A→B) from A's outward AND DEPENDS_ON(B→A) from
+ * B's inward — which both render as "is blocked by A" on B. The target stores a
+ * single directed row and renders the inverse perspective itself, so one
+ * outward-side create is exactly right. Also returns null for unknown types and
+ * Subtask (handled by the parent-links phase).
  */
 export function mapYtLink(
   linkTypeName: string,
   direction: 'OUTWARD' | 'INWARD' | 'BOTH',
 ): FrontendLinkType | null {
-  const entry = YT_LINKTYPE_MAP[linkTypeName];
-  if (!entry) return null;
-  if (entry.symmetric) return direction === 'INWARD' ? null : entry.outward;
-  return direction === 'INWARD' ? entry.inward : entry.outward;
+  if (direction === 'INWARD') return null;
+  return YT_LINKTYPE_OUTWARD[linkTypeName] ?? null;
 }
