@@ -4,7 +4,7 @@ on:
   push:
     branches: [master]
     paths:
-      - 'apps/landing/**'
+      - 'landing/**'
       - 'packages/shared/**'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
@@ -31,29 +31,25 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ~/.local/share/pnpm/store
-          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            pnpm-store-${{ runner.os }}-
+          cache-dependency-path: landing/pnpm-lock.yaml
 
       - name: Install dependencies
+        working-directory: landing
         run: pnpm install --frozen-lockfile
 
       - name: Test landing
-        run: pnpm --filter landing test
+        working-directory: landing
+        run: pnpm test
 
       - name: Build landing
-        run: pnpm turbo run build --filter=landing
+        working-directory: landing
+        run: pnpm build
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: apps/landing/dist
+          path: landing/dist
 
   deploy:
     name: Deploy

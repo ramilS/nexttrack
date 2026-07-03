@@ -5,7 +5,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@repo/shared/query-language': fileURLToPath(
-        new URL('../../packages/shared/src/query-language/index.ts', import.meta.url),
+        new URL('../packages/shared/src/query-language/index.ts', import.meta.url),
       ),
     },
   },

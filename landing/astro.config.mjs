@@ -7,7 +7,7 @@ import tailwindcss from '@tailwindcss/vite';
 // Alias to shared *source* so the landing never depends on packages/shared
 // having been built first (same approach as apps/api's jest moduleNameMapper).
 const sharedQueryLanguage = fileURLToPath(
-  new URL('../../packages/shared/src/query-language/index.ts', import.meta.url),
+  new URL('../packages/shared/src/query-language/index.ts', import.meta.url),
 );
 
 export default defineConfig({

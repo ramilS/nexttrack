@@ -21,12 +21,13 @@ Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN
 - `apps/api` — NestJS 11 API, Prisma 7 (Postgres), BullMQ jobs, Socket.IO realtime (incl. `modules/ai-docs` — AI-assisted doc updates, see `ai-docs.md`)
 - `apps/web` — Next.js 15 (App Router), React 19, TanStack Query, zustand, base-ui shadcn
 - `apps/e2e` — Playwright E2E suite (drives the built web+api); `test:e2e` runs here, NOT in `apps/web`
-- `apps/landing` — Astro 7 static landing for GitHub Pages (React islands for demos; deployed by `.github/workflows/pages.yml`; imports the query-language parser from `@repo/shared/query-language`)
 - `packages/shared` — Zod schemas, error codes, permission/role enums shared by both apps
 - `packages/migrator` — YouTrack → NextTrack import CLI (`@repo/migrator`: extractors/transformers/loaders)
 - `packages/test-support` — Testcontainers helpers (`@repo/test-support`) for API integration tests
 - `packages/ui` — shared React primitives (`@repo/ui`) — NOT the web app's UI (that's `apps/web/components/ui`)
 - `infra` — docker-compose for local stack (Postgres, Valkey, MinIO/S3, ES, Mailhog)
+
+> `landing/` (repo root) — Astro 7 static marketing site for GitHub Pages. **Deliberately NOT a pnpm-workspace member**: it has its own `pnpm-workspace.yaml` + `pnpm-lock.yaml`, so root `pnpm install` / `turbo` / `pnpm dev` ignore it and anyone cloning to run the tracker isn't burdened by its deps. Work on it from its own dir (`cd landing && pnpm install && pnpm dev|build|test`). It still uses the **real** query-language parser via a Vite/tsconfig/vitest alias `@repo/shared/query-language` → `../packages/shared/src/query-language` (relative path, same git tree — no publishing). Deployed by `.github/workflows/pages.yml` (builds from `landing/`). Interactive demos: query playground (real parser), ⌘K command palette, kanban+realtime board.
 
 ## Common Commands
 

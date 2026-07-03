@@ -4,7 +4,7 @@
     "jsx": "react-jsx",
     "jsxImportSource": "react",
     "paths": {
-      "@repo/shared/query-language": ["../../packages/shared/src/query-language/index.ts"]
+      "@repo/shared/query-language": ["../packages/shared/src/query-language/index.ts"]
     }
   },
   "include": [".astro/types.d.ts", "src/**/*"],
