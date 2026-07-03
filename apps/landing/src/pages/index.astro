@@ -6,6 +6,7 @@ import Stats from '../components/Stats.astro';
 import PaletteHint from '../components/PaletteHint.astro';
 import QueryPlayground from '../islands/QueryPlayground';
 import CommandPalette from '../islands/CommandPalette';
+import BoardDemo from '../islands/BoardDemo';
 ---
 
 <Layout
@@ -30,6 +31,20 @@ import CommandPalette from '../islands/CommandPalette';
       </p>
       <div class="mt-8">
         <QueryPlayground client:visible />
+      </div>
+    </section>
+
+    <section id="board" class="mx-auto max-w-5xl px-6 py-24" data-reveal>
+      <p class="text-accent-hi text-sm font-semibold">Boards & real-time</p>
+      <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+        See your team move, live
+      </h2>
+      <p class="text-fg-muted mt-4 max-w-2xl">
+        Kanban boards with WIP limits, swimlanes and drag-and-drop — and every change lands on
+        your teammates' screens instantly over WebSockets. Watch Alex work, or grab a card yourself:
+      </p>
+      <div class="mt-8">
+        <BoardDemo client:visible />
       </div>
     </section>
 
