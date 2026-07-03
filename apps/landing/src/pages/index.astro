@@ -3,6 +3,7 @@ import Layout from '../layouts/Layout.astro';
 import Nav from '../components/Nav.astro';
 import Hero from '../components/Hero.astro';
 import Stats from '../components/Stats.astro';
+import QueryPlayground from '../islands/QueryPlayground';
 ---
 
 <Layout
@@ -13,5 +14,21 @@ import Stats from '../components/Stats.astro';
   <main>
     <Hero />
     <Stats />
+
+    <section id="query-language" class="mx-auto max-w-5xl px-6 py-24" data-reveal>
+      <p class="text-accent-hi text-sm font-semibold">Query language</p>
+      <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+        Search the way you think
+      </h2>
+      <p class="text-fg-muted mt-4 max-w-2xl">
+        A real query language — not a wall of filter dropdowns. Fields, negation,
+        <code class="font-mono text-sm">me</code> and <code class="font-mono text-sm">{'{unassigned}'}</code> keywords,
+        multi-value filters and <code class="font-mono text-sm">sort by:</code> — parsed by the exact same code
+        that runs in the product. Try it:
+      </p>
+      <div class="mt-8">
+        <QueryPlayground client:visible />
+      </div>
+    </section>
   </main>
 </Layout>
