@@ -84,12 +84,35 @@ export default function CommandPalette() {
   useEffect(() => setActiveIndex(0), [search]);
 
   const runCommand = async (command: Command) => {
-    await command.run();
+    try {
+      await command.run();
+    } catch {
+      setFeedback('Something went wrong — try again');
+      return;
+    }
     if (command.id === 'clone') {
       setTimeout(close, 700);
     } else {
       close();
     }
+  };
+
+  const focusableSelector = 'input, button';
+
+  const cycleFocus = (dialog: HTMLElement, direction: 'forward' | 'backward'): void => {
+    const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(focusableSelector));
+    if (focusable.length === 0) return;
+    const currentIndex = focusable.indexOf(document.activeElement as HTMLElement);
+    const lastIndex = focusable.length - 1;
+    const nextIndex =
+      direction === 'forward'
+        ? currentIndex === lastIndex || currentIndex === -1
+          ? 0
+          : currentIndex + 1
+        : currentIndex <= 0
+          ? lastIndex
+          : currentIndex - 1;
+    focusable[nextIndex]?.focus();
   };
 
   const onInputKeyDown = (event: React.KeyboardEvent) => {
@@ -108,6 +131,12 @@ export default function CommandPalette() {
     }
   };
 
+  const onDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') return;
+    event.preventDefault();
+    cycleFocus(event.currentTarget, event.shiftKey ? 'backward' : 'forward');
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -121,6 +150,7 @@ export default function CommandPalette() {
         aria-label="Command palette"
         className="border-line bg-panel w-full max-w-lg overflow-hidden rounded-xl border shadow-2xl"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={onDialogKeyDown}
       >
         <input
           ref={inputRef}
