@@ -67,7 +67,14 @@ export function SubIssuesList({ issueId, issueNumber, projectKey, childCount, cl
                   <span className="font-mono text-xs text-muted-foreground">
                     {projectKey}-{child.number}
                   </span>
-                  <span className="truncate flex-1">{child.title}</span>
+                  <span
+                    className={cn(
+                      'truncate flex-1',
+                      child.status?.category === 'DONE' && 'text-muted-foreground line-through',
+                    )}
+                  >
+                    {child.title}
+                  </span>
                   <StatusBadge status={child.status} />
                 </Link>
               ))}

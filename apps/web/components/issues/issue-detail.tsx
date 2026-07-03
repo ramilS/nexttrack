@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import { Copy, Check, Loader2, Maximize2, Link2, Hash, Pencil, Eye } from 'lucide-react';
 import { routes } from '@/lib/routes';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -146,17 +147,24 @@ export function IssueDetail({ projectKey, issueNumber }: IssueDetailProps) {
         <div className="min-w-0 space-y-6">
           <IssueTitleEditor value={issue.title} onSave={handleTitleSave} readOnly={!isEditing} />
 
-          {/* Parent link */}
+          {/* Parent link — struck through when the parent is resolved (Done) */}
           {issue.parent && (
             <div className="text-sm text-muted-foreground">
               Parent:{' '}
               <Link
                 href={routes.project(projectKey).issues.detail(issue.parent.number)}
-                className="text-primary hover:underline"
+                className={cn(
+                  'text-primary hover:underline',
+                  issue.parent.status?.category === 'DONE' && 'line-through',
+                )}
               >
                 {projectKey}-{issue.parent.number}
               </Link>
-              {issue.parent.title && ` — ${issue.parent.title}`}
+              {issue.parent.title && (
+                <span className={cn(issue.parent.status?.category === 'DONE' && 'line-through')}>
+                  {` — ${issue.parent.title}`}
+                </span>
+              )}
             </div>
           )}
 
