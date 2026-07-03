@@ -53,7 +53,7 @@ Why Astro: static HTML with near-zero JS by default; each demo is an isolated Re
 - Clickable preset chips: e.g. "my urgent bugs", "unresolved this sprint", "recently updated".
 - A dropdown hint listing available fields (static list for the demo).
 - Below: a mock issue list (~12 issues) filtered live as the user types.
-- **Uses the real parser.** The query-language core (`lexer.ts`, `parser.ts`, `ast.types.ts`) is pure dependency-free TypeScript currently in `apps/api/src/modules/search/query-language/`. As part of this work it moves to `packages/shared/src/query-language/` (re-exported from the barrel); the API updates its imports. `autocomplete.service.ts` stays in the API (it depends on Nest/Prisma). The landing imports the parser from `@repo/shared` and evaluates the resulting AST against the mock issues with a small demo evaluator.
+- **Uses the real parser.** The query-language core (`lexer.ts`, `parser.ts`, `ast.types.ts`) is pure dependency-free TypeScript currently in `apps/api/src/modules/search/query-language/`. As part of this work it moves to `packages/shared/src/query-language/` (exposed via the `@repo/shared/query-language` subpath export, matching how `schemas` is exposed); the API updates its imports. `autocomplete.service.ts` stays in the API (it depends on Nest/Prisma). The landing imports the parser from `@repo/shared` and evaluates the resulting AST against the mock issues with a small demo evaluator.
 - Parse errors render as a gentle inline hint, never a broken UI.
 
 ### Demo 2 — Command Palette
