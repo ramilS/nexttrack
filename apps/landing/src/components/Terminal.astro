@@ -3,6 +3,7 @@ const commands = [
   'git clone https://github.com/ramilS/nexttrack.git',
   'cd nexttrack/infra && docker compose up -d',
   'pnpm install && pnpm dev',
+  'pnpm seed:dev  # demo project + admin login (run the reindex it prints)',
 ];
 const allCommands = commands.join('\n');
 ---
@@ -47,6 +48,12 @@ const allCommands = commands.join('\n');
       </p>
     </div>
   </div>
+  <p class="border-line bg-panel text-fg-muted mt-4 rounded-lg border px-4 py-3 text-sm">
+    <span class="text-fg font-semibold">Production-ready:</span>
+    <code class="font-mono text-xs">docker compose -f infra/docker-compose.prod.yml up -d</code>
+    brings up the full stack — API, web, Postgres, Valkey, Elasticsearch, MinIO — behind nginx
+    with automatic HTTPS via certbot. Images build from the included Dockerfiles.
+  </p>
 </section>
 
 <script>

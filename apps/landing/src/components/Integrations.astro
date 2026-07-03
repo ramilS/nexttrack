@@ -1,0 +1,76 @@
+---
+const transfers = ['Issues', 'Comments', 'Tags', 'Links', 'Custom fields', 'Attachments'];
+---
+
+<section id="integrations" class="mx-auto max-w-6xl px-6 py-24" data-reveal>
+  <p class="text-accent-hi text-sm font-semibold">Integrations</p>
+  <h2 class="mt-2 max-w-2xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+    Plugs into the tools you already use
+  </h2>
+  <div class="mt-10 grid gap-6 lg:grid-cols-3">
+    <!-- Webhooks & REST API -->
+    <div class="border-line bg-panel overflow-hidden rounded-xl border">
+      <div class="border-line flex items-center justify-between border-b bg-black/40 px-4 py-2.5">
+        <div class="flex items-center gap-1.5">
+          <span class="size-2.5 rounded-full bg-rose-400/70"></span>
+          <span class="size-2.5 rounded-full bg-amber-300/70"></span>
+          <span class="size-2.5 rounded-full bg-emerald-400/70"></span>
+        </div>
+        <span class="rounded-full bg-[var(--color-status-done)]/15 px-2 py-0.5 text-[11px] font-medium text-[var(--color-status-done)]">
+          200 OK
+        </span>
+      </div>
+      <pre class="overflow-x-auto bg-black/40 p-4 font-mono text-xs leading-6"><code><span class="text-violet-400">POST</span> <span class="text-emerald-300">https://your-app.com/hooks/nexttrack</span>
+<span class="text-zinc-500">{'{'}</span>
+  <span class="text-violet-400">"event"</span><span class="text-zinc-500">:</span> <span class="text-emerald-300">"issue.updated"</span><span class="text-zinc-500">,</span>
+  <span class="text-violet-400">"issue"</span><span class="text-zinc-500">:</span> <span class="text-emerald-300">"NT-142"</span><span class="text-zinc-500">,</span>
+  <span class="text-violet-400">"changes"</span><span class="text-zinc-500">:</span> <span class="text-zinc-500">{'{'}</span> <span class="text-violet-400">"status"</span><span class="text-zinc-500">:</span> <span class="text-emerald-300">"In Review"</span><span class="text-zinc-500">,</span> <span class="text-violet-400">"assignee"</span><span class="text-zinc-500">:</span> <span class="text-emerald-300">"alex"</span> <span class="text-zinc-500">{'}'}</span>
+<span class="text-zinc-500">{'}'}</span></code></pre>
+      <p class="text-fg-muted border-line border-t px-4 py-3 text-xs">
+        Full REST API with OpenAPI docs at <code class="font-mono">/docs</code>.
+      </p>
+    </div>
+
+    <!-- Telegram -->
+    <div class="border-line bg-panel rounded-xl border p-5">
+      <div class="flex items-center gap-2.5">
+        <span class="bg-accent flex size-8 shrink-0 items-center justify-center rounded-full text-sm text-white">
+          <span aria-hidden="true">✈︎</span>
+        </span>
+        <span class="text-sm font-semibold">NextTrack Bot</span>
+      </div>
+      <div class="bg-panel-hi mt-4 rounded-lg rounded-tl-none px-3.5 py-2.5 text-sm leading-relaxed">
+        <span aria-hidden="true">🔔</span> NT-142 — Fix N+1 query in board loading → In Review, assigned to you
+      </div>
+      <p class="text-fg-muted mt-2 text-xs">now</p>
+      <p class="text-fg-muted border-line mt-4 border-t pt-3 text-xs">
+        Real-time notifications in Telegram, no inbox required.
+      </p>
+    </div>
+
+    <!-- Migrate from YouTrack -->
+    <div class="border-line bg-panel rounded-xl border p-5">
+      <div class="flex items-center justify-center gap-3 text-sm font-semibold">
+        <span class="border-line bg-panel-hi rounded-lg border px-3 py-1.5">YouTrack</span>
+        <span class="text-fg-muted" aria-hidden="true">→</span>
+        <span class="border-accent/40 bg-accent/15 text-accent-hi rounded-lg border px-3 py-1.5">
+          NextTrack
+        </span>
+      </div>
+      <ul class="text-fg-muted mt-4 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
+        {
+          transfers.map((item) => (
+            <li class="flex items-center gap-1.5">
+              <span class="text-[var(--color-status-done)]" aria-hidden="true">✓</span>
+              {item}
+            </li>
+          ))
+        }
+      </ul>
+      <p class="text-fg-muted border-line mt-4 border-t pt-3 text-xs">
+        One-command import via the <code class="font-mono">@repo/migrator</code> CLI — with
+        original dates preserved.
+      </p>
+    </div>
+  </div>
+</section>

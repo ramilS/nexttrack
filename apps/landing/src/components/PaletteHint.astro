@@ -1,23 +1,45 @@
 ---
+import { Image } from 'astro:assets';
+import screenshot from '../assets/command-palette.png';
 ---
 
-<section id="features" class="mx-auto max-w-5xl px-6 py-24" data-reveal>
-  <p class="text-accent-hi text-sm font-semibold">Command palette</p>
-  <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
-    Everything is one keystroke away
-  </h2>
-  <p class="text-fg-muted mt-4 max-w-2xl">
-    Create issues, jump to projects, change statuses, run searches — without leaving the
-    keyboard. This very page runs one:
-  </p>
-  <button
-    id="open-palette-btn"
-    type="button"
-    class="border-line bg-panel hover:bg-panel-hi mt-6 flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm transition-colors"
-  >
-    Try it now
-    <span class="border-line bg-panel-hi rounded border px-1.5 py-0.5 font-mono text-xs">⌘K</span>
-  </button>
+<section id="features" class="mx-auto max-w-6xl px-6 py-24" data-reveal>
+  <div class="grid items-center gap-10 lg:grid-cols-2">
+    <div>
+      <p class="text-accent-hi text-sm font-semibold">Command palette</p>
+      <h2 class="mt-2 max-w-xl text-3xl font-bold tracking-tight text-balance sm:text-4xl">
+        Everything is one keystroke away
+      </h2>
+      <p class="text-fg-muted mt-4 max-w-2xl">
+        Create issues, jump to projects, change statuses, run searches — without leaving the
+        keyboard. This very page runs one:
+      </p>
+      <button
+        id="open-palette-btn"
+        type="button"
+        class="border-line bg-panel hover:bg-panel-hi mt-6 flex items-center gap-3 rounded-lg border px-4 py-2.5 text-sm transition-colors"
+      >
+        Try it now
+        <span class="border-line bg-panel-hi rounded border px-1.5 py-0.5 font-mono text-xs">⌘K</span>
+      </button>
+    </div>
+
+    <div class="relative" data-reveal>
+      <div
+        aria-hidden="true"
+        class="absolute -inset-8 rounded-[2rem] bg-[radial-gradient(ellipse_at_top,oklch(0.62_0.21_285/0.25),transparent_65%)] blur-2xl"
+      >
+      </div>
+      <div class="border-line bg-panel relative overflow-hidden rounded-xl border shadow-2xl">
+        <div class="border-line flex items-center gap-1.5 border-b px-4 py-2.5">
+          <span class="size-2.5 rounded-full bg-rose-400/70"></span>
+          <span class="size-2.5 rounded-full bg-amber-300/70"></span>
+          <span class="size-2.5 rounded-full bg-emerald-400/70"></span>
+        </div>
+        <Image src={screenshot} alt="NextTrack command palette" class="w-full" />
+      </div>
+    </div>
+  </div>
 </section>
 
 <script>
