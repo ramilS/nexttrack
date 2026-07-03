@@ -2,17 +2,16 @@
 interface Feature {
   title: string;
   description: string;
-  wide?: boolean;
 }
 
 const features: Feature[] = [
-  { title: 'Sprints & backlog', description: 'Plan sprints, groom the backlog, track velocity — the full agile loop.', wide: true },
+  { title: 'Sprints & backlog', description: 'Plan sprints, groom the backlog, track velocity — the full agile loop.' },
   { title: 'Custom fields & workflows', description: 'Per-project statuses, transitions and field schemas that match how you actually work.' },
   { title: 'Time tracking', description: 'Log work on issues and slice it into per-person, per-project reports.' },
   { title: 'Gantt timeline', description: 'Dependencies and scheduling on a zoomable timeline.' },
   { title: 'Dashboards', description: 'Composable widgets over live project data.' },
   { title: 'Knowledge base', description: 'A wiki with rich text, versions and issue links.' },
-  { title: 'Workflow automation', description: 'Rules that assign, transition, tag and comment for you.', wide: true },
+  { title: 'Workflow automation', description: 'Rules that assign, transition, tag and comment for you.' },
   { title: 'Notifications', description: 'In-app and email alerts with digests and dedup.' },
   { title: 'SSO & permissions', description: 'Google/Microsoft sign-in, invite-only registration, atomic per-project permissions.' },
 ];
@@ -26,12 +25,7 @@ const features: Feature[] = [
   <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
     {
       features.map((feature) => (
-        <div
-          class:list={[
-            'border-line bg-panel hover:bg-panel-hi group relative overflow-hidden rounded-xl border p-6 transition-colors',
-            feature.wide && 'lg:col-span-2',
-          ]}
-        >
+        <div class="border-line bg-panel hover:bg-panel-hi group relative overflow-hidden rounded-xl border p-6 transition-colors">
           <div
             aria-hidden="true"
             class="bg-accent/10 absolute -top-10 -right-10 size-32 rounded-full blur-2xl transition-opacity opacity-0 group-hover:opacity-100"
