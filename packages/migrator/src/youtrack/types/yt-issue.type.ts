@@ -11,11 +11,17 @@ export interface YtIssue {
   state?: { id: string; name: string; isResolved?: boolean };
   assignee?: YtUserRef;
   reporter: YtUserRef;
-  parent?: { id: string; numberInProject: number };
   sprint?: { id: string; name: string };
   tags?: { id: string; name: string; color?: any }[];
+  links?: YtIssueLink[];
   customFields?: YtCustomField[];
   dueDate?: number;
+}
+
+export interface YtIssueLink {
+  direction: 'OUTWARD' | 'INWARD' | 'BOTH';
+  linkType: { name: string; sourceToTarget?: string; targetToSource?: string };
+  issues: { id: string }[];
 }
 
 export interface YtUserRef {

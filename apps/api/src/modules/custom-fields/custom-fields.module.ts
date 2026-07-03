@@ -28,6 +28,6 @@ import { IndexerHooksModule } from '@/modules/search/indexer/indexer-hooks.modul
     CustomFieldsRepository,
     CustomFieldValuesRepository,
   ],
-  exports: [CustomFieldValuesService, CustomFieldsRepository],
+  exports: [CustomFieldsService, CustomFieldValuesService, CustomFieldsRepository],
 })
 export class CustomFieldsModule {}

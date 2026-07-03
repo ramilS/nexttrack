@@ -204,6 +204,17 @@ describe('AttachmentsService', () => {
       await expect(service.getDownloadUrl('issue-1', 'att-1', 'non-member')).rejects.toThrow(PermissionDeniedError);
     });
 
+    it('lets a global admin download without project membership (bypasses the member check)', async () => {
+      attachmentsRepo.findActiveById.mockResolvedValue(baseRaw);
+      attachmentsRepo.findIssueProjectId.mockResolvedValue('proj-1');
+      projectMembersRepo.isMember.mockResolvedValue(false);
+
+      const result = await service.getDownloadUrl('issue-1', 'att-1', 'admin', true);
+
+      expect(result).toBe('https://s3/presigned');
+      expect(projectMembersRepo.isMember).not.toHaveBeenCalled();
+    });
+
     it('should throw NotFoundError for missing attachment', async () => {
       attachmentsRepo.findActiveById.mockResolvedValue(null);
 

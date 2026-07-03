@@ -24,6 +24,7 @@ import {
   ATTACHMENT_MAX_FILE_SIZE,
 } from '@repo/shared/schemas';
 import { ApiEnvelope } from '@/common/decorators/api-envelope.decorator';
+import { SkipTimeout } from '@/common/interceptors/skip-timeout.decorator';
 import { DownloadQueryDto, AttachmentDto } from './attachments.dto';
 
 @Controller('issues/:issueId/attachments')
@@ -33,6 +34,9 @@ export class AttachmentsController {
 
   @Post()
   @RequirePermission(Permission.ISSUE_UPDATE)
+  // Streaming multipart upload (to S3/MinIO) legitimately exceeds the global
+  // JSON request timeout — exempt it so large files aren't aborted with a 408.
+  @SkipTimeout()
   @ApiEnvelope([AttachmentDto], { status: HttpStatus.CREATED })
   @UseInterceptors(
     FilesInterceptor('files', ATTACHMENT_MAX_FILES_PER_UPLOAD, {
@@ -72,10 +76,15 @@ export class AttachmentsController {
     @Param('issueId') issueId: string,
     @Param('attachmentId') attachmentId: string,
     @Query() _query: DownloadQueryDto,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Res() res: Response,
   ) {
-    const url = await this.attachmentsService.getDownloadUrl(issueId, attachmentId, userId);
+    const url = await this.attachmentsService.getDownloadUrl(
+      issueId,
+      attachmentId,
+      user.id,
+      user.role === GlobalRole.ADMIN,
+    );
     res.redirect(url);
   }
 
@@ -84,13 +93,14 @@ export class AttachmentsController {
   async thumbnail(
     @Param('issueId') issueId: string,
     @Param('attachmentId') attachmentId: string,
-    @CurrentUser('id') userId: string,
+    @CurrentUser() user: RequestUser,
     @Res() res: Response,
   ) {
     const url = await this.attachmentsService.getThumbnailUrl(
       issueId,
       attachmentId,
-      userId,
+      user.id,
+      user.role === GlobalRole.ADMIN,
     );
     res.redirect(url);
   }

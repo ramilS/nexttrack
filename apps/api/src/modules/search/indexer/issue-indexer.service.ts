@@ -10,6 +10,7 @@ import {
   SearchRepository,
 } from '@/modules/search/search.repository';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
+import { IndexerHooksService } from './indexer-hooks.service';
 import { AppLogger } from '@/common/logging/app-logger';
 import { NotFoundError } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
@@ -26,9 +27,40 @@ export class IssueIndexerService {
     private searchRepo: SearchRepository,
     private projectsRepo: ProjectsRepository,
     private es: ElasticsearchService,
+    private indexerHooks: IndexerHooksService,
     @Inject(elasticsearchConfig.KEY)
     private config: ConfigType<typeof elasticsearchConfig>,
   ) {}
+
+  // Resolve the project key and enqueue a background reindex — returns
+  // immediately (the work runs in the search-indexing worker). Used after a
+  // bulk import so the request isn't blocked reindexing thousands of issues.
+  async scheduleProjectReindex(
+    projectKey: string,
+  ): Promise<{ queued: true; projectId: string }> {
+    const project = await this.projectsRepo.findEntityByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    await this.indexerHooks.enqueueProjectReindex(
+      project.id,
+      `reindex-api:${projectKey}`,
+    );
+    return { queued: true, projectId: project.id };
+  }
+
+  // Enqueue a background reindex for every active project (one job each, so a
+  // single project's failure retries independently). Returns immediately.
+  async scheduleAllReindex(): Promise<{ queued: true; projects: number }> {
+    const projectIds = await this.projectsRepo.findAllActiveIds();
+    for (const projectId of projectIds) {
+      await this.indexerHooks.enqueueProjectReindex(projectId, 'reindex-api:all');
+    }
+    return { queued: true, projects: projectIds.length };
+  }
 
   async indexIssue(issueId: string): Promise<'indexed' | 'removed'> {
     const issue = await this.searchRepo.findForIndex(issueId);

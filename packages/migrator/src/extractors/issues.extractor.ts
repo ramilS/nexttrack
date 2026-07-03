@@ -9,9 +9,11 @@ const ISSUE_FIELDS = [
   'state(id,name,isResolved)',
   'assignee(id,login,email,name,avatarUrl)',
   'reporter(id,login,email,name)',
-  'parent(id,numberInProject)',
   'sprint(id,name)',
-  'tags(id,name,color)',
+  // color is a FieldStyle object — without the sub-selection YouTrack omits
+  // background/foreground and tag colors import as the neutral fallback.
+  'tags(id,name,color(id,background,foreground))',
+  'links(direction,linkType(name,sourceToTarget,targetToSource),issues(id))',
   'customFields(name,value(id,name,text,minutes,date,avatarUrl,login,email),$type)',
   'dueDate',
 ].join(',');

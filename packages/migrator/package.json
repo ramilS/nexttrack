@@ -7,8 +7,11 @@
   },
   "main": "./dist/cli.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "check-types": "tsc --noEmit",
+    "test": "pnpm check-types && pnpm test:unit",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
     "migrate": "ts-node src/cli.ts migrate",
     "status": "ts-node src/cli.ts status",
     "verify": "ts-node src/cli.ts verify"
@@ -16,18 +19,21 @@
   "dependencies": {
     "axios": "^1.18.0",
     "axios-rate-limit": "^1.4.0",
+    "chalk": "^4.1.2",
     "cli-progress": "^3.12.0",
     "commander": "^13.1.0",
-    "form-data": "^4.0.6",
+    "markdown-it": "^14.3.0",
+    "node-html-parser": "^8.0.4",
     "ora": "^5.4.1",
-    "chalk": "^4.1.2",
     "uuid": "^14.0.1"
   },
   "devDependencies": {
     "@types/cli-progress": "^3.11.6",
-    "@types/uuid": "^10.0.0",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^22.15.0",
+    "@types/uuid": "^10.0.0",
     "ts-node": "^10.9.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "^4.1.9"
   }
 }

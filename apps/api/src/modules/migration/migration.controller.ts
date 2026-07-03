@@ -6,10 +6,15 @@ import {
   Param,
   Body,
   Query,
+  Req,
   HttpStatus,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
+import { SkipThrottle } from '@nestjs/throttler';
+import { SkipTimeout } from '@/common/interceptors/skip-timeout.decorator';
 import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
+import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { MigrationGuard } from './migration.guard';
 import { MigrationService } from './migration.service';
 import { ApiEnvelope } from '@/common/decorators/api-envelope.decorator';
@@ -27,8 +32,39 @@ import {
   MigrationCommentResultDto,
   MigrationSuccessDto,
   MigrationStatsDto,
+  MigrationCustomFieldsDto,
+  MigrationCreateTagDto,
+  LinkIssueTagsDto,
+  MigrationTagResultDto,
+  MigrationTagLinkResultDto,
+  MigrationCreateLinkDto,
+  MigrationLinkResultDto,
+  MigrationTimeLogsDto,
+  MigrationTimeLogsResultDto,
+  MigrationActivitiesDto,
+  MigrationActivitiesResultDto,
+  MigrationCreateBoardDto,
+  MigrationCreateSprintDto,
+  MigrationSprintIssuesDto,
+  MigrationEntityIdResultDto,
+  MigrationSprintIssuesResultDto,
+  MigrationCreateProjectDto,
+  MigrationProjectResultDto,
+  MigrationCreateCustomFieldDto,
+  MigrationCustomFieldResultDto,
+  MigrationAttachmentMetaDto,
+  SetAttachmentMetadataDto,
+  MigrationStatusesDto,
+  AddMembersDto,
+  MigrationMembersResultDto,
 } from './migration.dto';
 
+// Bulk admin import behind MigrationGuard (admin JWT + secret) — the global
+// per-IP throttle only breaks high-throughput migration; it is not a public route.
+// The throttlers are NAMED (short/medium/long), so @SkipThrottle() with no args
+// (which only skips a bucket literally named "default") is a no-op here — each
+// named bucket must be opted out explicitly.
+@SkipThrottle({ short: true, medium: true, long: true })
 @Controller('admin/migration')
 @UseGuards(JwtAuthGuard, MigrationGuard)
 export class MigrationController {
@@ -94,5 +130,142 @@ export class MigrationController {
   @ApiEnvelope(MigrationStatsDto)
   getStats(@Param('projectKey') projectKey: string) {
     return this.migrationService.getProjectStats(projectKey);
+  }
+
+  @Get('custom-fields/:projectKey')
+  @ApiEnvelope(MigrationCustomFieldsDto)
+  getCustomFields(@Param('projectKey') projectKey: string) {
+    return this.migrationService.getCustomFieldMap(projectKey);
+  }
+
+  @Post('projects/:projectKey/custom-fields')
+  @ApiEnvelope(MigrationCustomFieldResultDto, { status: HttpStatus.CREATED })
+  createCustomField(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: MigrationCreateCustomFieldDto,
+  ) {
+    return this.migrationService.createCustomField(projectKey, dto);
+  }
+
+  @Get('statuses/:projectKey')
+  @ApiEnvelope(MigrationStatusesDto)
+  getStatuses(@Param('projectKey') projectKey: string) {
+    return this.migrationService.getStatusMap(projectKey);
+  }
+
+  @Post('projects/:projectKey/members')
+  @ApiEnvelope(MigrationMembersResultDto, { status: HttpStatus.CREATED })
+  addMembers(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: AddMembersDto,
+  ) {
+    return this.migrationService.addProjectMembers(projectKey, dto.members);
+  }
+
+  @Post('projects/:projectKey/tags')
+  @ApiEnvelope(MigrationTagResultDto, { status: HttpStatus.CREATED })
+  createTag(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: MigrationCreateTagDto,
+  ) {
+    return this.migrationService.createTag(projectKey, dto);
+  }
+
+  @Post('issues/:issueId/tags')
+  @ApiEnvelope(MigrationTagLinkResultDto, { status: HttpStatus.CREATED })
+  linkTags(
+    @Param('issueId') issueId: string,
+    @Body() dto: LinkIssueTagsDto,
+  ) {
+    return this.migrationService.linkIssueTags(issueId, dto.tagIds);
+  }
+
+  @Post('issues/:issueId/links')
+  @ApiEnvelope(MigrationLinkResultDto, { status: HttpStatus.CREATED })
+  createLink(
+    @Param('issueId') issueId: string,
+    @Body() dto: MigrationCreateLinkDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.migrationService.createIssueLink(issueId, dto, userId);
+  }
+
+  @Post('issues/:issueId/time-logs')
+  @ApiEnvelope(MigrationTimeLogsResultDto, { status: HttpStatus.CREATED })
+  createTimeLogs(
+    @Param('issueId') issueId: string,
+    @Body() dto: MigrationTimeLogsDto,
+  ) {
+    return this.migrationService.createTimeLogs(issueId, dto.entries);
+  }
+
+  @Post('issues/:issueId/activities')
+  @ApiEnvelope(MigrationActivitiesResultDto, { status: HttpStatus.CREATED })
+  createActivities(
+    @Param('issueId') issueId: string,
+    @Body() dto: MigrationActivitiesDto,
+  ) {
+    return this.migrationService.createActivities(issueId, dto.entries);
+  }
+
+  @Patch('attachments/:attachmentId/metadata')
+  @ApiEnvelope(MigrationSuccessDto)
+  setAttachmentMetadata(
+    @Param('attachmentId') attachmentId: string,
+    @Body() dto: SetAttachmentMetadataDto,
+  ) {
+    return this.migrationService.setAttachmentMetadata(attachmentId, dto);
+  }
+
+  // Raw-stream attachment upload — file bytes are the request body, metadata is
+  // in the query string. No size cap / MIME check (trusted bulk import), and
+  // exempt from the request timeout so large files aren't aborted.
+  @Post('issues/:issueId/attachments')
+  @SkipTimeout()
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  uploadAttachment(
+    @Param('issueId') issueId: string,
+    @Query() meta: MigrationAttachmentMetaDto,
+    @Req() req: Request,
+  ) {
+    return this.migrationService.uploadAttachment(issueId, req, meta);
+  }
+
+  @Post('projects')
+  @ApiEnvelope(MigrationProjectResultDto, { status: HttpStatus.CREATED })
+  createProject(
+    @Body() dto: MigrationCreateProjectDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.migrationService.createProject(dto, userId);
+  }
+
+  @Post('projects/:projectKey/boards')
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  createBoard(
+    @Param('projectKey') projectKey: string,
+    @Body() dto: MigrationCreateBoardDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.migrationService.createBoard(projectKey, dto, userId);
+  }
+
+  @Post('boards/:boardId/sprints')
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  createSprint(
+    @Param('boardId') boardId: string,
+    @Body() dto: MigrationCreateSprintDto,
+  ) {
+    return this.migrationService.createSprint(boardId, dto);
+  }
+
+  @Post('boards/:boardId/sprints/:sprintId/issues')
+  @ApiEnvelope(MigrationSprintIssuesResultDto, { status: HttpStatus.CREATED })
+  addSprintIssues(
+    @Param('boardId') boardId: string,
+    @Param('sprintId') sprintId: string,
+    @Body() dto: MigrationSprintIssuesDto,
+  ) {
+    return this.migrationService.addSprintIssues(boardId, sprintId, dto.issueIds);
   }
 }

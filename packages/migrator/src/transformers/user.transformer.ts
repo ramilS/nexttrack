@@ -13,7 +13,7 @@ export class UserTransformer {
   transform(ytUser: YtUser): CreateUserMigrationDto {
     return {
       email: ytUser.email || `${ytUser.login}@migrated.local`,
-      name: ytUser.name || ytUser.login,
+      name: ytUser.fullName || ytUser.login,
       avatarUrl: ytUser.avatarUrl ?? null,
       isBlocked: ytUser.banned ?? false,
       migratedFrom: 'youtrack',

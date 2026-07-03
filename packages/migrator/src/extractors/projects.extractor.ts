@@ -24,19 +24,26 @@ export class ProjectsExtractor {
     return projects.filter((p) => !p.archived);
   }
 
+  // The project's "State" bundle values, in order — used to provision the target
+  // workflow so issue statuses map by name. Empty if the project has no State field.
   async getStates(projectId: string): Promise<YtState[]> {
-    const bundles = await this.yt.get<any[]>(
-      `/admin/projects/${projectId}/customFields`,
-      { fields: 'field(name),bundle(values(name,isResolved,color(background)))' },
-    );
+    const fields = await this.yt.get<
+      Array<{
+        field?: { name?: string };
+        bundle?: {
+          values?: Array<{ name: string; isResolved?: boolean; color?: { background?: string } }>;
+        };
+      }>
+    >(`/admin/projects/${projectId}/customFields`, {
+      fields: 'field(name),bundle(values(name,isResolved,color(background)))',
+    });
 
-    const stateField = bundles.find(
-      (f: any) => f.field?.name === 'State' || f.field?.name === 'state',
+    const stateField = fields.find(
+      (f) => f.field?.name?.toLowerCase() === 'state',
     );
-
     if (!stateField?.bundle?.values) return [];
 
-    return stateField.bundle.values.map((v: any, i: number) => ({
+    return stateField.bundle.values.map((v, i) => ({
       id: `state-${i}`,
       name: v.name,
       isResolved: v.isResolved ?? false,

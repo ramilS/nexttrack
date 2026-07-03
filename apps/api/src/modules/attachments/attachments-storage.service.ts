@@ -78,33 +78,6 @@ export class AttachmentsStorageService implements OnModuleInit {
     }
   }
 
-  async uploadStream(
-    stream: Readable,
-    storagePath: string,
-    mimeType: string,
-    size: number,
-  ): Promise<void> {
-    try {
-      await this.client.send(
-        new PutObjectCommand({
-          Bucket: this.bucket,
-          Key: storagePath,
-          Body: stream,
-          ContentType: mimeType,
-          ContentLength: size,
-        }),
-      );
-      this.logger.log('S3 object uploaded', {
-        key: storagePath,
-        size,
-        mimeType,
-      });
-    } catch (err) {
-      this.logger.error('S3 upload failed', err, { key: storagePath });
-      throw err;
-    }
-  }
-
   async getPresignedUrl(
     storagePath: string,
     options: PresignedUrlOptions = {},

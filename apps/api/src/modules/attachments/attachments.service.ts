@@ -117,8 +117,14 @@ export class AttachmentsService {
     issueId: string,
     attachmentId: string,
     userId: string,
+    isAdmin = false,
   ): Promise<string> {
-    const raw = await this.findAttachmentWithAccessCheck(issueId, attachmentId, userId);
+    const raw = await this.findAttachmentWithAccessCheck(
+      issueId,
+      attachmentId,
+      userId,
+      isAdmin,
+    );
     return this.storage.getPresignedUrl(raw.storagePath, {
       downloadFilename: raw.filename,
     });
@@ -128,8 +134,14 @@ export class AttachmentsService {
     issueId: string,
     attachmentId: string,
     userId: string,
+    isAdmin = false,
   ): Promise<string> {
-    const raw = await this.findAttachmentWithAccessCheck(issueId, attachmentId, userId);
+    const raw = await this.findAttachmentWithAccessCheck(
+      issueId,
+      attachmentId,
+      userId,
+      isAdmin,
+    );
     if (!raw.thumbnailPath) {
       throw new NotFoundError(ErrorCode.ATTACHMENT_THUMBNAIL_NOT_AVAILABLE);
     }
@@ -179,6 +191,7 @@ export class AttachmentsService {
     issueId: string,
     attachmentId: string,
     userId: string,
+    isAdmin = false,
   ) {
     const raw = await this.attachmentsRepo.findActiveById(attachmentId);
     // Bind the attachment to the issue the route authorized (@IssueAuth): an
@@ -194,9 +207,15 @@ export class AttachmentsService {
       throw new NotFoundError(ErrorCode.ATTACHMENT_NOT_FOUND);
     }
 
-    const isMember = await this.projectMembersRepo.isMember(userId, projectId);
-    if (!isMember) {
-      throw new PermissionDeniedError(ErrorCode.FORBIDDEN);
+    // Global admins bypass project membership, mirroring the HTTP
+    // PermissionGuard (and the WS access check). A bare membership check here is
+    // stricter than the guard and wrongly 403s an admin who isn't a project
+    // member — e.g. viewing a freshly-migrated project's attachments.
+    if (!isAdmin) {
+      const isMember = await this.projectMembersRepo.isMember(userId, projectId);
+      if (!isMember) {
+        throw new PermissionDeniedError(ErrorCode.FORBIDDEN);
+      }
     }
 
     return raw;

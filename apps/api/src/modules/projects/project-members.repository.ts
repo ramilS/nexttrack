@@ -202,6 +202,23 @@ export class ProjectMembersRepository {
     return toProjectMember(row);
   }
 
+  /** Bulk-add memberships, ignoring users already in the project. Used by the
+   * migration import to make every migrated user a project member. */
+  async createManyIgnoreDuplicates(
+    members: Array<{ userId: string; projectId: string; roleId: string }>,
+  ): Promise<number> {
+    if (members.length === 0) return 0;
+    const result = await this.prisma.projectMember.createMany({
+      data: members.map((m) => ({
+        userId: m.userId,
+        projectId: m.projectId,
+        roleId: m.roleId,
+      })),
+      skipDuplicates: true,
+    });
+    return result.count;
+  }
+
   async updateRole(
     userId: string,
     projectId: string,

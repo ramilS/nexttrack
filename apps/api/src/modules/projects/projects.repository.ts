@@ -9,6 +9,8 @@ import type {
   ProjectTag,
   MemberRole,
   PaginationMeta,
+  WorkflowStatus,
+  WorkflowTransition,
 } from '@repo/shared/schemas';
 import { generateDefaultWorkflow } from '@/modules/workflows/default-workflow';
 import { toWorkflow } from '@/modules/workflows/workflows.repository';
@@ -318,8 +320,23 @@ export class ProjectsRepository {
    * counter, and default workflow, all in a single transaction.
    */
   async createWithDefaults(input: ProjectCreateInput): Promise<ProjectDetail> {
-    const defaultWorkflow = generateDefaultWorkflow();
+    return this.createWithWorkflow(input, generateDefaultWorkflow());
+  }
 
+  /**
+   * Like createWithDefaults but provisions a caller-supplied workflow (used by
+   * the migration tool to build the target workflow from YouTrack states, so
+   * issue statuses map by name). Same single-transaction shape as the default.
+   */
+  async createWithWorkflow(
+    input: ProjectCreateInput,
+    workflow: {
+      name: string;
+      isDefault: boolean;
+      statuses: WorkflowStatus[];
+      transitions: WorkflowTransition[];
+    },
+  ): Promise<ProjectDetail> {
     return this.txService.run(async (tx) => {
       const row = await tx.project.create({
         data: {
@@ -336,10 +353,10 @@ export class ProjectsRepository {
           issueCounter: { create: { lastNumber: 0 } },
           workflows: {
             create: {
-              name: defaultWorkflow.name,
-              isDefault: defaultWorkflow.isDefault,
+              name: workflow.name,
+              isDefault: workflow.isDefault,
               statuses: {
-                create: defaultWorkflow.statuses.map((s) => ({
+                create: workflow.statuses.map((s) => ({
                   id: s.id,
                   name: s.name,
                   color: s.color,
@@ -362,7 +379,7 @@ export class ProjectsRepository {
         select: { id: true },
       });
       await tx.workflowTransition.createMany({
-        data: defaultWorkflow.transitions.map((t) => ({
+        data: workflow.transitions.map((t) => ({
           id: t.id,
           workflowId: createdWorkflow.id,
           name: t.name,

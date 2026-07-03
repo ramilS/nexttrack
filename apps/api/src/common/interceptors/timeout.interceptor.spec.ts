@@ -3,6 +3,7 @@ import {
   ExecutionContext,
   RequestTimeoutException,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import { firstValueFrom, of, throwError } from 'rxjs';
 import { delay } from 'rxjs/operators';
 import { TimeoutInterceptor } from '@/common/interceptors/timeout.interceptor';
@@ -21,12 +22,19 @@ function buildCallHandler(handle: CallHandler['handle']): CallHandler {
   return { handle };
 }
 
+function reflectorReturning(skip: boolean): Reflector {
+  return { getAllAndOverride: jest.fn().mockReturnValue(skip) } as unknown as Reflector;
+}
+
 describe('TimeoutInterceptor', () => {
   let interceptor: TimeoutInterceptor;
-  const context = {} as ExecutionContext;
+  const context = {
+    getHandler: () => undefined,
+    getClass: () => undefined,
+  } as unknown as ExecutionContext;
 
   beforeEach(() => {
-    interceptor = new TimeoutInterceptor(testAppConfig);
+    interceptor = new TimeoutInterceptor(testAppConfig, reflectorReturning(false));
   });
 
   it('passes fast responses through unchanged', async () => {
@@ -54,5 +62,16 @@ describe('TimeoutInterceptor', () => {
     await expect(
       firstValueFrom(interceptor.intercept(context, next)),
     ).rejects.toBe(handlerError);
+  });
+
+  it('does not time out a route marked @SkipTimeout()', async () => {
+    const skipping = new TimeoutInterceptor(testAppConfig, reflectorReturning(true));
+    const next = buildCallHandler(() =>
+      of('slow-upload').pipe(delay(SLOW_HANDLER_MS)),
+    );
+
+    const result = await firstValueFrom(skipping.intercept(context, next));
+
+    expect(result).toBe('slow-upload');
   });
 });

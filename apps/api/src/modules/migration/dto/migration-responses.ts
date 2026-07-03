@@ -67,6 +67,70 @@ export const migrationSuccessSchema = z.object({
   success: z.boolean(),
 });
 
+export const migrationStatusesSchema = z.object({
+  data: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+
+export const migrationMembersResultSchema = z.object({
+  added: z.number().int().nonnegative(),
+});
+
+export const migrationTagResultSchema = z.object({
+  data: z.object({ id: z.guid(), name: z.string() }),
+  existed: z.boolean(),
+});
+
+export const migrationTagLinkResultSchema = z.object({
+  linked: z.number().int().nonnegative(),
+});
+
+export const migrationTimeLogsResultSchema = z.object({
+  created: z.number().int().nonnegative(),
+});
+
+export const migrationActivitiesResultSchema = z.object({
+  created: z.number().int().nonnegative(),
+});
+
+export const migrationEntityIdResultSchema = z.object({
+  data: z.object({ id: z.guid() }),
+});
+
+export const migrationProjectResultSchema = z.object({
+  data: z.object({ id: z.guid() }),
+  existed: z.boolean(),
+});
+
+export const migrationSprintIssuesResultSchema = z.object({
+  added: z.number().int().nonnegative(),
+});
+
+export const migrationLinkResultSchema = z.object({
+  data: z.object({ id: z.guid() }).nullable(),
+  existed: z.boolean(),
+});
+
+export const migrationCustomFieldsSchema = z.object({
+  data: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      type: z.string(),
+      options: z.array(z.object({ id: z.string(), name: z.string() })),
+    }),
+  ),
+});
+
+export const migrationCustomFieldResultSchema = z.object({
+  data: z.object({
+    id: z.string(),
+    name: z.string(),
+    type: z.string(),
+    options: z.array(z.object({ id: z.string(), name: z.string() })),
+  }),
+  existed: z.boolean(),
+});
+
 export const migrationStatsSchema = z.object({
   projectKey: z.string(),
   projectId: z.guid(),

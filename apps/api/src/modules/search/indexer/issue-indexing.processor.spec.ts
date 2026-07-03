@@ -5,13 +5,18 @@ import { IssueIndexerService } from './issue-indexer.service';
 import {
   DELETE_ISSUE_JOB,
   INDEX_ISSUE_JOB,
+  REINDEX_PROJECT_JOB,
   SearchIndexingJobData,
 } from './indexing-queue';
 import { AppLogger } from '@/common/logging/app-logger';
 
 describe('IssueIndexingProcessor', () => {
   let processor: IssueIndexingProcessor;
-  let indexer: { indexIssue: jest.Mock; deleteFromIndex: jest.Mock };
+  let indexer: {
+    indexIssue: jest.Mock;
+    deleteFromIndex: jest.Mock;
+    reindexProject: jest.Mock;
+  };
 
   const buildJob = (
     name: string,
@@ -28,6 +33,7 @@ describe('IssueIndexingProcessor', () => {
     indexer = {
       indexIssue: jest.fn().mockResolvedValue('indexed'),
       deleteFromIndex: jest.fn().mockResolvedValue(undefined),
+      reindexProject: jest.fn().mockResolvedValue({ indexed: 3, errors: 0 }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -91,6 +97,25 @@ describe('IssueIndexingProcessor', () => {
 
     await expect(
       processor.process(buildJob(DELETE_ISSUE_JOB, { issueId: 'issue-1' })),
+    ).rejects.toThrow('ES down');
+  });
+
+  it('dispatches reindex-project jobs to reindexProject', async () => {
+    await processor.process(
+      buildJob(REINDEX_PROJECT_JOB, { projectId: 'proj-1', reason: 'migration' }),
+    );
+
+    expect(indexer.reindexProject).toHaveBeenCalledWith('proj-1');
+    expect(indexer.indexIssue).not.toHaveBeenCalled();
+  });
+
+  it('re-throws reindex-project failures so BullMQ retries', async () => {
+    indexer.reindexProject.mockRejectedValue(new Error('ES down'));
+
+    await expect(
+      processor.process(
+        buildJob(REINDEX_PROJECT_JOB, { projectId: 'proj-1', reason: 'migration' }),
+      ),
     ).rejects.toThrow('ES down');
   });
 

@@ -1,14 +1,47 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundError } from '@/common/errors/domain.errors';
-import { MigrationService } from './migration.service';
+import { Readable } from 'stream';
+import { ConflictError, NotFoundError } from '@/common/errors/domain.errors';
+import { ErrorCode } from '@repo/shared/error-codes';
+import { MigrationService, normalizeStatusColor } from './migration.service';
 import { MigrationRepository } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
+import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
+import { CustomFieldsService } from '@/modules/custom-fields/custom-fields.service';
+import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
+import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
+import { RolesRepository } from '@/modules/roles/roles.repository';
+import { TagsService } from '@/modules/tags/tags.service';
+import { TagsRepository } from '@/modules/tags/tags.repository';
+import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
+import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
+import { ProjectsRepository } from '@/modules/projects/projects.repository';
+import { BoardsService } from '@/modules/boards/boards.service';
+import { SprintsService } from '@/modules/sprints/sprints.service';
+import { AttachmentsStorageService } from '@/modules/attachments/attachments-storage.service';
+import { AttachmentsRepository } from '@/modules/attachments/attachments.repository';
 import { migrationConfig } from '@/config';
 
 describe('MigrationService', () => {
   let service: MigrationService;
   let repo: Record<string, jest.Mock>;
   let issuesRepo: { getNextNumber: jest.Mock };
+  let customFieldsRepo: { findManyByProject: jest.Mock };
+  let customFieldsService: { create: jest.Mock };
+  let workflowsReader: { findDefaultStatuses: jest.Mock };
+  let projectMembersRepo: { createManyIgnoreDuplicates: jest.Mock };
+  let rolesRepo: { findAll: jest.Mock };
+  let tagsService: { create: jest.Mock };
+  let issueLinksService: { create: jest.Mock };
+  let timeLogsService: { importMany: jest.Mock };
+  let projectsRepo: { findEntityByKey: jest.Mock; createWithWorkflow: jest.Mock };
+  let boardsService: { create: jest.Mock };
+  let sprintsService: { create: jest.Mock; addIssues: jest.Mock };
+  let attachmentsStorage: { uploadBuffer: jest.Mock };
+  let attachmentsRepo: { create: jest.Mock };
+  let tagsRepo: {
+    findByNameInsensitive: jest.Mock;
+    replaceIssueLinksBulk: jest.Mock;
+  };
 
   const now = new Date();
 
@@ -51,9 +84,37 @@ describe('MigrationService', () => {
 
   beforeEach(async () => {
     issuesRepo = { getNextNumber: jest.fn().mockResolvedValue(1) };
+    customFieldsRepo = { findManyByProject: jest.fn().mockResolvedValue([]) };
+    customFieldsService = { create: jest.fn() };
+    workflowsReader = { findDefaultStatuses: jest.fn().mockResolvedValue([]) };
+    projectMembersRepo = {
+      createManyIgnoreDuplicates: jest.fn().mockResolvedValue(0),
+    };
+    rolesRepo = {
+      findAll: jest.fn().mockResolvedValue([
+        { id: '00000000-0000-0000-0000-000000000002', name: 'Developer' },
+        { id: 'role-qa', name: 'QA' },
+      ]),
+    };
+    tagsService = { create: jest.fn() };
+    issueLinksService = { create: jest.fn() };
+    timeLogsService = { importMany: jest.fn().mockResolvedValue(0) };
+    projectsRepo = {
+      findEntityByKey: jest.fn().mockResolvedValue(null),
+      createWithWorkflow: jest.fn().mockResolvedValue({ id: 'new-proj' }),
+    };
+    boardsService = { create: jest.fn() };
+    sprintsService = { create: jest.fn(), addIssues: jest.fn() };
+    attachmentsStorage = { uploadBuffer: jest.fn().mockResolvedValue(undefined) };
+    attachmentsRepo = { create: jest.fn() };
+    tagsRepo = {
+      findByNameInsensitive: jest.fn().mockResolvedValue(null),
+      replaceIssueLinksBulk: jest.fn().mockResolvedValue(undefined),
+    };
 
     repo = {
       findUserByEmail: jest.fn().mockResolvedValue(null),
+      findUserByYtId: jest.fn().mockResolvedValue(null),
       createUser: jest.fn(),
       findProjectByKey: jest.fn().mockResolvedValue(null),
       findIssueByYtId: jest.fn().mockResolvedValue(null),
@@ -63,9 +124,12 @@ describe('MigrationService', () => {
       setIssueParent: jest.fn().mockResolvedValue(undefined),
       createFieldValues: jest.fn().mockResolvedValue(undefined),
       existsIssue: jest.fn().mockResolvedValue(false),
+      findIssueProjectId: jest.fn().mockResolvedValue(null),
+      setAttachmentMetadata: jest.fn().mockResolvedValue(undefined),
       createComment: jest.fn(),
       setCommentTimestamp: jest.fn().mockResolvedValue(undefined),
       getProjectStats: jest.fn(),
+      createActivities: jest.fn().mockResolvedValue(0),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -73,7 +137,21 @@ describe('MigrationService', () => {
         MigrationService,
         { provide: MigrationRepository, useValue: repo },
         { provide: IssuesRepository, useValue: issuesRepo },
-        { provide: migrationConfig.KEY, useValue: {} },
+        { provide: CustomFieldsRepository, useValue: customFieldsRepo },
+        { provide: CustomFieldsService, useValue: customFieldsService },
+        { provide: WorkflowsReader, useValue: workflowsReader },
+        { provide: ProjectMembersRepository, useValue: projectMembersRepo },
+        { provide: RolesRepository, useValue: rolesRepo },
+        { provide: TagsService, useValue: tagsService },
+        { provide: TagsRepository, useValue: tagsRepo },
+        { provide: IssueLinksService, useValue: issueLinksService },
+        { provide: TimeLogsService, useValue: timeLogsService },
+        { provide: ProjectsRepository, useValue: projectsRepo },
+        { provide: BoardsService, useValue: boardsService },
+        { provide: SprintsService, useValue: sprintsService },
+        { provide: AttachmentsStorageService, useValue: attachmentsStorage },
+        { provide: AttachmentsRepository, useValue: attachmentsRepo },
+        { provide: migrationConfig.KEY, useValue: { allowBackdatedRecords: true } },
       ],
     }).compile();
 
@@ -113,6 +191,17 @@ describe('MigrationService', () => {
           migratedFrom: 'youtrack',
         }),
       );
+    });
+
+    it('reuses an existing user matched by ytId when the email changed (no 409)', async () => {
+      repo.findUserByEmail.mockResolvedValue(null);
+      repo.findUserByYtId.mockResolvedValue(mockUser({ ytId: 'yt-user-1' }));
+
+      const result = await service.createUser({ ...dto, email: 'renamed@example.com' });
+
+      expect(result.existed).toBe(true);
+      expect(repo.findUserByYtId).toHaveBeenCalledWith('yt-user-1');
+      expect(repo.createUser).not.toHaveBeenCalled();
     });
   });
 
@@ -304,6 +393,476 @@ describe('MigrationService', () => {
     });
   });
 
+  describe('addProjectMembers', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(
+        service.addProjectMembers('NOPROJECT', [{ userId: 'user-1' }]),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('defaults members with no/unknown role to Developer', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      projectMembersRepo.createManyIgnoreDuplicates.mockResolvedValue(2);
+
+      const result = await service.addProjectMembers('TEST', [
+        { userId: 'u1' },
+        { userId: 'u2', roleName: 'Nonexistent' },
+      ]);
+
+      expect(projectMembersRepo.createManyIgnoreDuplicates).toHaveBeenCalledWith([
+        { userId: 'u1', projectId: 'proj-1', roleId: '00000000-0000-0000-0000-000000000002' },
+        { userId: 'u2', projectId: 'proj-1', roleId: '00000000-0000-0000-0000-000000000002' },
+      ]);
+      expect(result).toEqual({ added: 2 });
+    });
+
+    it('resolves a known role name case-insensitively to its id', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      projectMembersRepo.createManyIgnoreDuplicates.mockResolvedValue(1);
+
+      await service.addProjectMembers('TEST', [{ userId: 'u1', roleName: 'qa' }]);
+
+      expect(projectMembersRepo.createManyIgnoreDuplicates).toHaveBeenCalledWith([
+        { userId: 'u1', projectId: 'proj-1', roleId: 'role-qa' },
+      ]);
+    });
+  });
+
+  describe('getStatusMap', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(service.getStatusMap('NOPROJECT')).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('should map default workflow statuses to id/name pairs', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      workflowsReader.findDefaultStatuses.mockResolvedValue([
+        { id: 'st-1', name: 'Open', category: 'UNSTARTED' },
+        { id: 'st-2', name: 'Done', category: 'DONE' },
+      ]);
+
+      const result = await service.getStatusMap('TEST');
+
+      expect(result).toEqual({
+        data: [
+          { id: 'st-1', name: 'Open' },
+          { id: 'st-2', name: 'Done' },
+        ],
+      });
+    });
+  });
+
+  describe('createTag', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(
+        service.createTag('NOPROJECT', { name: 'bug', color: 'red' }),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('returns the existing tag with existed=true (idempotent re-run)', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      tagsRepo.findByNameInsensitive.mockResolvedValue({ id: 'tag-1', name: 'bug' });
+
+      const result = await service.createTag('TEST', { name: 'bug', color: 'red' });
+
+      expect(result).toEqual({ data: { id: 'tag-1', name: 'bug' }, existed: true });
+      expect(tagsService.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a new tag via TagsService when none exists', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      tagsRepo.findByNameInsensitive.mockResolvedValue(null);
+      tagsService.create.mockResolvedValue({ id: 'tag-2', name: 'regression' });
+
+      const result = await service.createTag('TEST', {
+        name: 'regression',
+        color: 'blue',
+      });
+
+      expect(tagsService.create).toHaveBeenCalledWith('proj-1', {
+        name: 'regression',
+        color: 'blue',
+      });
+      expect(result).toEqual({
+        data: { id: 'tag-2', name: 'regression' },
+        existed: false,
+      });
+    });
+  });
+
+  describe('linkIssueTags', () => {
+    it('should throw NotFoundError when issue not found', async () => {
+      repo.findIssueProjectId.mockResolvedValue(null);
+
+      await expect(service.linkIssueTags('missing', ['tag-1'])).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('bulk-links tags within the issue project', async () => {
+      repo.findIssueProjectId.mockResolvedValue('proj-1');
+
+      const result = await service.linkIssueTags('issue-1', ['tag-1', 'tag-2']);
+
+      expect(tagsRepo.replaceIssueLinksBulk).toHaveBeenCalledWith(
+        ['issue-1'],
+        ['tag-1', 'tag-2'],
+        'proj-1',
+      );
+      expect(result).toEqual({ linked: 2 });
+    });
+  });
+
+  describe('createIssueLink', () => {
+    const dto = { type: 'RELATES_TO' as const, targetIssueId: 'issue-2' };
+
+    it('creates the link and returns its id', async () => {
+      issueLinksService.create.mockResolvedValue({ id: 'link-1' });
+
+      const result = await service.createIssueLink('issue-1', dto, 'admin-1');
+
+      expect(issueLinksService.create).toHaveBeenCalledWith('issue-1', dto, 'admin-1');
+      expect(result).toEqual({ data: { id: 'link-1' }, existed: false });
+    });
+
+    it('treats a duplicate link as existed=true (idempotent re-run)', async () => {
+      issueLinksService.create.mockRejectedValue(
+        new ConflictError(ErrorCode.LINK_DUPLICATE, 'exists'),
+      );
+
+      const result = await service.createIssueLink('issue-1', dto, 'admin-1');
+
+      expect(result).toEqual({ data: null, existed: true });
+    });
+
+    it('rethrows non-duplicate errors', async () => {
+      issueLinksService.create.mockRejectedValue(
+        new NotFoundError(ErrorCode.LINK_TARGET_NOT_FOUND, 'missing'),
+      );
+
+      await expect(
+        service.createIssueLink('issue-1', dto, 'admin-1'),
+      ).rejects.toThrow(NotFoundError);
+    });
+  });
+
+  describe('setAttachmentMetadata', () => {
+    it('backdates the attachment to its original date + author', async () => {
+      const result = await service.setAttachmentMetadata('att-1', {
+        uploadedById: 'user-9',
+        originalCreatedAt: '2020-03-04T00:00:00.000Z',
+      });
+
+      expect(repo.setAttachmentMetadata).toHaveBeenCalledWith('att-1', {
+        uploadedById: 'user-9',
+        createdAt: new Date('2020-03-04T00:00:00.000Z'),
+      });
+      expect(result).toEqual({ success: true });
+    });
+  });
+
+  describe('createActivities', () => {
+    const entries = [
+      { type: 'FIELD_VALUE_CHANGE' as const, actorId: 'user-1', createdAt: '2019-03-01T00:00:00.000Z', payload: { field: 'State', from: 'Bug', to: 'Open' } },
+    ];
+
+    it('throws NotFoundError when the issue does not exist', async () => {
+      repo.findIssueProjectId.mockResolvedValue(null);
+      await expect(service.createActivities('missing', entries)).rejects.toThrow(NotFoundError);
+      expect(repo.createActivities).not.toHaveBeenCalled();
+    });
+
+    it('delegates to the repo and returns the created count', async () => {
+      repo.findIssueProjectId.mockResolvedValue('proj-1');
+      repo.createActivities.mockResolvedValue(1);
+
+      const result = await service.createActivities('issue-1', entries);
+
+      expect(repo.createActivities).toHaveBeenCalledWith('issue-1', entries);
+      expect(result).toEqual({ created: 1 });
+    });
+  });
+
+  describe('uploadAttachment', () => {
+    const meta = {
+      filename: 'diagram.pdf',
+      mimeType: 'application/pdf',
+      uploadedById: 'user-1',
+      originalCreatedAt: '2022-05-01T00:00:00.000Z',
+    };
+    const body = Buffer.from('the file bytes');
+    const makeStream = () => Readable.from([body]);
+
+    it('throws NotFoundError when the issue does not exist', async () => {
+      repo.findIssueProjectId.mockResolvedValue(null);
+
+      await expect(
+        service.uploadAttachment('missing', makeStream(), meta),
+      ).rejects.toThrow(NotFoundError);
+      expect(attachmentsStorage.uploadBuffer).not.toHaveBeenCalled();
+    });
+
+    it('buffers the body, stores it with the true size, and backdates it', async () => {
+      repo.findIssueProjectId.mockResolvedValue('proj-1');
+      // Echo the id back (Prisma returns the id you set) so the generated id,
+      // the created row, and the backdate target all line up.
+      attachmentsRepo.create.mockImplementation(({ id }) => Promise.resolve({ id }));
+
+      const result = await service.uploadAttachment('issue-1', makeStream(), meta);
+
+      const createdId = attachmentsRepo.create.mock.calls[0][0].id;
+      expect(createdId).toEqual(expect.any(String));
+
+      // Size is taken from the received bytes, not any caller-declared value.
+      expect(attachmentsStorage.uploadBuffer).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        expect.stringContaining(`attachments/issue-1/${createdId}`),
+        'application/pdf',
+      );
+      const [uploadedBuffer] = attachmentsStorage.uploadBuffer.mock.calls[0];
+      expect(uploadedBuffer.equals(body)).toBe(true);
+
+      expect(attachmentsRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          issueId: 'issue-1',
+          uploadedById: 'user-1',
+          filename: 'diagram.pdf',
+          mimeType: 'application/pdf',
+          size: body.length,
+        }),
+      );
+      expect(repo.setAttachmentMetadata).toHaveBeenCalledWith(createdId, {
+        createdAt: new Date('2022-05-01T00:00:00.000Z'),
+      });
+      expect(result).toEqual({ data: { id: createdId } });
+    });
+  });
+
+  describe('createProject', () => {
+    const statuses = [
+      { name: 'Open', category: 'UNSTARTED' as const, isInitial: false, isResolved: false, ordinal: 0 },
+      { name: 'Fixed', category: 'DONE' as const, isInitial: false, isResolved: true, ordinal: 1 },
+    ];
+
+    it('is idempotent — returns the existing project with existed=true', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+
+      const result = await service.createProject(
+        { key: 'DEVX', name: 'DevX', statuses },
+        'admin-1',
+      );
+
+      expect(result).toEqual({ data: { id: 'proj-1' }, existed: true });
+      expect(projectsRepo.createWithWorkflow).not.toHaveBeenCalled();
+    });
+
+    it('provisions a workflow from the YouTrack statuses and forces one initial', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+
+      const result = await service.createProject(
+        { key: 'DEVX', name: 'DevX', description: 'x', statuses },
+        'admin-1',
+      );
+
+      expect(result).toEqual({ data: { id: 'new-proj' }, existed: false });
+      const [input, workflow] = projectsRepo.createWithWorkflow.mock.calls[0];
+      expect(input).toMatchObject({ key: 'DEVX', name: 'DevX', createdById: 'admin-1' });
+      expect(workflow.statuses.map((s: { name: string }) => s.name)).toEqual(['Open', 'Fixed']);
+      expect(workflow.statuses.filter((s: { isInitial: boolean }) => s.isInitial)).toHaveLength(1);
+      expect(workflow.statuses[0].isInitial).toBe(true); // first, since none flagged
+      expect(workflow.transitions).toHaveLength(2); // permissive *→each
+    });
+
+    it('falls back to the default workflow when no statuses are supplied', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+
+      await service.createProject({ key: 'DEVX', name: 'DevX', statuses: [] }, 'admin-1');
+
+      const [, workflow] = projectsRepo.createWithWorkflow.mock.calls[0];
+      expect(workflow.name).toBe('Default');
+      expect(workflow.statuses.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('boards & sprints', () => {
+    it('createBoard throws NotFoundError when project not found', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+      await expect(
+        service.createBoard('NOPROJECT', { name: 'B', type: 'SCRUM' } as never, 'admin-1'),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('createBoard delegates to BoardsService and returns the id', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+      boardsService.create.mockResolvedValue({ id: 'board-1' });
+
+      const result = await service.createBoard(
+        'TEST',
+        { name: 'Scrum', type: 'SCRUM' } as never,
+        'admin-1',
+      );
+
+      expect(boardsService.create).toHaveBeenCalledWith(
+        { id: 'proj-1' },
+        { name: 'Scrum', type: 'SCRUM' },
+        'admin-1',
+      );
+      expect(result).toEqual({ data: { id: 'board-1' } });
+    });
+
+    it('createSprint delegates to SprintsService', async () => {
+      sprintsService.create.mockResolvedValue({ id: 'sprint-1' });
+
+      const result = await service.createSprint('board-1', { name: 'S1' } as never);
+
+      expect(sprintsService.create).toHaveBeenCalledWith('board-1', { name: 'S1' });
+      expect(result).toEqual({ data: { id: 'sprint-1' } });
+    });
+
+    it('addSprintIssues returns the added count', async () => {
+      sprintsService.addIssues.mockResolvedValue({ added: 3 });
+
+      const result = await service.addSprintIssues('board-1', 'sprint-1', [
+        'i1',
+        'i2',
+        'i3',
+      ]);
+
+      expect(sprintsService.addIssues).toHaveBeenCalledWith('board-1', 'sprint-1', [
+        'i1',
+        'i2',
+        'i3',
+      ]);
+      expect(result).toEqual({ added: 3 });
+    });
+  });
+
+  describe('createTimeLogs', () => {
+    it('imports entries via TimeLogsService and returns the count', async () => {
+      timeLogsService.importMany.mockResolvedValue(2);
+
+      const result = await service.createTimeLogs('issue-1', [
+        { userId: 'u1', minutes: 30, date: '2023-01-01T00:00:00.000Z' },
+        { userId: 'u2', minutes: 60, date: '2023-01-02T00:00:00.000Z', description: 'x' },
+      ]);
+
+      expect(timeLogsService.importMany).toHaveBeenCalledWith('issue-1', [
+        { userId: 'u1', minutes: 30, date: '2023-01-01T00:00:00.000Z', description: null },
+        { userId: 'u2', minutes: 60, date: '2023-01-02T00:00:00.000Z', description: 'x' },
+      ]);
+      expect(result).toEqual({ created: 2 });
+    });
+  });
+
+  describe('getCustomFieldMap', () => {
+    it('should throw NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(service.getCustomFieldMap('NOPROJECT')).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('should map fields with their enum options', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([
+        {
+          id: 'field-1',
+          name: 'Severity',
+          type: 'ENUM',
+          config: { options: [{ id: 'opt-1', name: 'High' }] },
+        },
+        { id: 'field-2', name: 'Notes', type: 'TEXT', config: {} },
+      ]);
+
+      const result = await service.getCustomFieldMap('TEST');
+
+      expect(result).toEqual({
+        data: [
+          {
+            id: 'field-1',
+            name: 'Severity',
+            type: 'ENUM',
+            options: [{ id: 'opt-1', name: 'High' }],
+          },
+          { id: 'field-2', name: 'Notes', type: 'TEXT', options: [] },
+        ],
+      });
+    });
+  });
+
+  describe('createCustomField', () => {
+    const dto = {
+      name: 'Subsystem',
+      type: 'ENUM' as const,
+      config: { type: 'ENUM' as const, options: [{ name: 'Backend' }] },
+    };
+
+    it('throws NotFoundError when project not found', async () => {
+      repo.findProjectByKey.mockResolvedValue(null);
+
+      await expect(service.createCustomField('NOPROJECT', dto)).rejects.toThrow(
+        NotFoundError,
+      );
+    });
+
+    it('returns the existing field with existed=true (idempotent re-run)', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([
+        {
+          id: 'field-1',
+          name: 'Subsystem',
+          type: 'ENUM',
+          config: { options: [{ id: 'opt-1', name: 'Backend' }] },
+        },
+      ]);
+
+      const result = await service.createCustomField('TEST', dto);
+
+      expect(result).toEqual({
+        data: {
+          id: 'field-1',
+          name: 'Subsystem',
+          type: 'ENUM',
+          options: [{ id: 'opt-1', name: 'Backend' }],
+        },
+        existed: true,
+      });
+      expect(customFieldsService.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a new field via CustomFieldsService when none exists', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([]);
+      customFieldsService.create.mockResolvedValue({
+        id: 'field-2',
+        name: 'Subsystem',
+        type: 'ENUM',
+        config: { options: [{ id: 'gen-1', name: 'Backend' }] },
+      });
+
+      const result = await service.createCustomField('TEST', dto);
+
+      expect(customFieldsService.create).toHaveBeenCalledWith('proj-1', dto);
+      expect(result).toEqual({
+        data: {
+          id: 'field-2',
+          name: 'Subsystem',
+          type: 'ENUM',
+          options: [{ id: 'gen-1', name: 'Backend' }],
+        },
+        existed: false,
+      });
+    });
+  });
+
   describe('getProjectStats', () => {
     it('should throw NotFoundError when project not found', async () => {
       repo.findProjectByKey.mockResolvedValue(null);
@@ -330,5 +889,24 @@ describe('MigrationService', () => {
         counts: { issues: 5, comments: 10, attachments: 2, timeLogs: 3 },
       });
     });
+  });
+});
+
+describe('normalizeStatusColor', () => {
+  it('keeps a valid 6-digit hex (lowercased)', () => {
+    expect(normalizeStatusColor('#1A2B3C')).toBe('#1a2b3c');
+  });
+
+  it('expands a 3-digit hex to 6 digits (YouTrack sends #fff)', () => {
+    expect(normalizeStatusColor('#fff')).toBe('#ffffff');
+    expect(normalizeStatusColor('#0a0')).toBe('#00aa00');
+  });
+
+  it('falls back to the default for missing or non-hex colors', () => {
+    expect(normalizeStatusColor(undefined)).toBe('#6b7280');
+    expect(normalizeStatusColor('')).toBe('#6b7280');
+    expect(normalizeStatusColor('red')).toBe('#6b7280');
+    expect(normalizeStatusColor('#12345')).toBe('#6b7280');
+    expect(normalizeStatusColor('#12345678')).toBe('#6b7280');
   });
 });

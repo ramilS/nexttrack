@@ -12,10 +12,12 @@ export interface MigrationCheckpoint {
     projects: Record<string, PhaseProgress>;
     issues: Record<string, PhaseProgress>;
     comments: Record<string, PhaseProgress>;
+    tags: Record<string, PhaseProgress>;
     attachments: Record<string, PhaseProgress>;
     timeLogs: Record<string, PhaseProgress>;
     boards: Record<string, PhaseProgress>;
     parentLinks: Record<string, PhaseProgress>;
+    links: Record<string, PhaseProgress>;
   };
 
   errors: MigrationError[];

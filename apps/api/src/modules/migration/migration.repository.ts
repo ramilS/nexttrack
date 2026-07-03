@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { IssueType, Prisma, Priority } from '@prisma/client';
+import { IssueType, Prisma, Priority, ActivityType } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { asJson } from '@/prisma/json';
 import type { TiptapDoc } from '@repo/shared/schemas';
@@ -76,6 +76,10 @@ export class MigrationRepository {
 
   async findUserByEmail(email: string): Promise<MigrationUserRow | null> {
     return this.prisma.user.findFirst({ where: { email } });
+  }
+
+  async findUserByYtId(ytId: string): Promise<MigrationUserRow | null> {
+    return this.prisma.user.findUnique({ where: { ytId } });
   }
 
   async createUser(input: MigrationUserCreateInput): Promise<MigrationUserRow> {
@@ -184,12 +188,63 @@ export class MigrationRepository {
     });
   }
 
+  // Bulk-insert backdated change-history rows. Idempotent per issue: a migrated
+  // issue has no activities of its own, so a non-empty count means a prior run
+  // already imported them — skip to avoid duplicating the timeline on --resume.
+  async createActivities(
+    issueId: string,
+    entries: Array<{
+      type: ActivityType;
+      actorId: string;
+      createdAt: string;
+      payload: Record<string, unknown>;
+    }>,
+  ): Promise<number> {
+    if (entries.length === 0) return 0;
+    const existing = await this.prisma.activity.count({ where: { issueId } });
+    if (existing > 0) return 0;
+
+    const result = await this.prisma.activity.createMany({
+      data: entries.map((e) => ({
+        issueId,
+        actorId: e.actorId,
+        type: e.type,
+        payload: asJson(e.payload),
+        createdAt: new Date(e.createdAt),
+      })),
+    });
+    return result.count;
+  }
+
   async existsIssue(issueId: string): Promise<boolean> {
     const row = await this.prisma.issue.findUnique({
       where: { id: issueId },
       select: { id: true },
     });
     return row !== null;
+  }
+
+  async findIssueProjectId(issueId: string): Promise<string | null> {
+    const row = await this.prisma.issue.findUnique({
+      where: { id: issueId },
+      select: { projectId: true },
+    });
+    return row?.projectId ?? null;
+  }
+
+  // Backdate an attachment to its original YouTrack date + author. createdAt has
+  // only @default(now()) (no @updatedAt), so a plain Prisma update can set it.
+  async setAttachmentMetadata(
+    attachmentId: string,
+    patch: { uploadedById?: string; createdAt?: Date },
+  ): Promise<void> {
+    await this.prisma.attachment.update({
+      where: { id: attachmentId },
+      data: {
+        ...(patch.uploadedById ? { uploadedById: patch.uploadedById } : {}),
+        ...(patch.createdAt ? { createdAt: patch.createdAt } : {}),
+      },
+    });
   }
 
   async createComment(

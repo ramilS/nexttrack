@@ -21,6 +21,20 @@ export class ProgressReporter {
     return bar;
   }
 
+  // Count-up display for streamed sources whose total is unknown ahead of time
+  // (paginated generators). Avoids the misleading "N/0 100%" of a total-based
+  // bar \u2014 no fake total, percentage, or ETA.
+  createCounter(label: string): cliProgress.SingleBar {
+    const bar = new cliProgress.SingleBar(
+      {
+        format: `  ${label} | {value} processed | {duration_formatted}`,
+        hideCursor: true,
+      },
+      cliProgress.Presets.shades_classic,
+    );
+    return bar;
+  }
+
   info(message: string): void {
     console.log(chalk.blue('ℹ'), message);
   }

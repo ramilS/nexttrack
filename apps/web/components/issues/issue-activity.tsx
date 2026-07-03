@@ -10,7 +10,9 @@ import {
   UserPlus,
   Pencil,
   GitBranch,
+  ChevronDown,
 } from 'lucide-react';
+import { wordDiff } from '@/lib/word-diff';
 import { UserAvatar } from '@/components/shared/user-avatar';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { PriorityBadge } from '@/components/shared/priority-badge';
@@ -107,8 +109,76 @@ function ActivityItem({ activity }: { activity: Activity }) {
             {activity.payload.comment}
           </p>
         )}
+        {(activity.type === 'DESCRIPTION_CHANGE' || activity.type === 'TITLE_CHANGE') &&
+          (typeof activity.payload.from === 'string' || typeof activity.payload.to === 'string') && (
+            <TextDiff
+              from={asStringOrEmpty(activity.payload.from)}
+              to={asStringOrEmpty(activity.payload.to)}
+            />
+          )}
       </div>
       <RelativeTime date={activity.createdAt} className="text-xs text-muted-foreground whitespace-nowrap shrink-0" />
+    </div>
+  );
+}
+
+// The before/after payload holds raw field markup (markdown or wiki HTML). Strip
+// tags/entities so the diff reads like text, not markup — mirrors YouTrack.
+function toPlain(markup: string): string {
+  return markup
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6])>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
+// Collapsible word-level diff for description/title edits (YouTrack shows the
+// same "… changed: ˅ Details" affordance with a red/green diff).
+function TextDiff({ from, to }: { from: string; to: string }) {
+  const [open, setOpen] = useState(false);
+  const parts = useMemo(() => wordDiff(toPlain(from), toPlain(to)), [from, to]);
+  if (parts.length === 0) return null;
+
+  return (
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        <ChevronDown className={cn('size-3 transition-transform', open && 'rotate-180')} />
+        {open ? 'Hide' : 'Details'}
+      </button>
+      {open && (
+        <div className="mt-1.5 whitespace-pre-wrap break-words rounded-md bg-muted/50 px-3 py-2 text-sm leading-relaxed">
+          {parts.map((part, idx) => {
+            if (part.type === 'equal') return <span key={idx}>{part.value}</span>;
+            if (part.type === 'added') {
+              return (
+                <span
+                  key={idx}
+                  className="rounded-sm bg-green-100 text-green-700 dark:bg-green-950/40 dark:text-green-400"
+                >
+                  {part.value}
+                </span>
+              );
+            }
+            return (
+              <span
+                key={idx}
+                className="rounded-sm bg-red-100 text-red-700 line-through dark:bg-red-950/40 dark:text-red-400"
+              >
+                {part.value}
+              </span>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -228,6 +298,27 @@ function getActivityDisplay(activity: Activity): { icon: React.ReactNode; text: 
         icon: <Pencil className="size-3 text-muted-foreground" />,
         text: 'created this issue',
       };
+
+    case 'DESCRIPTION_CHANGE':
+      return {
+        icon: <Pencil className="size-3 text-muted-foreground" />,
+        text: 'updated the description',
+      };
+
+    case 'FIELD_VALUE_CHANGE': {
+      const field = asStringOrEmpty(payload.field) || 'field';
+      const from = payload.from == null ? null : String(payload.from);
+      const to = payload.to == null ? null : String(payload.to);
+      let text: string;
+      if (from && to) text = `changed ${field}: ${from} → ${to}`;
+      else if (to) text = `set ${field} to ${to}`;
+      else if (from) text = `cleared ${field} (was ${from})`;
+      else text = `changed ${field}`;
+      return {
+        icon: <Pencil className="size-3 text-muted-foreground" />,
+        text,
+      };
+    }
 
     default:
       return {
