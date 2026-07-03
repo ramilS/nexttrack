@@ -383,6 +383,23 @@
   font-style: italic;
 }
 
+.tiptap details.wiki-details {
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5rem 0;
+}
+
+.tiptap details.wiki-details > summary {
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.tiptap details.wiki-details > .details-body {
+  margin-top: 0.5rem;
+}
+
 .tiptap img {
   max-width: 100%;
   height: auto;

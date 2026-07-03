@@ -8,6 +8,7 @@ import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import Image from '@tiptap/extension-image';
+import { Details } from './details-node';
 import Mention from '@tiptap/extension-mention';
 import type { SuggestionProps, SuggestionKeyDownProps } from '@tiptap/suggestion';
 import { common, createLowlight } from 'lowlight';
@@ -135,6 +136,7 @@ export function TiptapEditor({
       TaskList,
       TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight }),
+      Details,
       Image.configure({
         HTMLAttributes: {
           class: 'rounded-md max-w-full',

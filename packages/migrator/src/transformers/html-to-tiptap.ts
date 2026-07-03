@@ -104,14 +104,28 @@ function blocksFrom(nodes: Node[]): TiptapDoc[] {
         });
         break;
       }
+      case 'DETAILS': {
+        // YouTrack wiki "cut" → a collapsible `details` node (summary is the
+        // toggle label, the rest is the collapsed body).
+        flush();
+        const el = node as HTMLElement;
+        const summaryEl = el.childNodes.find((n) => tagOf(n) === 'SUMMARY');
+        const summary = (summaryEl ? (summaryEl as HTMLElement).text : '').trim() || 'Details';
+        const body = blocksFrom(el.childNodes.filter((n) => tagOf(n) !== 'SUMMARY'));
+        blocks.push({
+          type: 'details',
+          attrs: { summary },
+          content: body.length ? body : [{ type: 'paragraph' }],
+        });
+        break;
+      }
       case 'BR':
         inline.push({ type: 'hardBreak' });
         break;
       default:
-        // An unknown element wrapping block content (e.g. a wiki <details>
-        // collapsible, <section>) — treat as a transparent container so nested
-        // paragraphs keep their breaks instead of running together. Otherwise
-        // it's inline (a, b, span, code, summary label, …) — accumulate.
+        // An unknown element wrapping block content (e.g. <section>) — treat as
+        // a transparent container so nested paragraphs keep their breaks instead
+        // of running together. Otherwise it's inline (a, b, span, code, …).
         if (
           node.nodeType === NodeType.ELEMENT_NODE &&
           hasBlockChild(node as HTMLElement)

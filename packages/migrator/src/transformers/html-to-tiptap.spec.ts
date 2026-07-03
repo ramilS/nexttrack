@@ -66,15 +66,23 @@ describe('htmlToTiptap', () => {
     expect(htmlToTiptap('')).toEqual({ type: 'doc', content: [{ type: 'paragraph' }] });
   });
 
-  it('keeps block breaks inside a wiki wrapper / collapsible (no run-together text)', () => {
+  it('maps a wiki collapsible (<details>) to a details node with summary + body', () => {
     const doc = htmlToTiptap(
-      '<div class="wiki text prewrapped"><details><summary>Details</summary><p>line one</p><p>line two</p></details></div>',
+      '<div class="wiki text prewrapped"><details><summary>done</summary><p>line one</p><p>line two</p></details></div>',
     );
-    expect(doc.content!.map((p) => p.content?.[0]?.text)).toEqual([
-      'Details',
+    const details = doc.content![0];
+    expect(details.type).toBe('details');
+    expect(details.attrs).toEqual({ summary: 'done' });
+    // Body keeps its own block breaks (no run-together text).
+    expect(details.content!.map((p) => p.content?.[0]?.text)).toEqual([
       'line one',
       'line two',
     ]);
+  });
+
+  it('defaults the details summary label when <summary> is absent', () => {
+    const doc = htmlToTiptap('<details><p>body</p></details>');
+    expect(doc.content![0]).toMatchObject({ type: 'details', attrs: { summary: 'Details' } });
   });
 
   it('coalesces per-line <code>…</code><br/> into a single codeBlock', () => {
