@@ -17,6 +17,10 @@ import { CommentsExtractor } from '../extractors/comments.extractor';
 import { AttachmentsExtractor } from '../extractors/attachments.extractor';
 import { TimeLogsExtractor } from '../extractors/time-logs.extractor';
 import { BoardsExtractor } from '../extractors/boards.extractor';
+import {
+  buildBoardColumns,
+  resolveSprintStatuses,
+} from '../transformers/board.transformer';
 import { TeamExtractor, mapYtRole } from '../extractors/team.extractor';
 import { CustomFieldDefsExtractor } from '../extractors/custom-field-defs.extractor';
 import { ActivitiesExtractor } from '../extractors/activities.extractor';
@@ -1229,9 +1233,12 @@ export class MigrateCommand {
   }
 
   // Each YouTrack agile board becomes one SCRUM board (so sprints can hold
-  // issues). Sprints run after all issues exist, so their membership resolves
-  // via the id-map. A board shared across projects is recreated per project —
-  // acceptable for the common single-project migration.
+  // issues). Board columns are rebuilt from the source columnSettings so the
+  // target board matches the YouTrack layout (and hides issues in states that
+  // have no column, e.g. Released). Sprints run after all issues exist, so their
+  // membership resolves via the id-map; each sprint's final status (archived →
+  // CLOSED, current → ACTIVE) is set AFTER its issues are added, because the API
+  // rejects adding issues to a CLOSED sprint and always creates one as PLANNING.
   private async migrateBoards(
     projectKey: string,
     checkpoint: MigrationCheckpoint,
@@ -1258,7 +1265,21 @@ export class MigrateCommand {
           type: 'SCRUM',
         });
 
-        for (const ytSprint of ytBoard.sprints ?? []) {
+        const columns = buildBoardColumns(ytBoard, (stateName) =>
+          this.idMap.getStatusId(projectKey, stateName),
+        );
+        if (columns.length > 0) {
+          await this.api.setBoardColumns(projectKey, boardId, columns);
+        }
+
+        const sprints = ytBoard.sprints ?? [];
+        const statuses = resolveSprintStatuses(
+          sprints,
+          new Date(),
+          ytBoard.currentSprint?.id,
+        );
+
+        for (const ytSprint of sprints) {
           const sprintId = await this.api.createSprint(boardId, {
             name: ytSprint.name,
             // YouTrack returns goal: null (not absent) → coerce, since the
@@ -1278,6 +1299,21 @@ export class MigrateCommand {
             .filter((id): id is string => id !== null);
           if (issueIds.length > 0) {
             await this.api.addSprintIssues(boardId, sprintId, issueIds);
+          }
+
+          const status = statuses.get(ytSprint.id);
+          if (status && status !== 'PLANNING') {
+            await this.api.setSprintStatus(boardId, sprintId, {
+              status,
+              startedAt:
+                status === 'ACTIVE' && ytSprint.start
+                  ? new Date(ytSprint.start).toISOString()
+                  : undefined,
+              closedAt:
+                status === 'CLOSED' && ytSprint.finish
+                  ? new Date(ytSprint.finish).toISOString()
+                  : undefined,
+            });
           }
         }
       } catch (err) {

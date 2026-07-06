@@ -45,6 +45,7 @@ const buildDeliveryContext = (
 ): WebhookDeliveryContextRow => ({
   secret: SECRET,
   url: TARGET_URL,
+  provider: 'GENERIC',
   isEnabled: true,
   name: 'My Webhook',
   ...overrides,
@@ -56,6 +57,7 @@ const buildWebhookRow = (overrides: Partial<WebhookRow> = {}): WebhookRow => ({
   createdById: 'user-1',
   name: 'My Webhook',
   url: TARGET_URL,
+  provider: 'GENERIC',
   secret: SECRET,
   eventTypes: [EVENT_TYPE],
   isEnabled: true,
@@ -277,6 +279,62 @@ describe('WebhookDeliveryProcessor', () => {
       expect(headers['X-Event-Type']).toBe(EVENT_TYPE);
       expect(headers['X-Delivery-Id']).toBe(OUTBOX_ID);
       expect(headers['X-Timestamp']).toEqual(expect.any(String));
+    });
+  });
+
+  describe('chat provider payloads', () => {
+    it('sends a Slack-shaped {text} body instead of the raw event JSON', async () => {
+      repo.findDeliveryContext.mockResolvedValue(
+        buildDeliveryContext({ provider: 'SLACK' }),
+      );
+
+      await processor.process(
+        buildJob({ eventType: 'ISSUE_RESOLVED', data: { issueKey: 'PRJ-1', actorName: 'Alice', issueTitle: 'Fix bug' } }),
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body).toEqual({ text: '✅ *PRJ-1* resolved by Alice\nFix bug' });
+    });
+
+    it('sends a Discord-shaped {content} body', async () => {
+      repo.findDeliveryContext.mockResolvedValue(
+        buildDeliveryContext({ provider: 'DISCORD' }),
+      );
+
+      await processor.process(
+        buildJob({ eventType: 'ISSUE_RESOLVED', data: { issueKey: 'PRJ-1', actorName: 'Alice', issueTitle: 'Fix bug' } }),
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body).toEqual({ content: '✅ **PRJ-1** resolved by Alice\nFix bug' });
+    });
+
+    it('sends a Teams MessageCard body', async () => {
+      repo.findDeliveryContext.mockResolvedValue(
+        buildDeliveryContext({ provider: 'TEAMS' }),
+      );
+
+      await processor.process(
+        buildJob({ eventType: 'ISSUE_RESOLVED', data: { issueKey: 'PRJ-1', actorName: 'Alice', issueTitle: 'Fix bug' } }),
+      );
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body).toEqual({
+        '@type': 'MessageCard',
+        '@context': 'http://schema.org/extensions',
+        text: '✅ **PRJ-1** resolved by Alice\nFix bug',
+      });
+    });
+
+    it('sends the raw event JSON for GENERIC (unchanged behavior)', async () => {
+      await processor.process(buildJob({ data: { foo: 'bar' } }));
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(init.body as string);
+      expect(body).toEqual({ foo: 'bar' });
     });
   });
 

@@ -280,6 +280,41 @@ export class OurApiClient {
     });
   }
 
+  async setSprintStatus(
+    boardId: string,
+    sprintId: string,
+    dto: {
+      status: 'PLANNING' | 'ACTIVE' | 'CLOSED';
+      startedAt?: string;
+      closedAt?: string;
+    },
+  ): Promise<void> {
+    await retry(async () => {
+      await this.http.post(
+        `/admin/migration/boards/${boardId}/sprints/${sprintId}/status`,
+        dto,
+      );
+    });
+  }
+
+  async setBoardColumns(
+    projectKey: string,
+    boardId: string,
+    columns: Array<{
+      id: string;
+      name: string;
+      statusIds: string[];
+      ordinal: number;
+    }>,
+  ): Promise<void> {
+    await retry(async () => {
+      await this.http.put(
+        `/admin/migration/projects/${projectKey}/boards/${boardId}/columns`,
+        { columns },
+      );
+    });
+  }
+
   async createTimeLogs(
     issueId: string,
     entries: Array<{

@@ -34,8 +34,12 @@ describe('MigrationService', () => {
   let issueLinksService: { create: jest.Mock };
   let timeLogsService: { importMany: jest.Mock };
   let projectsRepo: { findEntityByKey: jest.Mock; createWithWorkflow: jest.Mock };
-  let boardsService: { create: jest.Mock };
-  let sprintsService: { create: jest.Mock; addIssues: jest.Mock };
+  let boardsService: { create: jest.Mock; setColumnsForImport: jest.Mock };
+  let sprintsService: {
+    create: jest.Mock;
+    addIssues: jest.Mock;
+    setStatusForImport: jest.Mock;
+  };
   let attachmentsStorage: { uploadBuffer: jest.Mock };
   let attachmentsRepo: { create: jest.Mock };
   let tagsRepo: {
@@ -103,8 +107,12 @@ describe('MigrationService', () => {
       findEntityByKey: jest.fn().mockResolvedValue(null),
       createWithWorkflow: jest.fn().mockResolvedValue({ id: 'new-proj' }),
     };
-    boardsService = { create: jest.fn() };
-    sprintsService = { create: jest.fn(), addIssues: jest.fn() };
+    boardsService = { create: jest.fn(), setColumnsForImport: jest.fn() };
+    sprintsService = {
+      create: jest.fn(),
+      addIssues: jest.fn(),
+      setStatusForImport: jest.fn(),
+    };
     attachmentsStorage = { uploadBuffer: jest.fn().mockResolvedValue(undefined) };
     attachmentsRepo = { create: jest.fn() };
     tagsRepo = {
@@ -741,6 +749,45 @@ describe('MigrationService', () => {
         'i3',
       ]);
       expect(result).toEqual({ added: 3 });
+    });
+
+    it('setSprintStatus delegates to SprintsService', async () => {
+      sprintsService.setStatusForImport.mockResolvedValue({ id: 'sprint-1' });
+
+      const result = await service.setSprintStatus('board-1', 'sprint-1', {
+        status: 'CLOSED',
+      } as never);
+
+      expect(sprintsService.setStatusForImport).toHaveBeenCalledWith(
+        'board-1',
+        'sprint-1',
+        { status: 'CLOSED' },
+      );
+      expect(result).toEqual({ data: { id: 'sprint-1' } });
+    });
+
+    it('setBoardColumns throws NotFoundError when project not found', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue(null);
+      await expect(
+        service.setBoardColumns('NOPROJECT', 'board-1', { columns: [] } as never),
+      ).rejects.toThrow(NotFoundError);
+    });
+
+    it('setBoardColumns resolves the project and delegates to BoardsService', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+      boardsService.setColumnsForImport.mockResolvedValue({ id: 'board-1' });
+      const dto = {
+        columns: [{ id: 'c-0', name: 'Open', statusIds: ['s1'], ordinal: 0 }],
+      };
+
+      const result = await service.setBoardColumns('TEST', 'board-1', dto as never);
+
+      expect(boardsService.setColumnsForImport).toHaveBeenCalledWith(
+        'proj-1',
+        'board-1',
+        dto,
+      );
+      expect(result).toEqual({ data: { id: 'board-1' } });
     });
   });
 

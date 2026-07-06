@@ -32,8 +32,22 @@ import {
   createBoardSchema,
   createSprintSchema,
   createCustomFieldSchema,
+  sprintStatusSchema,
+  updateColumnsSchema,
   TIME_LOG_DURATION_MAX_MINUTES,
 } from '@repo/shared/schemas';
+
+// Sets a migrated sprint's final lifecycle status after its issues are added
+// (see MigrationService.setSprintStatus). startedAt/closedAt backdate the
+// sprint to its original YouTrack dates.
+const migrationSetSprintStatusSchema = z.object({
+  status: sprintStatusSchema,
+  startedAt: z.iso.datetime().optional(),
+  closedAt: z.iso.datetime().optional(),
+});
+export type MigrationSetSprintStatusInput = z.infer<
+  typeof migrationSetSprintStatusSchema
+>;
 
 const findUserByEmailQuerySchema = z.object({
   email: z.email(),
@@ -174,6 +188,8 @@ export class MigrationActivitiesDto extends createZodDto(migrationActivitiesSche
 export class MigrationActivitiesResultDto extends createZodDto(migrationActivitiesResultSchema) {}
 export class MigrationCreateBoardDto extends createZodDto(createBoardSchema) {}
 export class MigrationCreateSprintDto extends createZodDto(createSprintSchema) {}
+export class MigrationSetSprintStatusDto extends createZodDto(migrationSetSprintStatusSchema) {}
+export class MigrationSetBoardColumnsDto extends createZodDto(updateColumnsSchema) {}
 export class MigrationSprintIssuesDto extends createZodDto(sprintIssuesSchema) {}
 export class MigrationEntityIdResultDto extends createZodDto(migrationEntityIdResultSchema) {}
 export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprintIssuesResultSchema) {}

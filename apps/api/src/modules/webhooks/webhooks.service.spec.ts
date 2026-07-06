@@ -15,6 +15,7 @@ const baseWebhook = (overrides: Partial<WebhookRow> = {}): WebhookRow => ({
   createdById: 'user-1',
   name: 'My Webhook',
   url: 'https://example.com/hook',
+  provider: 'GENERIC',
   secret: 'supersecretkey1234567890abcdef12',
   eventTypes: ['ASSIGNEE_CHANGED'],
   isEnabled: true,
@@ -88,6 +89,7 @@ describe('WebhooksService', () => {
       repo.create.mockResolvedValue(baseWebhook());
 
       const dto: CreateWebhookParsed = {
+        provider: 'GENERIC' as const,
         name: 'My Webhook',
         url: 'https://example.com/hook',
         secret: 'supersecretkey1234567890abcdef12',
@@ -104,6 +106,7 @@ describe('WebhooksService', () => {
       repo.create.mockResolvedValue(baseWebhook());
 
       const dto: CreateWebhookParsed = {
+        provider: 'GENERIC' as const,
         name: 'My Webhook',
         url: 'https://example.com/hook',
         secret: 'supersecretkey1234567890abcdef12',
@@ -116,6 +119,23 @@ describe('WebhooksService', () => {
       expect(stored).not.toBe(dto.secret);
       expect(encryption.isEncrypted(stored)).toBe(true);
       expect(encryption.decrypt(stored)).toBe(dto.secret);
+    });
+
+    it('auto-generates a secret for chat providers when omitted', async () => {
+      repo.create.mockResolvedValue(baseWebhook({ provider: 'SLACK' }));
+
+      const dto: CreateWebhookParsed = {
+        provider: 'SLACK',
+        name: 'Slack',
+        url: 'https://hooks.slack.com/services/xxx',
+        eventTypes: ['ASSIGNEE_CHANGED'],
+        isEnabled: true,
+      };
+      await service.create('proj-1', 'user-1', dto);
+
+      const stored = repo.create.mock.calls[0][0].secret as string;
+      expect(stored).toBeTruthy();
+      expect(encryption.isEncrypted(stored)).toBe(true);
     });
   });
 

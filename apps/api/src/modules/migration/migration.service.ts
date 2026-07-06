@@ -11,6 +11,7 @@ import type { TiptapDoc } from '@repo/shared/schemas';
 import { migrationConfig } from '@/config';
 import { CreateUserMigrationDto } from './dto/create-user-migration.dto';
 import { CreateIssueMigrationDto } from './dto/create-issue-migration.dto';
+import type { MigrationSetSprintStatusInput } from './migration.dto';
 import { SetDatesDto } from './dto/set-dates.dto';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import {
@@ -35,7 +36,11 @@ import { AttachmentsStorageService } from '@/modules/attachments/attachments-sto
 import { AttachmentsRepository } from '@/modules/attachments/attachments.repository';
 import { BoardsService } from '@/modules/boards/boards.service';
 import { SprintsService } from '@/modules/sprints/sprints.service';
-import type { CreateBoardParsed, CreateSprintInput } from '@repo/shared/schemas';
+import type {
+  CreateBoardParsed,
+  CreateSprintInput,
+  UpdateColumnsInput,
+} from '@repo/shared/schemas';
 import type { CreateTagInput, CreateIssueLinkInput } from '@repo/shared/schemas';
 import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
 
@@ -512,6 +517,49 @@ export class MigrationService {
       issueIds,
     );
     return { added: result.added };
+  }
+
+  async setSprintStatus(
+    boardId: string,
+    sprintId: string,
+    dto: MigrationSetSprintStatusInput,
+  ) {
+    const sprint = await this.sprintsService.setStatusForImport(
+      boardId,
+      sprintId,
+      dto,
+    );
+    this.logger.log('Migrated sprint status updated', {
+      sprintId,
+      boardId,
+      status: dto.status,
+    });
+    return { data: { id: sprint.id } };
+  }
+
+  async setBoardColumns(
+    projectKey: string,
+    boardId: string,
+    dto: UpdateColumnsInput,
+  ) {
+    const project = await this.projectsRepo.findEntityByKey(projectKey);
+    if (!project) {
+      throw new NotFoundError(
+        ErrorCode.MIGRATION_PROJECT_NOT_FOUND,
+        `Project ${projectKey} not found`,
+      );
+    }
+    const board = await this.boardsService.setColumnsForImport(
+      project.id,
+      boardId,
+      dto,
+    );
+    this.logger.log('Migrated board columns set', {
+      boardId,
+      projectId: project.id,
+      columnCount: dto.columns.length,
+    });
+    return { data: { id: board.id } };
   }
 
   // Backdate a just-uploaded attachment to its original YouTrack date + author

@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Put,
   Param,
   Body,
   Query,
@@ -45,6 +46,8 @@ import {
   MigrationActivitiesResultDto,
   MigrationCreateBoardDto,
   MigrationCreateSprintDto,
+  MigrationSetSprintStatusDto,
+  MigrationSetBoardColumnsDto,
   MigrationSprintIssuesDto,
   MigrationEntityIdResultDto,
   MigrationSprintIssuesResultDto,
@@ -267,5 +270,25 @@ export class MigrationController {
     @Body() dto: MigrationSprintIssuesDto,
   ) {
     return this.migrationService.addSprintIssues(boardId, sprintId, dto.issueIds);
+  }
+
+  @Post('boards/:boardId/sprints/:sprintId/status')
+  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  setSprintStatus(
+    @Param('boardId') boardId: string,
+    @Param('sprintId') sprintId: string,
+    @Body() dto: MigrationSetSprintStatusDto,
+  ) {
+    return this.migrationService.setSprintStatus(boardId, sprintId, dto);
+  }
+
+  @Put('projects/:projectKey/boards/:boardId/columns')
+  @ApiEnvelope(MigrationEntityIdResultDto)
+  setBoardColumns(
+    @Param('projectKey') projectKey: string,
+    @Param('boardId') boardId: string,
+    @Body() dto: MigrationSetBoardColumnsDto,
+  ) {
+    return this.migrationService.setBoardColumns(projectKey, boardId, dto);
   }
 }

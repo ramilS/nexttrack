@@ -6,8 +6,13 @@ import BoardPage from './page';
 const mockOpen = vi.fn();
 let mockBoards: Board[] | undefined;
 
+const mockReplace = vi.fn();
+
 vi.mock('next/navigation', () => ({
   useParams: () => ({ key: 'PROJ' }),
+  useRouter: () => ({ replace: mockReplace }),
+  usePathname: () => '/projects/PROJ/board',
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/lib/hooks/use-boards', () => ({
@@ -139,5 +144,23 @@ describe('BoardPage — board exists', () => {
     render(<BoardPage />);
     expect(screen.getByTestId('kanban-board')).toBeInTheDocument();
     expect(screen.queryByText('No board yet')).not.toBeInTheDocument();
+  });
+});
+
+describe('BoardPage — multiple boards', () => {
+  it('hides the board switcher with a single board', () => {
+    mockBoards = [buildBoard({ id: 'b1' })];
+    render(<BoardPage />);
+    expect(screen.queryAllByTestId('swimlane-select')).toHaveLength(1);
+  });
+
+  it('shows a board switcher when the project has more than one board', () => {
+    mockBoards = [
+      buildBoard({ id: 'b1', name: 'Engineering', isDefault: true }),
+      buildBoard({ id: 'b2', name: 'Design', isDefault: false }),
+    ];
+    render(<BoardPage />);
+    // Both the swimlane select and the board switcher use the mocked Select.
+    expect(screen.getAllByTestId('swimlane-select')).toHaveLength(2);
   });
 });
