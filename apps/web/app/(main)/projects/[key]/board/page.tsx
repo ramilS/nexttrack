@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { usePathname, useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Settings, BarChart3, KanbanSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,7 +33,18 @@ const SWIMLANE_OPTIONS: { value: SwimlaneBy; label: string }[] = [
 ];
 
 export default function BoardPage() {
+  return (
+    <Suspense>
+      <BoardPageContent />
+    </Suspense>
+  );
+}
+
+function BoardPageContent() {
   const { key } = useParams<{ key: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { data: boards } = useBoards(key);
   const openCreateBoard = useCreateBoardStore((s) => s.open);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -41,10 +52,42 @@ export default function BoardPage() {
   const [selectedSprintId, setSelectedSprintId] = useState<string | undefined>();
   const [backlogOpen, setBacklogOpen] = useState(false);
 
-  const defaultBoard = boards?.find((b) => b.isDefault) ?? boards?.[0];
-  const isScrum = defaultBoard?.type === 'SCRUM';
+  // Kept as local state (not derived from useSearchParams on every render) so
+  // switching boards updates in the SAME synchronous batch as resetting
+  // selectedSprintId below. Deriving boardId from the URL instead raced: router
+  // .replace()'s RSC round-trip resolves searchParams asynchronously, so for a
+  // render or two the OLD board's SprintBoardHeader would see the freshly reset
+  // `undefined` sprintId and "helpfully" auto-select ITS OWN sprint before the
+  // boardId prop ever changed — clobbering the reset with the wrong board's sprint.
+  const [selectedBoardId, setSelectedBoardId] = useState<string | undefined>(
+    () => searchParams.get('board') ?? undefined,
+  );
 
-  const { data: sprints } = useSprints(defaultBoard?.id ?? '');
+  const selectedBoard =
+    boards?.find((b) => b.id === selectedBoardId) ||
+    boards?.find((b) => b.isDefault) ||
+    boards?.[0];
+  const isScrum = selectedBoard?.type === 'SCRUM';
+
+  // Once boards load, snap an unset/stale board id to the resolved default.
+  useEffect(() => {
+    if (boards && selectedBoard && selectedBoardId !== selectedBoard.id) {
+      setSelectedBoardId(selectedBoard.id);
+    }
+  }, [boards, selectedBoard, selectedBoardId]);
+
+  const handleBoardChange = useCallback(
+    (boardId: string) => {
+      setSelectedBoardId(boardId);
+      setSelectedSprintId(undefined);
+      const params = new URLSearchParams(searchParams);
+      params.set('board', boardId);
+      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  const { data: sprints } = useSprints(selectedBoard?.id ?? '');
   const selectedSprintName = sprints?.find((s) => s.id === selectedSprintId)?.name;
 
   const toggleBacklog = useCallback(() => {
@@ -59,7 +102,7 @@ export default function BoardPage() {
       </div>
 
       <Tabs defaultValue="board" className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 flex items-center justify-between">
+        <div className="px-4 flex items-center justify-between gap-3">
           <TabsList variant="line">
             <TabsTrigger value="board">Board</TabsTrigger>
             <TabsTrigger value="analytics">
@@ -67,13 +110,29 @@ export default function BoardPage() {
               Analytics
             </TabsTrigger>
           </TabsList>
+          {boards && boards.length > 1 && (
+            <Select value={selectedBoard?.id ?? ''} onValueChange={(v) => v && handleBoardChange(v)}>
+              <SelectTrigger className="h-8 w-auto text-xs font-medium">
+                <SelectValue placeholder="Select board...">
+                  {(value: string | null) => boards.find((b) => b.id === value)?.name ?? 'Select board...'}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {boards.map((b) => (
+                  <SelectItem key={b.id} value={b.id} label={b.name}>
+                    {b.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </div>
 
         <TabsContent value="board" className="flex-1 flex flex-col min-h-0">
           {/* Sprint header for SCRUM boards */}
-          {isScrum && defaultBoard && (
+          {isScrum && selectedBoard && (
             <SprintBoardHeader
-              boardId={defaultBoard.id}
+              boardId={selectedBoard.id}
               currentSprintId={selectedSprintId}
               onSprintChange={setSelectedSprintId}
               activeSprint={null}
@@ -82,7 +141,7 @@ export default function BoardPage() {
             />
           )}
 
-          {defaultBoard && (
+          {selectedBoard && (
             <div className="px-4 py-1.5 flex items-center justify-end gap-2">
               <Select
                 value={swimlaneBy}
@@ -114,9 +173,9 @@ export default function BoardPage() {
           )}
           <div className="relative flex-1 min-w-0 min-h-0 overflow-auto">
             {/* Backlog side panel */}
-            {isScrum && defaultBoard && (
+            {isScrum && selectedBoard && (
               <BacklogPanel
-                boardId={defaultBoard.id}
+                boardId={selectedBoard.id}
                 projectKey={key}
                 currentSprintId={selectedSprintId}
                 currentSprintName={selectedSprintName}
@@ -126,10 +185,10 @@ export default function BoardPage() {
             )}
 
             <div className="min-h-full px-4 pb-6">
-              {defaultBoard ? (
+              {selectedBoard ? (
                 <KanbanBoard
                   projectKey={key}
-                  boardId={defaultBoard.id}
+                  boardId={selectedBoard.id}
                   swimlaneBy={swimlaneBy}
                   sprintId={isScrum ? selectedSprintId : undefined}
                 />
@@ -146,8 +205,8 @@ export default function BoardPage() {
         </TabsContent>
 
         <TabsContent value="analytics" className="flex-1 overflow-y-auto px-6 py-4">
-          {defaultBoard ? (
-            <BoardAnalytics projectKey={key} boardId={defaultBoard.id} />
+          {selectedBoard ? (
+            <BoardAnalytics projectKey={key} boardId={selectedBoard.id} />
           ) : (
             <EmptyState
               icon={KanbanSquare}
@@ -159,12 +218,12 @@ export default function BoardPage() {
         </TabsContent>
       </Tabs>
 
-      {defaultBoard && (
+      {selectedBoard && (
         <BoardSettingsDialog
           open={settingsOpen}
           onOpenChange={setSettingsOpen}
           projectKey={key}
-          board={defaultBoard}
+          board={selectedBoard}
         />
       )}
     </div>

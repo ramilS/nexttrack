@@ -75,11 +75,12 @@ export function SprintBoardHeader({
 
   const activeSprints = sprints?.filter((s) => s.status === 'ACTIVE') ?? [];
   const planningSprints = sprints?.filter((s) => s.status === 'PLANNING') ?? [];
-  const allSelectable = [...activeSprints, ...planningSprints];
+  const closedSprints = sprints?.filter((s) => s.status === 'CLOSED') ?? [];
+  const allSelectable = [...activeSprints, ...planningSprints, ...closedSprints];
 
   const selectedSprint = currentSprintId
     ? allSelectable.find((s) => s.id === currentSprintId)
-    : activeSprint ?? activeSprints[0] ?? planningSprints[0];
+    : activeSprint ?? activeSprints[0] ?? planningSprints[0] ?? closedSprints[0];
 
   // Auto-select first available sprint when none is explicitly chosen
   useEffect(() => {
@@ -192,6 +193,18 @@ export function SprintBoardHeader({
                   <SelectItem key={s.id} value={s.id} label={s.name}>
                     <span className="flex items-center gap-1.5">
                       <Badge variant="outline" className="h-4 text-[10px] px-1">Planning</Badge>
+                      {s.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </>
+            )}
+            {closedSprints.length > 0 && (
+              <>
+                {closedSprints.map((s) => (
+                  <SelectItem key={s.id} value={s.id} label={s.name}>
+                    <span className="flex items-center gap-1.5">
+                      <Badge variant="secondary" className="h-4 text-[10px] px-1">Closed</Badge>
                       {s.name}
                     </span>
                   </SelectItem>

@@ -42,3 +42,4 @@ yarn-error.log*
 .playwright-mcp
 .agents
 .claude
+packages/migrator/demo-checkpoint.json

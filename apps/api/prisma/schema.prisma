@@ -1133,13 +1133,14 @@ model IdempotencyKey {
 }
 
 model ProjectWebhook {
-  id         String   @id @default(uuid())
-  projectId  String   @map("project_id")
-  name       String   @db.VarChar(100)
+  id         String          @id @default(uuid())
+  projectId  String          @map("project_id")
+  name       String          @db.VarChar(100)
   url        String
+  provider   WebhookProvider @default(GENERIC)
   secret     String
-  eventTypes String[] @map("event_types")
-  isEnabled  Boolean  @default(true) @map("is_enabled")
+  eventTypes String[]        @map("event_types")
+  isEnabled  Boolean         @default(true) @map("is_enabled")
 
   lastDeliveryAt      DateTime? @map("last_delivery_at") @db.Timestamptz(3)
   lastStatusCode      Int?      @map("last_status_code")
@@ -1243,6 +1244,15 @@ enum DeliveryChannel {
   INTERNAL
 
   @@map("delivery_channel")
+}
+
+enum WebhookProvider {
+  GENERIC
+  SLACK
+  DISCORD
+  TEAMS
+
+  @@map("webhook_provider")
 }
 
 // ─── Phase 6B: Workflow Automation ─────────────────────────────────

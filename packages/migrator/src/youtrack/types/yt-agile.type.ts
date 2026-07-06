@@ -5,6 +5,7 @@ export interface YtAgileBoard {
   columnSettings?: {
     columns?: YtAgileBoardColumn[];
   };
+  currentSprint?: { id: string; name: string } | null;
   sprints?: YtAgileSprint[];
 }
 
