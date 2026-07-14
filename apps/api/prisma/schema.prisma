@@ -253,6 +253,7 @@ model ProjectMember {
   @@index([userId])
   @@index([projectId])
   @@index([roleId])
+  @@index([projectId, roleId])
   @@map("project_members")
 }
 
