@@ -32,6 +32,7 @@ vi.mock('@/lib/hooks/use-users', () => ({
   }),
   useUserMemberships: () => ({ data: mockMemberships, isLoading: false }),
   useAdminUpdateUser: () => ({ mutate: vi.fn(), isPending: false }),
+  useUpdateUserMembershipRole: () => ({ mutate: vi.fn() }),
 }));
 
 vi.mock('@/lib/hooks/use-roles', () => ({
@@ -43,16 +44,6 @@ vi.mock('@/lib/hooks/use-roles', () => ({
   }),
 }));
 
-vi.mock('@/lib/api/projects.api', () => ({
-  projectsApi: { updateMember: vi.fn() },
-}));
-
-vi.mock('@tanstack/react-query', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@tanstack/react-query')>()),
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-}));
-
-vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('date-fns', () => ({ format: () => 'January 1, 2026' }));
 
 vi.mock('@/components/ui/card', () => ({

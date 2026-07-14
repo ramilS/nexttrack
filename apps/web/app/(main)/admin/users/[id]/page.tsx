@@ -21,22 +21,24 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UserAvatar } from '@/components/shared/user-avatar';
 import { ColorDot } from '@/components/shared/color-dot';
 import { PageHeader } from '@/components/shared/page-header';
-import { useUser, useUserMemberships, useAdminUpdateUser } from '@/lib/hooks/use-users';
+import {
+  useUser,
+  useUserMemberships,
+  useAdminUpdateUser,
+  useUpdateUserMembershipRole,
+} from '@/lib/hooks/use-users';
 import { isAdminRole } from '@/lib/auth/roles';
 import { useRoles } from '@/lib/hooks/use-roles';
-import { projectsApi } from '@/lib/api/projects.api';
-import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 export default function AdminUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { data: user, isLoading } = useUser(id);
   const { data: memberships, isLoading: membershipsLoading } = useUserMemberships(id);
   const { data: roles } = useRoles();
   const updateUser = useAdminUpdateUser();
+  const updateMembershipRole = useUpdateUserMembershipRole();
 
   const [name, setName] = useState('');
   const [pendingMembershipProjectId, setPendingMembershipProjectId] = useState<string | null>(null);
@@ -62,15 +64,10 @@ export default function AdminUserDetailPage() {
     roleId: string,
   ) {
     setPendingMembershipProjectId(projectId);
-    try {
-      await projectsApi.updateMember(projectKey, userId, { roleId });
-      await queryClient.invalidateQueries({ queryKey: ['admin-users', 'memberships', id] });
-      toast.success('Role updated');
-    } catch {
-      toast.error('Failed to update role');
-    } finally {
-      setPendingMembershipProjectId(null);
-    }
+    updateMembershipRole.mutate(
+      { projectKey, userId, roleId },
+      { onSettled: () => setPendingMembershipProjectId(null) },
+    );
   }
 
   const hasChanges = user && name !== user.name;
