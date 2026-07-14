@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import { Readable } from 'stream';
 import { retry } from '../utils/retry';
+import { classifyMigrationError } from '../utils/error-classification';
 import { CreateUserMigrationDto } from '../transformers/user.transformer';
 import { CreateIssueMigrationDto } from '../transformers/issue.transformer';
 import { CreateCustomFieldDto } from '../transformers/custom-field-def.transformer';
@@ -16,23 +17,194 @@ export function unwrapEnvelope<T>(body: unknown): T {
   return (body as { data: T }).data;
 }
 
+export type MigrationRunStatus = 'RUNNING' | 'FAILED' | 'COMPLETED';
+export type MigrationEntityStatus =
+  | 'DISCOVERED'
+  | 'TRANSFORMED'
+  | 'LOADED'
+  | 'VERIFIED'
+  | 'FAILED'
+  | 'EXCLUDED_APPROVED';
+
+export interface StartMigrationRun {
+  sourceSystem: 'youtrack-cloud';
+  sourceTenant: string;
+  sourceUrl: string;
+  targetUrl: string;
+  config: Record<string, unknown>;
+  configHash: string;
+  specVersion: '2026-07-14';
+  exclusionVersion: '2026-07-14';
+}
+
+export interface DiscoverMigrationEntities {
+  entities: Array<{
+    entityType: string;
+    sourceId: string;
+    sourceChecksum: string;
+  }>;
+}
+
+export interface TransitionMigrationEntity {
+  entityType: string;
+  sourceId: string;
+  sourceChecksum: string;
+  status: MigrationEntityStatus;
+  targetId?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+export interface ListMigrationEntitiesQuery {
+  entityType?: string;
+  status?: MigrationEntityStatus;
+  cursor?: string;
+  limit?: number;
+}
+
+export interface MigrationRun {
+  id: string;
+  sourceSystem: 'youtrack-cloud';
+  sourceTenant: string;
+  sourceUrl: string;
+  targetUrl: string;
+  configHash: string;
+  specVersion: '2026-07-14';
+  exclusionVersion: '2026-07-14';
+  status: MigrationRunStatus;
+  startedAt: string;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MigrationEntity {
+  id: string;
+  runId: string;
+  entityType: string;
+  sourceId: string;
+  sourceChecksum: string;
+  targetId: string | null;
+  status: MigrationEntityStatus;
+  attemptCount: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  discoveredAt: string;
+  transformedAt: string | null;
+  loadedAt: string | null;
+  verifiedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MigrationRunResult {
+  data: MigrationRun;
+}
+
+export interface MigrationRunSummary extends MigrationRunResult {
+  counts: Partial<Record<MigrationEntityStatus, number>>;
+}
+
+export interface MigrationEntitiesResult {
+  data: MigrationEntity[];
+}
+
+export interface MigrationEntityResult {
+  data: MigrationEntity;
+}
+
+const MANIFEST_RETRY_OPTIONS = {
+  attempts: 4,
+  delay: 500,
+  backoff: 2,
+  jitter: 0.2,
+  shouldRetry: (error: unknown) =>
+    classifyMigrationError(error) === 'TRANSIENT',
+};
+
 export class OurApiClient {
   private readonly http: AxiosInstance;
 
-  constructor(config: {
-    url: string;
-    token: string;
-    migrationSecret: string;
-  }) {
-    this.http = axios.create({
-      baseURL: `${config.url.replace(/\/$/, '')}/api`,
-      headers: {
-        Authorization: `Bearer ${config.token}`,
-        'Content-Type': 'application/json',
-        'x-migration-secret': config.migrationSecret,
-      },
-      timeout: 30_000,
-    });
+  constructor(
+    config: { url: string; token: string; migrationSecret: string },
+    http?: AxiosInstance,
+  ) {
+    this.http =
+      http ??
+      axios.create({
+        baseURL: `${config.url.replace(/\/$/, '')}/api`,
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+          'Content-Type': 'application/json',
+          'x-migration-secret': config.migrationSecret,
+        },
+        timeout: 30_000,
+      });
+  }
+
+  async startMigrationRun(dto: StartMigrationRun): Promise<MigrationRunResult> {
+    return retry(async () => {
+      const { data } = await this.http.post('/admin/migration/runs', dto);
+      return unwrapEnvelope<MigrationRunResult>(data);
+    }, MANIFEST_RETRY_OPTIONS);
+  }
+
+  async getMigrationRun(runId: string): Promise<MigrationRunSummary> {
+    return retry(async () => {
+      const { data } = await this.http.get(`/admin/migration/runs/${runId}`);
+      return unwrapEnvelope<MigrationRunSummary>(data);
+    }, MANIFEST_RETRY_OPTIONS);
+  }
+
+  async discoverEntities(
+    runId: string,
+    dto: DiscoverMigrationEntities,
+  ): Promise<MigrationEntitiesResult> {
+    return retry(async () => {
+      const { data } = await this.http.post(
+        `/admin/migration/runs/${runId}/entities/discover`,
+        dto,
+      );
+      return unwrapEnvelope<MigrationEntitiesResult>(data);
+    }, MANIFEST_RETRY_OPTIONS);
+  }
+
+  async transitionEntity(
+    runId: string,
+    dto: TransitionMigrationEntity,
+  ): Promise<MigrationEntityResult> {
+    return retry(async () => {
+      const { data } = await this.http.patch(
+        `/admin/migration/runs/${runId}/entities/state`,
+        dto,
+      );
+      return unwrapEnvelope<MigrationEntityResult>(data);
+    }, MANIFEST_RETRY_OPTIONS);
+  }
+
+  async listEntities(
+    runId: string,
+    params: ListMigrationEntitiesQuery = {},
+  ): Promise<MigrationEntitiesResult> {
+    return retry(async () => {
+      const { data } = await this.http.get(
+        `/admin/migration/runs/${runId}/entities`,
+        { params },
+      );
+      return unwrapEnvelope<MigrationEntitiesResult>(data);
+    }, MANIFEST_RETRY_OPTIONS);
+  }
+
+  async completeMigrationRun(runId: string): Promise<MigrationRunSummary> {
+    return retry(async () => {
+      const { data } = await this.http.post(
+        `/admin/migration/runs/${runId}/complete`,
+      );
+      return unwrapEnvelope<MigrationRunSummary>(data);
+    }, MANIFEST_RETRY_OPTIONS);
   }
 
   async createMigratedUser(dto: CreateUserMigrationDto): Promise<{ data: any; existed: boolean }> {
