@@ -84,6 +84,7 @@ describe('MigrationManifestService', () => {
       updateEntity: jest.fn(),
       updateRunStatus: jest.fn(),
       countNonterminal: jest.fn(),
+      completeRun: jest.fn(),
       summarize: jest.fn(),
       listEntities: jest.fn(),
     };
@@ -140,6 +141,15 @@ describe('MigrationManifestService', () => {
     ).rejects.toMatchObject({ code: ErrorCode.MIGRATION_CHECKSUM_MISMATCH });
   });
 
+  it('rejects a stale conditional transition write', async () => {
+    repo.findEntity.mockResolvedValue(entity());
+    repo.updateEntity.mockResolvedValue(null);
+
+    await expect(service.transition(RUN_ID, transition())).rejects.toMatchObject({
+      code: ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+    });
+  });
+
   it('requires a target ID when entering LOADED', async () => {
     repo.findEntity.mockResolvedValue(
       entity({ status: MigrationEntityStatus.TRANSFORMED }),
@@ -150,12 +160,91 @@ describe('MigrationManifestService', () => {
     ).rejects.toMatchObject({ code: ErrorCode.MIGRATION_INVALID_STATE_TRANSITION });
   });
 
+  it('requires a target ID when entering VERIFIED', async () => {
+    repo.findEntity.mockResolvedValue(
+      entity({ status: MigrationEntityStatus.LOADED, targetId: 'target-42' }),
+    );
+
+    await expect(
+      service.transition(
+        RUN_ID,
+        transition({ status: MigrationEntityStatus.VERIFIED }),
+      ),
+    ).rejects.toMatchObject({ code: ErrorCode.MIGRATION_INVALID_STATE_TRANSITION });
+    expect(repo.updateEntity).not.toHaveBeenCalled();
+  });
+
   it('requires a structured error when entering FAILED', async () => {
     repo.findEntity.mockResolvedValue(entity());
 
     await expect(
       service.transition(RUN_ID, transition({ status: MigrationEntityStatus.FAILED })),
     ).rejects.toMatchObject({ code: ErrorCode.MIGRATION_INVALID_STATE_TRANSITION });
+  });
+
+  it('persists structured failure fields in the entity patch', async () => {
+    repo.findEntity.mockResolvedValue(entity());
+    repo.updateEntity.mockResolvedValue(
+      entity({ status: MigrationEntityStatus.FAILED }),
+    );
+
+    await service.transition(
+      RUN_ID,
+      transition({
+        status: MigrationEntityStatus.FAILED,
+        error: {
+          code: 'SOURCE_INVALID',
+          message: 'Source entity is invalid',
+          details: { field: 'summary' },
+        },
+      }),
+    );
+
+    expect(repo.updateEntity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: ENTITY_ID,
+        runId: RUN_ID,
+        expectedStatus: MigrationEntityStatus.DISCOVERED,
+        expectedChecksum: CHECKSUM,
+        patch: expect.objectContaining({
+          status: MigrationEntityStatus.FAILED,
+          errorCode: 'SOURCE_INVALID',
+          errorMessage: 'Source entity is invalid',
+          errorDetails: { field: 'summary' },
+        }),
+      }),
+    );
+  });
+
+  it('persists the target ID and loaded timestamp in the entity patch', async () => {
+    repo.findEntity.mockResolvedValue(
+      entity({ status: MigrationEntityStatus.TRANSFORMED }),
+    );
+    repo.updateEntity.mockResolvedValue(
+      entity({ status: MigrationEntityStatus.LOADED, targetId: 'target-42' }),
+    );
+
+    await service.transition(
+      RUN_ID,
+      transition({
+        status: MigrationEntityStatus.LOADED,
+        targetId: 'target-42',
+      }),
+    );
+
+    expect(repo.updateEntity).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: ENTITY_ID,
+        runId: RUN_ID,
+        expectedStatus: MigrationEntityStatus.TRANSFORMED,
+        expectedChecksum: CHECKSUM,
+        patch: expect.objectContaining({
+          status: MigrationEntityStatus.LOADED,
+          targetId: 'target-42',
+          loadedAt: expect.any(Date),
+        }),
+      }),
+    );
   });
 
   it('increments attempt count when entering TRANSFORMED', async () => {
@@ -167,8 +256,12 @@ describe('MigrationManifestService', () => {
     await service.transition(RUN_ID, transition());
 
     expect(repo.updateEntity).toHaveBeenCalledWith(
-      ENTITY_ID,
-      expect.objectContaining({ attemptCount: 3 }),
+      expect.objectContaining({
+        id: ENTITY_ID,
+        expectedStatus: MigrationEntityStatus.DISCOVERED,
+        expectedChecksum: CHECKSUM,
+        patch: expect.objectContaining({ attemptCount: 3 }),
+      }),
     );
   });
 
@@ -186,19 +279,14 @@ describe('MigrationManifestService', () => {
         { entityType: 'issue', sourceId: '2-42', sourceChecksum: CHECKSUM },
       ]),
     ).resolves.toEqual([verified]);
-    expect(repo.updateEntity).not.toHaveBeenCalled();
+    expect(repo.discoverMany).toHaveBeenCalledWith(RUN_ID, [
+      { entityType: 'issue', sourceId: '2-42', sourceChecksum: CHECKSUM },
+    ]);
   });
 
   it('reopens and clears stale state when discovery finds a changed checksum', async () => {
-    const verified = entity({
-      status: MigrationEntityStatus.VERIFIED,
-      targetId: 'target-42',
-      verifiedAt: NOW,
-    });
     const reopened = entity({ sourceChecksum: CHANGED_CHECKSUM });
-    repo.findRun.mockResolvedValue(run());
-    repo.discoverMany.mockResolvedValue([verified]);
-    repo.updateEntity.mockResolvedValue(reopened);
+    repo.discoverMany.mockResolvedValue([reopened]);
 
     await expect(
       service.discover(RUN_ID, [
@@ -209,20 +297,13 @@ describe('MigrationManifestService', () => {
         },
       ]),
     ).resolves.toEqual([reopened]);
-    expect(repo.updateEntity).toHaveBeenCalledWith(
-      ENTITY_ID,
-      expect.objectContaining({
+    expect(repo.discoverMany).toHaveBeenCalledWith(RUN_ID, [
+      {
+        entityType: 'issue',
+        sourceId: '2-42',
         sourceChecksum: CHANGED_CHECKSUM,
-        status: MigrationEntityStatus.DISCOVERED,
-        targetId: null,
-        errorCode: null,
-        errorMessage: null,
-        errorDetails: null,
-        transformedAt: null,
-        loadedAt: null,
-        verifiedAt: null,
-      }),
-    );
+      },
+    ]);
   });
 
   it('rejects discovery batches above 500 entities', async () => {
@@ -240,8 +321,7 @@ describe('MigrationManifestService', () => {
   });
 
   it('does not complete a run with nonterminal entities', async () => {
-    repo.findRun.mockResolvedValue(run());
-    repo.countNonterminal.mockResolvedValue(1);
+    repo.completeRun.mockResolvedValue({ outcome: 'incomplete' });
 
     await expect(service.complete(RUN_ID)).rejects.toMatchObject({
       code: ErrorCode.MIGRATION_RUN_INCOMPLETE,
@@ -254,17 +334,10 @@ describe('MigrationManifestService', () => {
       completedAt: NOW,
     });
     const summary = { run: completed, counts: { VERIFIED: 2 } };
-    repo.findRun.mockResolvedValue(run());
-    repo.countNonterminal.mockResolvedValue(0);
-    repo.updateRunStatus.mockResolvedValue(completed);
-    repo.summarize.mockResolvedValue(summary);
+    repo.completeRun.mockResolvedValue({ outcome: 'completed', summary });
 
     await expect(service.complete(RUN_ID)).resolves.toEqual(summary);
-    expect(repo.updateRunStatus).toHaveBeenCalledWith(
-      RUN_ID,
-      MigrationRunStatus.COMPLETED,
-      expect.any(Date),
-    );
+    expect(repo.completeRun).toHaveBeenCalledWith(RUN_ID);
   });
 
   it('rejects run configuration containing secrets', async () => {

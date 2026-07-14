@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
   MigrationEntityStatus,
-  MigrationRunStatus,
   type MigrationEntity,
   type MigrationRun,
 } from '@prisma/client';
@@ -94,43 +93,15 @@ export class MigrationManifestService {
     runId: string,
     inputs: DiscoverEntityInput[],
   ): Promise<MigrationEntity[]> {
-    await this.requireRun(runId);
     if (inputs.length > MIGRATION_MANIFEST_PAGE_LIMIT_MAX) {
       throw new ValidationError(
         ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
         `Discovery batches may contain at most ${MIGRATION_MANIFEST_PAGE_LIMIT_MAX} entities`,
       );
     }
-
     const entities = await this.repository.discoverMany(runId, inputs);
-    const inputByKey = new Map(
-      inputs.map((input) => [
-        `${input.entityType}\u0000${input.sourceId}`,
-        input,
-      ]),
-    );
-
-    return Promise.all(
-      entities.map((entity) => {
-        const input = inputByKey.get(
-          `${entity.entityType}\u0000${entity.sourceId}`,
-        );
-        if (!input || input.sourceChecksum === entity.sourceChecksum) {
-          return entity;
-        }
-        return this.repository.updateEntity(entity.id, {
-          sourceChecksum: input.sourceChecksum,
-          status: MigrationEntityStatus.DISCOVERED,
-          targetId: null,
-          errorCode: null,
-          errorMessage: null,
-          errorDetails: null,
-          transformedAt: null,
-          loadedAt: null,
-          verifiedAt: null,
-        });
-      }),
-    );
+    if (!entities) throw new NotFoundError(ErrorCode.MIGRATION_RUN_NOT_FOUND);
+    return entities;
   }
 
   async transition(
@@ -179,7 +150,20 @@ export class MigrationManifestService {
       patch.errorMessage = input.error.message;
       patch.errorDetails = input.error.details ?? null;
     }
-    return this.repository.updateEntity(entity.id, patch);
+    const updated = await this.repository.updateEntity({
+      id: entity.id,
+      runId,
+      expectedStatus: entity.status,
+      expectedChecksum: entity.sourceChecksum,
+      patch,
+    });
+    if (!updated) {
+      throw new ConflictError(
+        ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+        'Migration entity state changed before the transition was persisted',
+      );
+    }
+    return updated;
   }
 
   async listEntities(
@@ -191,19 +175,17 @@ export class MigrationManifestService {
   }
 
   async complete(runId: string): Promise<MigrationRunSummary> {
-    await this.requireRun(runId);
-    if ((await this.repository.countNonterminal(runId)) > 0) {
+    const result = await this.repository.completeRun(runId);
+    if (result.outcome === 'not_found') {
+      throw new NotFoundError(ErrorCode.MIGRATION_RUN_NOT_FOUND);
+    }
+    if (result.outcome === 'incomplete') {
       throw new ValidationError(
         ErrorCode.MIGRATION_RUN_INCOMPLETE,
         'Migration run contains nonterminal entities',
       );
     }
-    const completed = await this.repository.updateRunStatus(
-      runId,
-      MigrationRunStatus.COMPLETED,
-      new Date(),
-    );
-    return this.repository.summarize(completed);
+    return result.summary;
   }
 
   private async requireRun(runId: string): Promise<MigrationRun> {

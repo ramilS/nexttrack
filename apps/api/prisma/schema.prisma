@@ -1344,7 +1344,10 @@ model MigrationEntity {
   run MigrationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
 
   @@unique([runId, entityType, sourceId])
-  @@index([runId, status, entityType])
+  @@index([runId, id])
+  @@index([runId, status, id])
+  @@index([runId, entityType, id])
+  @@index([runId, status, entityType, id])
   @@index([runId, targetId])
   @@map("migration_entities")
 }
