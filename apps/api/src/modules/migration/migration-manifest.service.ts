@@ -12,6 +12,7 @@ import {
 } from '@/common/errors/domain.errors';
 import {
   MIGRATION_MANIFEST_PAGE_LIMIT_MAX,
+  ACTIVE_MIGRATION_SUCCESSOR,
   MigrationManifestRepository,
   type DiscoverEntityInput,
   type ListMigrationEntitiesInput,
@@ -20,6 +21,7 @@ import {
   type MigrationManifestStore,
   type StartMigrationRunInput,
 } from './migration-manifest.repository';
+import { buildMigrationRunFingerprint } from './migration-run-fingerprint';
 
 const ALLOWED: Readonly<
   Record<MigrationEntityStatus, readonly MigrationEntityStatus[]>
@@ -81,7 +83,14 @@ export class MigrationManifestService {
         'Migration configuration must not contain secrets',
       );
     }
-    return this.repository.createRun(input);
+    const fingerprint = buildMigrationRunFingerprint(input);
+    return this.repository.createOrReturnActiveRun({
+      ...input,
+      sourceTenant: fingerprint.sourceTenant,
+      sourceUrl: fingerprint.sourceUrl,
+      targetUrl: fingerprint.targetUrl,
+      fingerprintHash: fingerprint.fingerprintHash,
+    });
   }
 
   async getRun(runId: string): Promise<MigrationRunSummary> {
@@ -100,6 +109,12 @@ export class MigrationManifestService {
       );
     }
     const entities = await this.repository.discoverMany(runId, inputs);
+    if (entities === ACTIVE_MIGRATION_SUCCESSOR) {
+      throw new ConflictError(
+        ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+        'Completed migration run has an active successor',
+      );
+    }
     if (!entities) throw new NotFoundError(ErrorCode.MIGRATION_RUN_NOT_FOUND);
     return entities;
   }

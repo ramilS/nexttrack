@@ -50,6 +50,7 @@ function run(overrides: Partial<MigrationRun> = {}): MigrationRun {
     configHash: CHECKSUM,
     specVersion: '2026-07-14',
     exclusionVersion: '2026-07-14',
+    fingerprintHash: 'f'.repeat(64),
     status: MigrationRunStatus.RUNNING,
     startedAt: NOW,
     completedAt: null,
@@ -77,7 +78,7 @@ describe('MigrationManifestService', () => {
 
   beforeEach(() => {
     repo = {
-      createRun: jest.fn(),
+      createOrReturnActiveRun: jest.fn(),
       findRun: jest.fn(),
       findEntity: jest.fn(),
       discoverMany: jest.fn(),
@@ -340,6 +341,34 @@ describe('MigrationManifestService', () => {
     expect(repo.completeRun).toHaveBeenCalledWith(RUN_ID);
   });
 
+  it('computes and stores the canonical server fingerprint', async () => {
+    repo.createOrReturnActiveRun.mockResolvedValue(run());
+
+    await service.startRun({
+      sourceSystem: 'youtrack-cloud',
+      sourceTenant: ' EXAMPLE.youtrack.cloud ',
+      sourceUrl: 'https://EXAMPLE.youtrack.cloud/',
+      targetUrl: 'http://LOCALHOST:3001/',
+      config: { projects: ['APP'] },
+      configHash: CHECKSUM,
+      specVersion: '2026-07-14',
+      exclusionVersion: '2026-07-14',
+    });
+
+    expect(repo.createOrReturnActiveRun).toHaveBeenCalledWith({
+      sourceSystem: 'youtrack-cloud',
+      sourceTenant: 'example.youtrack.cloud',
+      sourceUrl: 'https://example.youtrack.cloud',
+      targetUrl: 'http://localhost:3001',
+      config: { projects: ['APP'] },
+      configHash: CHECKSUM,
+      specVersion: '2026-07-14',
+      exclusionVersion: '2026-07-14',
+      fingerprintHash:
+        '5d401d386303b95e2c3120e5fef7b296d51498d62b0a5be174e49994327dd886',
+    });
+  });
+
   it('rejects run configuration containing secrets', async () => {
     await expect(
       service.startRun({
@@ -353,6 +382,6 @@ describe('MigrationManifestService', () => {
         exclusionVersion: '2026-07-14',
       }),
     ).rejects.toMatchObject({ code: ErrorCode.MIGRATION_RESUME_CONFIG_MISMATCH });
-    expect(repo.createRun).not.toHaveBeenCalled();
+    expect(repo.createOrReturnActiveRun).not.toHaveBeenCalled();
   });
 });

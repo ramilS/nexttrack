@@ -10,6 +10,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { asJson } from '@/prisma/json';
 
 export const MIGRATION_MANIFEST_PAGE_LIMIT_MAX = 500;
+export const ACTIVE_MIGRATION_SUCCESSOR = Symbol('ACTIVE_MIGRATION_SUCCESSOR');
 
 export interface StartMigrationRunInput {
   sourceSystem: string;
@@ -20,6 +21,10 @@ export interface StartMigrationRunInput {
   configHash: string;
   specVersion: string;
   exclusionVersion: string;
+}
+
+interface CreateMigrationRunInput extends StartMigrationRunInput {
+  fingerprintHash: string;
 }
 
 export interface DiscoverEntityInput {
@@ -74,9 +79,24 @@ export interface ConditionalEntityTransition {
 export class MigrationManifestRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createRun(input: StartMigrationRunInput): Promise<MigrationRun> {
-    return this.prisma.migrationRun.create({
-      data: { ...input, config: asJson(input.config) },
+  async createOrReturnActiveRun(
+    input: CreateMigrationRunInput,
+  ): Promise<MigrationRun> {
+    const lockKey = this.advisoryLockKey(input.fingerprintHash);
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockFingerprint(tx, lockKey);
+
+      const active = await tx.migrationRun.findFirst({
+        where: {
+          fingerprintHash: input.fingerprintHash,
+          status: { not: MigrationRunStatus.COMPLETED },
+        },
+      });
+      if (active) return active;
+
+      return tx.migrationRun.create({
+        data: { ...input, config: asJson(input.config) },
+      });
     });
   }
 
@@ -97,12 +117,15 @@ export class MigrationManifestRepository {
   async discoverMany(
     runId: string,
     inputs: DiscoverEntityInput[],
-  ): Promise<MigrationEntity[] | null> {
+  ): Promise<MigrationEntity[] | null | typeof ACTIVE_MIGRATION_SUCCESSOR> {
     if (inputs.length === 0) return [];
 
     return this.prisma.$transaction(async (tx) => {
-      if (!(await this.lockRun(tx, runId))) return null;
-
+      const run = await this.lockRun(tx, runId);
+      if (!run) return null;
+      if (await this.hasActiveSuccessor(tx, run)) {
+        return ACTIVE_MIGRATION_SUCCESSOR;
+      }
       await tx.migrationEntity.createMany({
         data: inputs.map((input) => ({ runId, ...input })),
         skipDuplicates: true,
@@ -173,7 +196,8 @@ export class MigrationManifestRepository {
     input: ConditionalEntityTransition,
   ): Promise<MigrationEntity | null> {
     return this.prisma.$transaction(async (tx) => {
-      if (!(await this.lockRun(tx, input.runId))) return null;
+      const run = await this.lockRun(tx, input.runId);
+      if (!run || (await this.hasActiveSuccessor(tx, run))) return null;
 
       const { errorDetails, ...data } = input.patch;
       const errorDetailsData =
@@ -307,11 +331,42 @@ export class MigrationManifestRepository {
     return tx.migrationRun.findUnique({ where: { id: runId } });
   }
 
+  private async hasActiveSuccessor(
+    tx: Prisma.TransactionClient,
+    run: MigrationRun,
+  ): Promise<boolean> {
+    if (run.status !== MigrationRunStatus.COMPLETED) return false;
+    await this.lockFingerprint(tx, this.advisoryLockKey(run.fingerprintHash));
+    const successor = await tx.migrationRun.findFirst({
+      where: {
+        id: { not: run.id },
+        fingerprintHash: run.fingerprintHash,
+        status: { not: MigrationRunStatus.COMPLETED },
+      },
+      select: { id: true },
+    });
+    return successor !== null;
+  }
+
+  private async lockFingerprint(
+    tx: Prisma.TransactionClient,
+    lockKey: bigint,
+  ): Promise<void> {
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(${lockKey})::text AS lock_result
+    `;
+  }
+
   private isTerminal(status: MigrationEntityStatus): boolean {
     return (
       status === MigrationEntityStatus.VERIFIED ||
       status === MigrationEntityStatus.EXCLUDED_APPROVED
     );
+  }
+
+  private advisoryLockKey(fingerprintHash: string): bigint {
+    const unsigned = BigInt(`0x${fingerprintHash.slice(0, 16)}`);
+    return unsigned >= 1n << 63n ? unsigned - (1n << 64n) : unsigned;
   }
 }
 

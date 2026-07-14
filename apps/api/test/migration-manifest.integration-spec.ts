@@ -32,6 +32,13 @@ describe('Migration manifest (Integration)', () => {
           allowBackdatedRecords: false,
         }),
     });
+    // Integration setup uses `prisma db push`, which cannot represent partial
+    // indexes. Install the exact production-migration defense for this suite.
+    await ctx.prisma.$executeRaw`
+      CREATE UNIQUE INDEX IF NOT EXISTS "migration_runs_active_fingerprint_hash_key"
+      ON "migration_runs"("fingerprint_hash")
+      WHERE "status" <> 'COMPLETED'
+    `;
   }, 60_000);
 
   afterAll(async () => teardownE2eApp(ctx));
@@ -74,6 +81,14 @@ describe('Migration manifest (Integration)', () => {
     };
   }
 
+  async function startRun(input = runInput()) {
+    return migrationRequest(
+      request(ctx.app.getHttpServer()).post('/admin/migration/runs'),
+    )
+      .send(input)
+      .expect(201);
+  }
+
   it('requires both an admin JWT and the migration secret to start a run', async () => {
     await request(ctx.app.getHttpServer())
       .post('/admin/migration/runs')
@@ -86,6 +101,135 @@ describe('Migration manifest (Integration)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send(runInput())
       .expect(403);
+  });
+
+  it('returns the same active run for sequential duplicate starts', async () => {
+    const first = await startRun();
+    const second = await startRun();
+
+    expect(second.body.data.data.id).toBe(first.body.data.data.id);
+    expect(await ctx.prisma.migrationRun.count()).toBe(1);
+    expect(first.body.data.data).not.toHaveProperty('fingerprintHash');
+    expect(second.body.data.data).not.toHaveProperty('fingerprintHash');
+  });
+
+  it('canonicalizes tenant and URL variants into the same active run', async () => {
+    const variant = await startRun({
+      ...runInput(),
+      sourceTenant: 'EXAMPLE.youtrack.cloud',
+      sourceUrl: 'https://EXAMPLE.youtrack.cloud/',
+      targetUrl: 'http://LOCALHOST:3001/',
+    });
+    const canonical = await startRun();
+
+    expect(canonical.body.data.data.id).toBe(variant.body.data.data.id);
+    expect(variant.body.data.data).toMatchObject({
+      sourceTenant: 'example.youtrack.cloud',
+      sourceUrl: 'https://example.youtrack.cloud',
+      targetUrl: 'http://localhost:3001',
+    });
+  });
+
+  it('returns one active run for concurrent duplicate starts', async () => {
+    const starts = await Promise.all(
+      Array.from({ length: 8 }, () => startRun()),
+    );
+
+    expect(new Set(starts.map((result) => result.body.data.data.id)).size).toBe(1);
+    expect(await ctx.prisma.migrationRun.count()).toBe(1);
+  });
+
+  it('returns the same failed run for a duplicate start', async () => {
+    const first = await startRun();
+    const firstId = first.body.data.data.id as string;
+    await ctx.prisma.migrationRun.update({
+      where: { id: firstId },
+      data: { status: MigrationRunStatus.FAILED },
+    });
+
+    const second = await startRun();
+    expect(second.body.data.data.id).toBe(firstId);
+    expect(second.body.data.data.status).toBe(MigrationRunStatus.FAILED);
+  });
+
+  it('enforces active fingerprint uniqueness in PostgreSQL', async () => {
+    const started = await startRun();
+    const stored = await ctx.prisma.migrationRun.findUniqueOrThrow({
+      where: { id: started.body.data.data.id as string },
+    });
+
+    await expect(
+      ctx.prisma.migrationRun.create({
+        data: {
+          sourceSystem: stored.sourceSystem,
+          sourceTenant: stored.sourceTenant,
+          sourceUrl: stored.sourceUrl,
+          targetUrl: stored.targetUrl,
+          config: runInput().config,
+          configHash: stored.configHash,
+          specVersion: stored.specVersion,
+          exclusionVersion: stored.exclusionVersion,
+          fingerprintHash: stored.fingerprintHash,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('creates a new run for the same fingerprint after completion', async () => {
+    const first = await startRun();
+    const firstId = first.body.data.data.id as string;
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).post(
+        `/admin/migration/runs/${firstId}/complete`,
+      ),
+    ).expect(201);
+
+    const second = await startRun();
+    expect(second.body.data.data.id).not.toBe(firstId);
+    expect(await ctx.prisma.migrationRun.count()).toBe(2);
+  });
+
+  it('keeps a completed predecessor immutable after an active successor starts', async () => {
+    const service = ctx.app.get(MigrationManifestService);
+    const first = await startRun();
+    const firstId = first.body.data.data.id as string;
+    await service.discover(firstId, [
+      { entityType: 'issue', sourceId: '2-42', sourceChecksum: 'b'.repeat(64) },
+    ]);
+    await service.transition(firstId, {
+      entityType: 'issue',
+      sourceId: '2-42',
+      sourceChecksum: 'b'.repeat(64),
+      status: MigrationEntityStatus.EXCLUDED_APPROVED,
+    });
+    await service.complete(firstId);
+    await startRun();
+
+    await expect(
+      service.discover(firstId, [
+        { entityType: 'issue', sourceId: '2-42', sourceChecksum: 'c'.repeat(64) },
+      ]),
+    ).rejects.toMatchObject({
+      code: ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+    });
+    await expect(
+      service.transition(firstId, {
+        entityType: 'issue',
+        sourceId: '2-42',
+        sourceChecksum: 'b'.repeat(64),
+        status: MigrationEntityStatus.DISCOVERED,
+      }),
+    ).rejects.toMatchObject({
+      code: ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+    });
+    await expect(
+      ctx.prisma.migrationEntity.findFirstOrThrow({
+        where: { runId: firstId, sourceId: '2-42' },
+      }),
+    ).resolves.toMatchObject({
+      sourceChecksum: 'b'.repeat(64),
+      status: MigrationEntityStatus.EXCLUDED_APPROVED,
+    });
   });
 
   it('exposes the run and manifest lifecycle through guarded envelopes', async () => {
@@ -303,6 +447,7 @@ describe('Migration manifest (Integration)', () => {
         configHash: 'a'.repeat(64),
         specVersion: '2026-07-14',
         exclusionVersion: '2026-07-14',
+        fingerprintHash: 'f'.repeat(64),
       },
     });
 
@@ -332,6 +477,7 @@ describe('Migration manifest (Integration)', () => {
         configHash: 'a'.repeat(64),
         specVersion: '2026-07-14',
         exclusionVersion: '2026-07-14',
+        fingerprintHash: 'f'.repeat(64),
         status: MigrationRunStatus.COMPLETED,
         completedAt: new Date(),
       },
@@ -383,6 +529,7 @@ describe('Migration manifest (Integration)', () => {
         configHash: 'a'.repeat(64),
         specVersion: '2026-07-14',
         exclusionVersion: '2026-07-14',
+        fingerprintHash: 'f'.repeat(64),
         status: MigrationRunStatus.COMPLETED,
         completedAt: new Date(),
       },
@@ -440,6 +587,7 @@ describe('Migration manifest (Integration)', () => {
         configHash: 'a'.repeat(64),
         specVersion: '2026-07-14',
         exclusionVersion: '2026-07-14',
+        fingerprintHash: 'f'.repeat(64),
       },
     });
     await ctx.prisma.migrationEntity.create({

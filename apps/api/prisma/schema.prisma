@@ -1309,6 +1309,7 @@ model MigrationRun {
   configHash       String             @map("config_hash") @db.VarChar(64)
   specVersion      String             @map("spec_version") @db.VarChar(50)
   exclusionVersion String             @map("exclusion_version") @db.VarChar(50)
+  fingerprintHash  String             @map("fingerprint_hash") @db.VarChar(64)
   status           MigrationRunStatus @default(RUNNING)
   startedAt        DateTime           @default(now()) @map("started_at") @db.Timestamptz(3)
   completedAt      DateTime?          @map("completed_at") @db.Timestamptz(3)
@@ -1318,6 +1319,7 @@ model MigrationRun {
   entities MigrationEntity[]
 
   @@index([sourceSystem, sourceTenant, status])
+  @@index([fingerprintHash, status])
   @@index([status, updatedAt])
   @@map("migration_runs")
 }

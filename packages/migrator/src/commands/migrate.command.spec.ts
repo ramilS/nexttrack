@@ -9,6 +9,7 @@ import { IdMapService } from '../id-map/id-map.service';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
 import { MigrationRunCoordinator } from '../manifest/migration-run.coordinator';
 import { ProjectsExtractor } from '../extractors/projects.extractor';
+import { UsersExtractor } from '../extractors/users.extractor';
 import { OurApiClient } from '../loaders/api-client';
 
 function options(overrides: Partial<MigrateOptions> = {}): MigrateOptions {
@@ -145,5 +146,48 @@ describe('manifest-backed migration run lifecycle', () => {
     });
     expect(JSON.stringify(save.mock.calls[0]?.[0])).not.toContain('secret');
     expect(info.mock.calls.flat().join(' ')).toContain('run-1');
+  });
+
+  it('persists the same returned run on retry after the initial checkpoint save fails', async () => {
+    const events: string[] = [];
+    const checkpointWriteFailed = new Error('checkpoint write failed');
+    const phaseStopped = new Error('phase stopped');
+    vi.spyOn(MigrationRunCoordinator.prototype, 'open').mockImplementation(async () => {
+      events.push('open:run-1');
+      return { runId: 'run-1', configHash: 'a'.repeat(64) };
+    });
+    let saveCount = 0;
+    const save = vi.spyOn(CheckpointService.prototype, 'save').mockImplementation(
+      async (checkpoint) => {
+        saveCount++;
+        events.push(`save:${checkpoint.runId}`);
+        if (saveCount === 1) throw checkpointWriteFailed;
+      },
+    );
+    vi.spyOn(UsersExtractor.prototype, 'extract').mockImplementation(async function* () {
+      events.push('users-phase');
+      throw phaseStopped;
+    });
+    vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw phaseStopped;
+    });
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    const commandOptions = options({ checkpointFile: '/tmp/retry-checkpoint.json' });
+    await expect(new MigrateCommand().run({ ...commandOptions })).rejects.toBe(
+      checkpointWriteFailed,
+    );
+    expect(events).toEqual(['open:run-1', 'save:run-1']);
+
+    await expect(new MigrateCommand().run({ ...commandOptions })).rejects.toBe(
+      phaseStopped,
+    );
+    expect(events.slice(2, 6)).toEqual([
+      'open:run-1',
+      'save:run-1',
+      'save:run-1',
+      'users-phase',
+    ]);
+    expect(save.mock.calls[1]?.[0]).toMatchObject({ runId: 'run-1' });
   });
 });
