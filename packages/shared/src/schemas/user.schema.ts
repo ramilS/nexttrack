@@ -139,6 +139,7 @@ export const userMembershipSchema = z.object({
     name: z.string(),
     permissions: z.array(z.string()),
   }),
+  canChangeRole: z.boolean(),
   joinedAt: z.iso.datetime(),
 });
 export type UserMembership = z.infer<typeof userMembershipSchema>;
