@@ -1,0 +1,224 @@
+import { Inject, Injectable } from '@nestjs/common';
+import {
+  MigrationEntityStatus,
+  MigrationRunStatus,
+  type MigrationEntity,
+  type MigrationRun,
+} from '@prisma/client';
+import { ErrorCode } from '@repo/shared/error-codes';
+import {
+  ConflictError,
+  NotFoundError,
+  ValidationError,
+} from '@/common/errors/domain.errors';
+import {
+  MIGRATION_MANIFEST_PAGE_LIMIT_MAX,
+  MigrationManifestRepository,
+  type DiscoverEntityInput,
+  type ListMigrationEntitiesInput,
+  type MigrationEntityPatch,
+  type MigrationRunSummary,
+  type MigrationManifestStore,
+  type StartMigrationRunInput,
+} from './migration-manifest.repository';
+
+const ALLOWED: Readonly<
+  Record<MigrationEntityStatus, readonly MigrationEntityStatus[]>
+> = {
+  [MigrationEntityStatus.DISCOVERED]: [
+    MigrationEntityStatus.TRANSFORMED,
+    MigrationEntityStatus.FAILED,
+    MigrationEntityStatus.EXCLUDED_APPROVED,
+  ],
+  [MigrationEntityStatus.TRANSFORMED]: [
+    MigrationEntityStatus.LOADED,
+    MigrationEntityStatus.FAILED,
+  ],
+  [MigrationEntityStatus.LOADED]: [
+    MigrationEntityStatus.VERIFIED,
+    MigrationEntityStatus.FAILED,
+  ],
+  [MigrationEntityStatus.VERIFIED]: [MigrationEntityStatus.DISCOVERED],
+  [MigrationEntityStatus.FAILED]: [
+    MigrationEntityStatus.TRANSFORMED,
+    MigrationEntityStatus.EXCLUDED_APPROVED,
+  ],
+  [MigrationEntityStatus.EXCLUDED_APPROVED]: [
+    MigrationEntityStatus.DISCOVERED,
+  ],
+};
+
+export interface TransitionMigrationEntityInput extends DiscoverEntityInput {
+  status: MigrationEntityStatus;
+  targetId?: string;
+  error?: {
+    code: string;
+    message: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+const SECRET_KEY = /(secret|token|password|credential|authorization|api[-_]?key)/i;
+
+function containsSecret(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(containsSecret);
+  if (value === null || typeof value !== 'object') return false;
+  return Object.entries(value).some(
+    ([key, nested]) => SECRET_KEY.test(key) || containsSecret(nested),
+  );
+}
+
+@Injectable()
+export class MigrationManifestService {
+  constructor(
+    @Inject(MigrationManifestRepository)
+    private readonly repository: MigrationManifestStore,
+  ) {}
+
+  async startRun(input: StartMigrationRunInput): Promise<MigrationRun> {
+    if (containsSecret(input.config)) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_RESUME_CONFIG_MISMATCH,
+        'Migration configuration must not contain secrets',
+      );
+    }
+    return this.repository.createRun(input);
+  }
+
+  async getRun(runId: string): Promise<MigrationRunSummary> {
+    const run = await this.requireRun(runId);
+    return this.repository.summarize(run);
+  }
+
+  async discover(
+    runId: string,
+    inputs: DiscoverEntityInput[],
+  ): Promise<MigrationEntity[]> {
+    await this.requireRun(runId);
+    if (inputs.length > MIGRATION_MANIFEST_PAGE_LIMIT_MAX) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+        `Discovery batches may contain at most ${MIGRATION_MANIFEST_PAGE_LIMIT_MAX} entities`,
+      );
+    }
+
+    const entities = await this.repository.discoverMany(runId, inputs);
+    const inputByKey = new Map(
+      inputs.map((input) => [
+        `${input.entityType}\u0000${input.sourceId}`,
+        input,
+      ]),
+    );
+
+    return Promise.all(
+      entities.map((entity) => {
+        const input = inputByKey.get(
+          `${entity.entityType}\u0000${entity.sourceId}`,
+        );
+        if (!input || input.sourceChecksum === entity.sourceChecksum) {
+          return entity;
+        }
+        return this.repository.updateEntity(entity.id, {
+          sourceChecksum: input.sourceChecksum,
+          status: MigrationEntityStatus.DISCOVERED,
+          targetId: null,
+          errorCode: null,
+          errorMessage: null,
+          errorDetails: null,
+          transformedAt: null,
+          loadedAt: null,
+          verifiedAt: null,
+        });
+      }),
+    );
+  }
+
+  async transition(
+    runId: string,
+    input: TransitionMigrationEntityInput,
+  ): Promise<MigrationEntity> {
+    const entity = await this.repository.findEntity(
+      runId,
+      input.entityType,
+      input.sourceId,
+    );
+    if (!entity) {
+      throw new NotFoundError(ErrorCode.MIGRATION_ENTITY_NOT_FOUND);
+    }
+    if (entity.sourceChecksum !== input.sourceChecksum) {
+      throw new ConflictError(ErrorCode.MIGRATION_CHECKSUM_MISMATCH);
+    }
+    if (!ALLOWED[entity.status].includes(input.status)) {
+      throw this.invalidTransition(entity.status, input.status);
+    }
+    if (
+      (input.status === MigrationEntityStatus.LOADED ||
+        input.status === MigrationEntityStatus.VERIFIED) &&
+      !input.targetId
+    ) {
+      throw this.invalidTransition(entity.status, input.status);
+    }
+    if (
+      input.status === MigrationEntityStatus.FAILED &&
+      (!input.error?.code || !input.error.message)
+    ) {
+      throw this.invalidTransition(entity.status, input.status);
+    }
+
+    const now = new Date();
+    const patch: MigrationEntityPatch = { status: input.status };
+    if (input.targetId !== undefined) patch.targetId = input.targetId;
+    if (input.status === MigrationEntityStatus.TRANSFORMED) {
+      patch.attemptCount = entity.attemptCount + 1;
+      patch.transformedAt = now;
+    }
+    if (input.status === MigrationEntityStatus.LOADED) patch.loadedAt = now;
+    if (input.status === MigrationEntityStatus.VERIFIED) patch.verifiedAt = now;
+    if (input.status === MigrationEntityStatus.FAILED && input.error) {
+      patch.errorCode = input.error.code;
+      patch.errorMessage = input.error.message;
+      patch.errorDetails = input.error.details ?? null;
+    }
+    return this.repository.updateEntity(entity.id, patch);
+  }
+
+  async listEntities(
+    runId: string,
+    input: ListMigrationEntitiesInput,
+  ): Promise<MigrationEntity[]> {
+    await this.requireRun(runId);
+    return this.repository.listEntities(runId, input);
+  }
+
+  async complete(runId: string): Promise<MigrationRunSummary> {
+    await this.requireRun(runId);
+    if ((await this.repository.countNonterminal(runId)) > 0) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_RUN_INCOMPLETE,
+        'Migration run contains nonterminal entities',
+      );
+    }
+    const completed = await this.repository.updateRunStatus(
+      runId,
+      MigrationRunStatus.COMPLETED,
+      new Date(),
+    );
+    return this.repository.summarize(completed);
+  }
+
+  private async requireRun(runId: string): Promise<MigrationRun> {
+    const run = await this.repository.findRun(runId);
+    if (!run) throw new NotFoundError(ErrorCode.MIGRATION_RUN_NOT_FOUND);
+    return run;
+  }
+
+  private invalidTransition(
+    from: MigrationEntityStatus,
+    to: MigrationEntityStatus,
+  ): ConflictError {
+    return new ConflictError(
+      ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
+      `Cannot transition migration entity from ${from} to ${to}`,
+    );
+  }
+}
