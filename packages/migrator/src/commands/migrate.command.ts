@@ -3,8 +3,8 @@ import { OurApiClient } from '../loaders/api-client';
 import { IdMapService } from '../id-map/id-map.service';
 import { CheckpointService } from '../checkpoint/checkpoint.service';
 import {
+  CHECKPOINT_VERSION,
   MigrationCheckpoint,
-  MigrationConfig,
   createPhaseProgress,
 } from '../checkpoint/checkpoint.types';
 import { ProgressReporter } from '../reporters/progress.reporter';
@@ -27,6 +27,8 @@ import { mapYtLink, resolveParentYtId } from '../transformers/link.transformer';
 import { richTextToTiptap } from '../transformers/rich-text';
 import { mapStatesToStatuses } from '../transformers/state.transformer';
 import { formatHttpError } from '../utils/http-error';
+import { buildRunConfig } from '../manifest/run-config';
+import { MigrationRunCoordinator } from '../manifest/migration-run.coordinator';
 
 import { UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
@@ -52,8 +54,6 @@ export interface MigrateOptions {
   rateLimit: number;
   verbose: boolean;
 }
-
-const VERSION = '0.1.0';
 
 // Register the TARGET project's real workflow-status ids, keyed by status name,
 // so issues resolve to a valid statusId (the FK). Name-based: the target
@@ -110,10 +110,13 @@ export class MigrateCommand {
   private issueTransformer!: IssueTransformer;
 
   async run(options: MigrateOptions): Promise<void> {
+    const initialConfig = buildRunConfig(options);
+    options.sourceUrl = initialConfig.sourceUrl;
+    options.targetUrl = initialConfig.targetUrl;
     this.init(options);
 
     const startTime = Date.now();
-    let checkpoint: MigrationCheckpoint;
+    let checkpoint: MigrationCheckpoint | null = null;
 
     if (options.resume) {
       const loaded = await this.checkpointService.load();
@@ -121,13 +124,22 @@ export class MigrateCommand {
         this.reporter.error('No checkpoint file found. Run without --resume.');
         process.exit(1);
       }
+      if (
+        loaded.version !== CHECKPOINT_VERSION ||
+        typeof loaded.runId !== 'string' ||
+        loaded.runId.length === 0 ||
+        typeof loaded.configHash !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(loaded.configHash)
+      ) {
+        throw new Error(
+          'Cannot resume this pre-0.2 or incompatible checkpoint: version 0.2.0 with runId and configHash is required. Start a new manifest-backed run without --resume.',
+        );
+      }
       checkpoint = loaded;
       // Checkpoints written before the tags phase existed lack this key.
       checkpoint.progress.tags ??= {};
       this.idMap = IdMapService.deserialize(checkpoint.idMap);
       this.reporter.info(`Resuming migration from ${checkpoint.updatedAt}`);
-    } else {
-      checkpoint = this.initCheckpoint(options);
     }
 
     if (options.dryRun) {
@@ -143,8 +155,16 @@ export class MigrateCommand {
       const projects = await this.projectsExtractor.extractProjects();
       options.projects = projects.map((p) => p.shortName);
     }
+    options.projects = buildRunConfig(options).projects;
 
     this.reporter.info(`Projects: ${options.projects.join(', ')}`);
+
+    const run = await new MigrationRunCoordinator(this.api).open(options, checkpoint);
+    this.reporter.info(`Migration run ID: ${run.runId}`);
+    if (!checkpoint) {
+      checkpoint = this.initCheckpoint(options, run);
+      await this.checkpointService.save(checkpoint);
+    }
 
     const totalSteps = this.countSteps(options);
 
@@ -382,25 +402,17 @@ export class MigrateCommand {
     }
   }
 
-  private initCheckpoint(options: MigrateOptions): MigrationCheckpoint {
+  private initCheckpoint(
+    options: MigrateOptions,
+    run: { runId: string; configHash: string },
+  ): MigrationCheckpoint {
     return {
-      version: VERSION,
+      version: CHECKPOINT_VERSION,
+      runId: run.runId,
+      configHash: run.configHash,
       startedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      config: {
-        sourceUrl: options.sourceUrl,
-        targetUrl: options.targetUrl,
-        projects: options.projects,
-        allProjects: options.allProjects,
-        withAttachments: options.withAttachments,
-        withTimeTracking: options.withTimeTracking,
-        withBoards: options.withBoards,
-        withClosedIssues: options.withClosedIssues,
-        concurrency: options.concurrency,
-        batchSize: options.batchSize,
-        rateLimit: options.rateLimit,
-        dryRun: options.dryRun,
-      },
+      config: buildRunConfig(options),
       status: 'RUNNING',
       idMap: {},
       progress: {
