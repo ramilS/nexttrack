@@ -1,8 +1,22 @@
 import chalk from 'chalk';
 import { MigrationCheckpoint } from '../checkpoint/checkpoint.types';
+import { MigrationEntityStatus, MigrationRunSummary } from '../loaders/api-client';
+
+const MANIFEST_STATUSES: MigrationEntityStatus[] = [
+  'DISCOVERED',
+  'TRANSFORMED',
+  'LOADED',
+  'VERIFIED',
+  'FAILED',
+  'EXCLUDED_APPROVED',
+];
 
 export class SummaryReporter {
-  printSummary(checkpoint: MigrationCheckpoint, startTime: number): void {
+  printSummary(
+    checkpoint: MigrationCheckpoint,
+    startTime: number,
+    manifest?: MigrationRunSummary,
+  ): void {
     const durationMs = Date.now() - startTime;
     const durationStr = this.formatDuration(durationMs);
 
@@ -14,11 +28,21 @@ export class SummaryReporter {
         : chalk.red.bold(`MIGRATION ${checkpoint.status}`),
     );
     console.log(chalk.gray('─'.repeat(50)));
+    console.log(`Run ID:       ${checkpoint.runId}`);
     console.log(`Duration:     ${durationStr}`);
     console.log(`Errors:       ${checkpoint.errors.length}`);
     console.log('');
 
-    console.log('Summary:');
+    console.log('Manifest status:');
+    if (manifest) {
+      for (const status of MANIFEST_STATUSES) {
+        console.log(`  ${status.padEnd(20)} ${manifest.counts[status] ?? 0}`);
+      }
+    } else {
+      console.log('  unavailable');
+    }
+    console.log('');
+    console.log('Legacy checkpoint progress:');
     this.printPhase('Users', checkpoint.progress.users);
     for (const [key, progress] of Object.entries(checkpoint.progress.issues)) {
       this.printPhase(`Issues [${key}]`, progress);

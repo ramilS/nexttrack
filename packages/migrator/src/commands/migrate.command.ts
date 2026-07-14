@@ -29,9 +29,16 @@ import { mapStatesToStatuses } from '../transformers/state.transformer';
 import { formatHttpError } from '../utils/http-error';
 import { buildRunConfig } from '../manifest/run-config';
 import { MigrationRunCoordinator } from '../manifest/migration-run.coordinator';
+import { canonicalEntity, CanonicalEntity } from '../manifest/manifest.types';
+import {
+  ManifestEntityExecutor,
+  MigrationVerificationMismatchError,
+} from '../manifest/entity-executor';
 
-import { UserTransformer } from '../transformers/user.transformer';
+import { CreateUserMigrationDto, UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
+import { YtUser } from '../youtrack/types/yt-user.type';
+import axios from 'axios';
 
 export interface MigrateOptions {
   sourceUrl: string;
@@ -53,6 +60,60 @@ export interface MigrateOptions {
   batchSize: number;
   rateLimit: number;
   verbose: boolean;
+}
+
+export function canonicalMigratedUser(ytUser: YtUser): CanonicalEntity<CreateUserMigrationDto> {
+  const transformed = new UserTransformer().transform(ytUser);
+  const payload = {
+    ...transformed,
+    email: transformed.email.trim().toLowerCase(),
+  };
+  return canonicalEntity(
+    {
+      sourceSystem: 'youtrack-cloud',
+      entityType: 'user',
+      sourceId: ytUser.id,
+    },
+    payload,
+  );
+}
+
+export async function verifyMigratedUser(
+  api: OurApiClient,
+  targetId: string,
+  expected: CreateUserMigrationDto,
+): Promise<void> {
+  const actual = await api.findUserByEmail(expected.email);
+  const matches =
+    actual !== null &&
+    actual.id === targetId &&
+    actual.ytId === expected.ytId &&
+    typeof actual.email === 'string' &&
+    actual.email.trim().toLowerCase() === expected.email &&
+    actual.name === expected.name &&
+    actual.avatarUrl === expected.avatarUrl &&
+    actual.isBlocked === expected.isBlocked &&
+    actual.migratedFrom === expected.migratedFrom;
+  if (!matches) {
+    throw new MigrationVerificationMismatchError(
+      `Target user does not match source user ${expected.ytId}`,
+    );
+  }
+}
+
+function migrationErrorCode(error: unknown): string | undefined {
+  if (!axios.isAxiosError(error)) return undefined;
+  const body = error.response?.data;
+  if (typeof body !== 'object' || body === null || !('error' in body)) {
+    return undefined;
+  }
+  const nested = body.error;
+  return typeof nested === 'object' &&
+    nested !== null &&
+    'code' in nested &&
+    typeof nested.code === 'string'
+    ? nested.code
+    : undefined;
 }
 
 // Register the TARGET project's real workflow-status ids, keyed by status name,
@@ -173,12 +234,8 @@ export class MigrateCommand {
 
       // Step 1: Users
       step++;
-      if (checkpoint.progress.users.status !== 'COMPLETED') {
-        this.reporter.section(step, totalSteps, 'Migrating Users');
-        await this.migrateUsers(checkpoint, options);
-      } else {
-        this.reporter.skip('Users (already migrated)');
-      }
+      this.reporter.section(step, totalSteps, 'Migrating Users');
+      await this.migrateUsers(checkpoint, options, run.runId);
       await this.ensureFallbackUser(options);
 
       // Step 2: Projects + Workflows
@@ -300,12 +357,49 @@ export class MigrateCommand {
         await this.restoreTimestamps(projectKey, checkpoint, options);
       }
 
+      // Reindex is retried as a whole after manifest completion. A prior queue
+      // failure is historical once this pass reaches the gate; current failures
+      // are recorded again by the reindex loop below.
+      checkpoint.errors = checkpoint.errors.filter((error) => error.phase !== 'reindex');
+
+      // Legacy phases are not manifest-backed yet. Never let a user-only
+      // manifest completion conceal a failure already recorded by those phases.
+      if (checkpoint.errors.length > 0) {
+        const manifest = await this.api.getMigrationRun(run.runId);
+        checkpoint.status = 'FAILED';
+        checkpoint.idMap = this.idMap.serialize();
+        await this.checkpointService.save(checkpoint);
+        this.summary.printSummary(checkpoint, startTime, manifest);
+        process.exitCode = 1;
+        return;
+      }
+
+      let manifest;
+      try {
+        manifest = await this.api.completeMigrationRun(run.runId);
+      } catch (error) {
+        if (migrationErrorCode(error) !== 'MIGRATION_RUN_INCOMPLETE') {
+          throw error;
+        }
+        manifest = await this.api.getMigrationRun(run.runId);
+        checkpoint.status = 'FAILED';
+        checkpoint.idMap = this.idMap.serialize();
+        await this.checkpointService.save(checkpoint);
+        this.reporter.error(
+          'Migration manifest is incomplete; resolve failed or unverified entities before reindexing.',
+        );
+        this.summary.printSummary(checkpoint, startTime, manifest);
+        process.exitCode = 1;
+        return;
+      }
+
       // Final step: trigger a background reindex per project. Migration writes
       // issues directly (bypassing the per-issue indexer hooks), so without this
       // the imported issues won't appear in the ES-backed issue list. Async: the
       // search-indexing worker rebuilds the index off the request path.
       step++;
       this.reporter.section(step, totalSteps, 'Scheduling search reindex');
+      const errorsBeforeReindex = checkpoint.errors.length;
       if (options.dryRun) {
         this.reporter.log('[DRY] Would schedule a reindex per project');
       } else {
@@ -319,8 +413,17 @@ export class MigrateCommand {
         }
       }
 
+      if (checkpoint.errors.length > errorsBeforeReindex) {
+        checkpoint.status = 'FAILED';
+        checkpoint.idMap = this.idMap.serialize();
+        await this.checkpointService.save(checkpoint);
+        this.summary.printSummary(checkpoint, startTime, manifest);
+        process.exitCode = 1;
+        return;
+      }
+
       await this.checkpointService.markCompleted(checkpoint);
-      this.summary.printSummary(checkpoint, startTime);
+      this.summary.printSummary(checkpoint, startTime, manifest);
     } catch (err: any) {
       checkpoint.status = 'INTERRUPTED';
       checkpoint.idMap = this.idMap.serialize();
@@ -476,8 +579,7 @@ export class MigrateCommand {
           .map(mapActivity)
           .map((m) => ({
             type: m.type,
-            actorId:
-              (m.authorYtId && this.idMap.getUserId(m.authorYtId)) || ghost || '',
+            actorId: (m.authorYtId && this.idMap.getUserId(m.authorYtId)) || ghost || '',
             createdAt: new Date(m.timestamp).toISOString(),
             payload: m.payload,
           }))
@@ -522,9 +624,7 @@ export class MigrateCommand {
           await this.api.setOriginalDates(ourIssueId, {
             createdAt: new Date(ytIssue.created).toISOString(),
             updatedAt: new Date(ytIssue.updated).toISOString(),
-            resolvedAt: ytIssue.resolved
-              ? new Date(ytIssue.resolved).toISOString()
-              : null,
+            resolvedAt: ytIssue.resolved ? new Date(ytIssue.resolved).toISOString() : null,
           });
           restored++;
         } catch (err) {
@@ -561,12 +661,19 @@ export class MigrateCommand {
   private async migrateUsers(
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
+    runId: string,
   ): Promise<void> {
+    // A full manifest discovery pass retries prior FAILED user rows. Historical
+    // user-attempt errors must not keep a now-VERIFIED resume permanently
+    // blocked; current failures are recorded again below.
+    checkpoint.errors = checkpoint.errors.filter((error) => error.phase !== 'users');
     await this.checkpointService.updateProgress(checkpoint, 'users', null, {
       status: 'IN_PROGRESS',
     });
 
-    let completed = checkpoint.progress.users.completed;
+    let completed = 0;
+    const errorsBefore = checkpoint.errors.length;
+    const executor = new ManifestEntityExecutor(runId, this.api);
 
     for await (const batch of this.usersExtractor.extract()) {
       for (const ytUser of batch) {
@@ -576,16 +683,25 @@ export class MigrateCommand {
           continue;
         }
 
-        try {
-          const result = await this.api.createMigratedUser(
-            this.userTransformer.transform(ytUser),
-          );
-          this.idMap.registerUser(ytUser.id, result.data.id);
-          if (result.existed) {
-            this.reporter.log(`User already exists: ${ytUser.email}`);
-          }
-        } catch (err) {
-          await this.recordError(checkpoint, 'users', ytUser.id, err);
+        const canonical = canonicalMigratedUser(ytUser);
+        const result = await executor.execute(canonical, {
+          transform: () => ({
+            ...this.userTransformer.transform(ytUser),
+            email: canonical.payload.email,
+          }),
+          load: async (value) => {
+            const loaded = await this.api.createMigratedUser(value);
+            if (loaded.existed) {
+              this.reporter.log(`User already exists: ${value.email}`);
+            }
+            return { targetId: loaded.data.id };
+          },
+          verify: (targetId, value) => verifyMigratedUser(this.api, targetId, value),
+        });
+        if (result.status === 'VERIFIED') {
+          this.idMap.registerUser(ytUser.id, result.targetId);
+        } else {
+          await this.recordError(checkpoint, 'users', ytUser.id, new Error(result.error));
         }
 
         completed++;
@@ -599,11 +715,11 @@ export class MigrateCommand {
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'users', null, {
-      status: 'COMPLETED',
+      status: checkpoint.errors.length === errorsBefore ? 'COMPLETED' : 'FAILED',
       completed,
       total: completed,
     });
-    this.reporter.done(`Users: ${completed} migrated`);
+    this.reporter.done(`Users: ${completed} processed (legacy checkpoint counter)`);
   }
 
   // Derive the project's custom-field definitions from YouTrack and create the
@@ -658,12 +774,9 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'projects',
-      projectKey,
-      { status: 'IN_PROGRESS' },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'projects', projectKey, {
+      status: 'IN_PROGRESS',
+    });
 
     const projects = await this.projectsExtractor.extractProjects([projectKey]);
     if (projects.length === 0) {
@@ -728,27 +841,22 @@ export class MigrateCommand {
       roleName: mapYtRole(teamRoles.get(ytId)),
     }));
     if (options.dryRun) {
-      this.reporter.log(
-        `[DRY] Would add ${members.length} members to ${projectKey}`,
-      );
+      this.reporter.log(`[DRY] Would add ${members.length} members to ${projectKey}`);
     } else if (members.length > 0) {
       try {
         await this.api.addProjectMembers(projectKey, members);
-        this.reporter.info(
-          `Project ${projectKey}: ${members.length} users added as members`,
-        );
+        this.reporter.info(`Project ${projectKey}: ${members.length} users added as members`);
       } catch (err) {
         await this.recordError(checkpoint, 'projects', projectKey, err);
       }
     }
 
     checkpoint.idMap = this.idMap.serialize();
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'projects',
-      projectKey,
-      { status: 'COMPLETED', completed: 1, total: 1 },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'projects', projectKey, {
+      status: 'COMPLETED',
+      completed: 1,
+      total: 1,
+    });
     this.reporter.done(`Project ${projectKey}: maps registered`);
   }
 
@@ -757,12 +865,9 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'issues',
-      projectKey,
-      { status: 'IN_PROGRESS' },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'issues', projectKey, {
+      status: 'IN_PROGRESS',
+    });
 
     const statusMap = this.idMap.getStatusMap(projectKey);
     let completed = checkpoint.progress.issues[projectKey]?.completed ?? 0;
@@ -788,11 +893,7 @@ export class MigrateCommand {
           });
           const result = await this.api.createMigratedIssue(projectKey, dto);
           this.idMap.registerIssue(ytIssue.id, result.data.id);
-          this.idMap.registerIssueByNumber(
-            projectKey,
-            ytIssue.numberInProject,
-            ytIssue.id,
-          );
+          this.idMap.registerIssueByNumber(projectKey, ytIssue.numberInProject, ytIssue.id);
         } catch (err) {
           await this.recordError(checkpoint, 'issues', ytIssue.id, err);
         }
@@ -809,12 +910,11 @@ export class MigrateCommand {
     }
 
     bar.stop();
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'issues',
-      projectKey,
-      { status: 'COMPLETED', completed, total: completed },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'issues', projectKey, {
+      status: 'COMPLETED',
+      completed,
+      total: completed,
+    });
     this.reporter.done(`Issues [${projectKey}]: ${completed} migrated`);
   }
 
@@ -850,23 +950,17 @@ export class MigrateCommand {
             await this.api.setIssueParent(ourIssueId, ourParentId);
             linked++;
           } catch (err) {
-            await this.recordError(
-              checkpoint,
-              'parentLinks',
-              ytIssue.id,
-              err,
-            );
+            await this.recordError(checkpoint, 'parentLinks', ytIssue.id, err);
           }
         }
       }
     }
 
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'parentLinks',
-      projectKey,
-      { status: 'COMPLETED', completed: linked, total: linked },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'parentLinks', projectKey, {
+      status: 'COMPLETED',
+      completed: linked,
+      total: linked,
+    });
     this.reporter.done(`Linked ${linked} parent-child relationships for ${projectKey}`);
   }
 
@@ -912,7 +1006,10 @@ export class MigrateCommand {
             }
 
             try {
-              await this.api.createIssueLink(sourceId, { type, targetIssueId: targetId });
+              await this.api.createIssueLink(sourceId, {
+                type,
+                targetIssueId: targetId,
+              });
               linked++;
             } catch (err) {
               await this.recordError(checkpoint, 'links', ytIssue.id, err);
@@ -999,12 +1096,9 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'comments',
-      projectKey,
-      { status: 'IN_PROGRESS' },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'comments', projectKey, {
+      status: 'IN_PROGRESS',
+    });
 
     let completed = checkpoint.progress.comments[projectKey]?.completed ?? 0;
 
@@ -1035,12 +1129,9 @@ export class MigrateCommand {
 
           try {
             const authorId =
-              this.idMap.getUserId(comment.author.id) ??
-              this.idMap.getFallbackUserId();
+              this.idMap.getUserId(comment.author.id) ?? this.idMap.getFallbackUserId();
             if (!authorId) {
-              this.reporter.log(
-                `Skipping comment — author not found: ${comment.author.id}`,
-              );
+              this.reporter.log(`Skipping comment — author not found: ${comment.author.id}`);
               continue;
             }
 
@@ -1060,12 +1151,11 @@ export class MigrateCommand {
       }
     }
 
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'comments',
-      projectKey,
-      { status: 'COMPLETED', completed, total: completed },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'comments', projectKey, {
+      status: 'COMPLETED',
+      completed,
+      total: completed,
+    });
     this.reporter.done(`Comments [${projectKey}]: ${completed} migrated`);
   }
 
@@ -1074,12 +1164,9 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'attachments',
-      projectKey,
-      { status: 'IN_PROGRESS' },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'attachments', projectKey, {
+      status: 'IN_PROGRESS',
+    });
 
     let completed = checkpoint.progress.attachments[projectKey]?.completed ?? 0;
 
@@ -1155,12 +1242,11 @@ export class MigrateCommand {
       }
     }
 
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'attachments',
-      projectKey,
-      { status: 'COMPLETED', completed, total: completed },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'attachments', projectKey, {
+      status: 'COMPLETED',
+      completed,
+      total: completed,
+    });
     this.reporter.done(`Attachments [${projectKey}]: ${completed} migrated`);
   }
 
@@ -1169,12 +1255,9 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'timeLogs',
-      projectKey,
-      { status: 'IN_PROGRESS' },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'timeLogs', projectKey, {
+      status: 'IN_PROGRESS',
+    });
 
     let completed = checkpoint.progress.timeLogs[projectKey]?.completed ?? 0;
 
@@ -1200,17 +1283,12 @@ export class MigrateCommand {
         const entries = timeLogs
           .filter((entry) => (entry.duration?.minutes ?? 0) > 0)
           .map((entry) => ({
-            userId:
-              this.idMap.getUserId(entry.author.id) ??
-              this.idMap.getFallbackUserId(),
+            userId: this.idMap.getUserId(entry.author.id) ?? this.idMap.getFallbackUserId(),
             minutes: entry.duration.minutes,
             date: new Date(entry.date).toISOString(),
             description: entry.text ?? null,
           }))
-          .filter(
-            (entry): entry is { userId: string } & typeof entry =>
-              entry.userId !== null,
-          );
+          .filter((entry): entry is { userId: string } & typeof entry => entry.userId !== null);
 
         if (entries.length === 0) continue;
 
@@ -1231,12 +1309,11 @@ export class MigrateCommand {
       }
     }
 
-    await this.checkpointService.updateProgress(
-      checkpoint,
-      'timeLogs',
-      projectKey,
-      { status: 'COMPLETED', completed, total: completed },
-    );
+    await this.checkpointService.updateProgress(checkpoint, 'timeLogs', projectKey, {
+      status: 'COMPLETED',
+      completed,
+      total: completed,
+    });
     this.reporter.done(`Time Logs [${projectKey}]: ${completed} processed`);
   }
 
@@ -1276,12 +1353,8 @@ export class MigrateCommand {
             // YouTrack returns goal: null (not absent) → coerce, since the
             // target schema's goal is optional-but-not-nullable.
             goal: ytSprint.goal || undefined,
-            startDate: ytSprint.start
-              ? new Date(ytSprint.start).toISOString()
-              : undefined,
-            endDate: ytSprint.finish
-              ? new Date(ytSprint.finish).toISOString()
-              : undefined,
+            startDate: ytSprint.start ? new Date(ytSprint.start).toISOString() : undefined,
+            endDate: ytSprint.finish ? new Date(ytSprint.finish).toISOString() : undefined,
           });
           sprintsCreated++;
 
