@@ -10,7 +10,7 @@ describe('retry', () => {
   it('throws a rejected permanent error immediately', async () => {
     vi.useFakeTimers();
     const setTimeoutSpy = vi.spyOn(globalThis, 'setTimeout');
-    const error = new Error('permanent');
+    const error = { code: 'PERMANENT', details: { sourceId: '2-42' } };
     const operation = vi.fn().mockRejectedValue(error);
     const shouldRetry = vi.fn().mockReturnValue(false);
 
@@ -25,7 +25,7 @@ describe('retry', () => {
 
   it('makes attempts total calls when errors remain transient', async () => {
     vi.useFakeTimers();
-    const error = new Error('transient');
+    const error = { code: 'TRANSIENT', details: { sourceId: '2-42' } };
     const operation = vi.fn().mockRejectedValue(error);
     const promise = retry(operation, {
       attempts: 3,

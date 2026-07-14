@@ -221,13 +221,14 @@ describe('OurApiClient migration manifest methods', () => {
   it('retries a transient manifest failure for four total calls', async () => {
     vi.useFakeTimers();
     const { client, http } = setup();
-    const post = vi.spyOn(http, 'post').mockRejectedValue({
+    const error = {
       isAxiosError: true,
       response: { status: 503 },
-    });
+    };
+    const post = vi.spyOn(http, 'post').mockRejectedValue(error);
     const promise = client.completeMigrationRun(run.id);
 
-    const assertion = expect(promise).rejects.toThrow('[object Object]');
+    const assertion = expect(promise).rejects.toBe(error);
     await vi.runAllTimersAsync();
     await assertion;
 
@@ -236,14 +237,13 @@ describe('OurApiClient migration manifest methods', () => {
 
   it('does not retry a permanent manifest failure', async () => {
     const { client, http } = setup();
-    const post = vi.spyOn(http, 'post').mockRejectedValue({
+    const error = {
       isAxiosError: true,
       response: { status: 400 },
-    });
+    };
+    const post = vi.spyOn(http, 'post').mockRejectedValue(error);
 
-    await expect(client.completeMigrationRun(run.id)).rejects.toThrow(
-      '[object Object]',
-    );
+    await expect(client.completeMigrationRun(run.id)).rejects.toBe(error);
     expect(post).toHaveBeenCalledTimes(1);
   });
 });

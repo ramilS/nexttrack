@@ -11,16 +11,16 @@ export async function retry<T>(
   options: RetryOptions = { attempts: 3, delay: 1000, backoff: 2 },
 ): Promise<T> {
   validateOptions(options);
-  let lastError: Error | undefined;
+  let lastError: unknown;
 
   for (let attempt = 1; attempt <= options.attempts; attempt++) {
     try {
       return await fn();
     } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
+      lastError = err;
 
       if (attempt === options.attempts) break;
-      if (options.shouldRetry?.(err, attempt) === false) throw lastError;
+      if (options.shouldRetry?.(err, attempt) === false) throw err;
 
       const jitter = options.jitter ?? 0;
       const jitterFactor = 1 - jitter + Math.random() * jitter * 2;
