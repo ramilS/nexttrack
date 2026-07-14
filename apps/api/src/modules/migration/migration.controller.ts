@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '@/common/guards/jwt-auth.guard';
 import { CurrentUser } from '@/common/decorators/current-user.decorator';
 import { MigrationGuard } from './migration.guard';
 import { MigrationService } from './migration.service';
+import { MigrationManifestService } from './migration-manifest.service';
 import { ApiEnvelope } from '@/common/decorators/api-envelope.decorator';
 import {
   CreateUserMigrationReqDto,
@@ -57,7 +58,17 @@ import {
   MigrationStatusesDto,
   AddMembersDto,
   MigrationMembersResultDto,
+  StartMigrationRunDto,
+  DiscoverMigrationEntitiesDto,
+  TransitionMigrationEntityDto,
+  ListMigrationEntitiesQueryDto,
+  MigrationRunResultDto,
+  MigrationRunSummaryDto,
+  MigrationEntitiesResultDto,
+  MigrationEntityResultDto,
 } from './migration.dto';
+import type { MigrationEntity, MigrationRun } from '@prisma/client';
+import type { MigrationRunSummary } from './migration-manifest.repository';
 
 // Bulk admin import behind MigrationGuard (admin JWT + secret) — the global
 // per-IP throttle only breaks high-throughput migration; it is not a public route.
@@ -68,7 +79,67 @@ import {
 @Controller('admin/migration')
 @UseGuards(JwtAuthGuard, MigrationGuard)
 export class MigrationController {
-  constructor(private migrationService: MigrationService) {}
+  constructor(
+    private readonly migrationService: MigrationService,
+    private readonly migrationManifestService: MigrationManifestService,
+  ) {}
+
+  @Post('runs')
+  @ApiEnvelope(MigrationRunResultDto, { status: HttpStatus.CREATED })
+  async startRun(@Body() dto: StartMigrationRunDto) {
+    const run = await this.migrationManifestService.startRun(dto);
+    return { data: this.serializeRun(run) };
+  }
+
+  @Get('runs/:runId')
+  @ApiEnvelope(MigrationRunSummaryDto)
+  async getRun(@Param('runId') runId: string) {
+    const summary = await this.migrationManifestService.getRun(runId);
+    return this.serializeSummary(summary);
+  }
+
+  @Post('runs/:runId/entities/discover')
+  @ApiEnvelope(MigrationEntitiesResultDto, { status: HttpStatus.CREATED })
+  async discoverEntities(
+    @Param('runId') runId: string,
+    @Body() dto: DiscoverMigrationEntitiesDto,
+  ) {
+    const entities = await this.migrationManifestService.discover(
+      runId,
+      dto.entities,
+    );
+    return { data: entities.map((entity) => this.serializeEntity(entity)) };
+  }
+
+  @Patch('runs/:runId/entities/state')
+  @ApiEnvelope(MigrationEntityResultDto)
+  async transitionEntity(
+    @Param('runId') runId: string,
+    @Body() dto: TransitionMigrationEntityDto,
+  ) {
+    const entity = await this.migrationManifestService.transition(runId, dto);
+    return { data: this.serializeEntity(entity) };
+  }
+
+  @Get('runs/:runId/entities')
+  @ApiEnvelope(MigrationEntitiesResultDto)
+  async listEntities(
+    @Param('runId') runId: string,
+    @Query() query: ListMigrationEntitiesQueryDto,
+  ) {
+    const entities = await this.migrationManifestService.listEntities(
+      runId,
+      query,
+    );
+    return { data: entities.map((entity) => this.serializeEntity(entity)) };
+  }
+
+  @Post('runs/:runId/complete')
+  @ApiEnvelope(MigrationRunSummaryDto, { status: HttpStatus.CREATED })
+  async completeRun(@Param('runId') runId: string) {
+    const summary = await this.migrationManifestService.complete(runId);
+    return this.serializeSummary(summary);
+  }
 
   @Post('users')
   @ApiEnvelope(MigrationUserResultDto, { status: HttpStatus.CREATED })
@@ -267,5 +338,48 @@ export class MigrationController {
     @Body() dto: MigrationSprintIssuesDto,
   ) {
     return this.migrationService.addSprintIssues(boardId, sprintId, dto.issueIds);
+  }
+
+  private serializeRun(run: MigrationRun) {
+    return {
+      id: run.id,
+      sourceSystem: run.sourceSystem,
+      sourceTenant: run.sourceTenant,
+      sourceUrl: run.sourceUrl,
+      targetUrl: run.targetUrl,
+      configHash: run.configHash,
+      specVersion: run.specVersion,
+      exclusionVersion: run.exclusionVersion,
+      status: run.status,
+      startedAt: run.startedAt.toISOString(),
+      completedAt: run.completedAt?.toISOString() ?? null,
+      createdAt: run.createdAt.toISOString(),
+      updatedAt: run.updatedAt.toISOString(),
+    };
+  }
+
+  private serializeSummary(summary: MigrationRunSummary) {
+    return { data: this.serializeRun(summary.run), counts: summary.counts };
+  }
+
+  private serializeEntity(entity: MigrationEntity) {
+    return {
+      id: entity.id,
+      runId: entity.runId,
+      entityType: entity.entityType,
+      sourceId: entity.sourceId,
+      sourceChecksum: entity.sourceChecksum,
+      targetId: entity.targetId,
+      status: entity.status,
+      attemptCount: entity.attemptCount,
+      errorCode: entity.errorCode,
+      errorMessage: entity.errorMessage,
+      discoveredAt: entity.discoveredAt.toISOString(),
+      transformedAt: entity.transformedAt?.toISOString() ?? null,
+      loadedAt: entity.loadedAt?.toISOString() ?? null,
+      verifiedAt: entity.verifiedAt?.toISOString() ?? null,
+      createdAt: entity.createdAt.toISOString(),
+      updatedAt: entity.updatedAt.toISOString(),
+    };
   }
 }

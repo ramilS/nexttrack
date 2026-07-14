@@ -1,4 +1,6 @@
+import { MigrationEntityStatus, MigrationRunStatus } from '@prisma/client';
 import { z } from 'zod';
+import { checksumSchema } from './migration-manifest.dto';
 
 /**
  * Response schemas for the admin migration API. The endpoints return ad-hoc
@@ -140,4 +142,71 @@ export const migrationStatsSchema = z.object({
     attachments: z.number().int().nonnegative(),
     timeLogs: z.number().int().nonnegative(),
   }),
+});
+
+const migrationRunSchema = z.object({
+  id: z.guid(),
+  sourceSystem: z.literal('youtrack-cloud'),
+  sourceTenant: z.string(),
+  sourceUrl: z.url(),
+  targetUrl: z.url(),
+  configHash: checksumSchema,
+  specVersion: z.literal('2026-07-14'),
+  exclusionVersion: z.literal('2026-07-14'),
+  status: z.enum(MigrationRunStatus),
+  startedAt: z.iso.datetime(),
+  completedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+const migrationEntitySchema = z.object({
+  id: z.guid(),
+  runId: z.guid(),
+  entityType: z.string(),
+  sourceId: z.string(),
+  sourceChecksum: checksumSchema,
+  targetId: z.string().nullable(),
+  status: z.enum(MigrationEntityStatus),
+  attemptCount: z.number().int().nonnegative(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  discoveredAt: z.iso.datetime(),
+  transformedAt: z.iso.datetime().nullable(),
+  loadedAt: z.iso.datetime().nullable(),
+  verifiedAt: z.iso.datetime().nullable(),
+  createdAt: z.iso.datetime(),
+  updatedAt: z.iso.datetime(),
+});
+
+const migrationStatusCountsSchema = z.object({
+  [MigrationEntityStatus.DISCOVERED]: z.number().int().nonnegative().optional(),
+  [MigrationEntityStatus.TRANSFORMED]: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional(),
+  [MigrationEntityStatus.LOADED]: z.number().int().nonnegative().optional(),
+  [MigrationEntityStatus.VERIFIED]: z.number().int().nonnegative().optional(),
+  [MigrationEntityStatus.FAILED]: z.number().int().nonnegative().optional(),
+  [MigrationEntityStatus.EXCLUDED_APPROVED]: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional(),
+});
+
+export const migrationRunResultSchema = z.object({ data: migrationRunSchema });
+
+export const migrationRunSummarySchema = z.object({
+  data: migrationRunSchema,
+  counts: migrationStatusCountsSchema,
+});
+
+export const migrationEntitiesResultSchema = z.object({
+  data: z.array(migrationEntitySchema),
+});
+
+export const migrationEntityResultSchema = z.object({
+  data: migrationEntitySchema,
 });
