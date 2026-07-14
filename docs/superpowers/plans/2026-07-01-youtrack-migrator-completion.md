@@ -1,5 +1,11 @@
 # YouTrack Migrator Completion Implementation Plan
 
+> **Superseded on 2026-07-14.** This plan covered the earlier no-schema-change
+> completion scope and is retained only as historical context. Do not execute
+> remaining tasks from it. Use
+> `docs/superpowers/plans/2026-07-14-youtrack-cloud-migration-program-roadmap.md`
+> and its linked workstream plans instead.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the YouTrack→NextTrack migrator move ALL data correctly — custom fields, tags, estimate, issue links, time-tracking, boards/sprints — and preserve rich-text fidelity, closing the silent-data-loss gaps found in the audit.
