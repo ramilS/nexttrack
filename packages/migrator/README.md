@@ -2,6 +2,14 @@
 
 Migrates data from a **live YouTrack instance** into NextTrack over HTTP.
 
+> **Foundation status:** checkpoint `0.2.0` and the server manifest currently
+> provide the full interruption/resume contract for the **users pilot only**.
+> This foundation is not a full-fidelity migration release. The remaining
+> domain phases are converted in the
+> [program roadmap](../../docs/superpowers/plans/2026-07-14-youtrack-cloud-migration-program-roadmap.md),
+> and the approved exclusions remain exactly those in the
+> [design specification](../../docs/superpowers/specs/2026-07-14-youtrack-cloud-full-fidelity-migration-design.md).
+
 > **It does not read YouTrack backup files.** A YouTrack backup (`.tar.gz`/`.zip`)
 > is an undocumented internal DB snapshot that JetBrains only supports restoring
 > back into YouTrack itself. This tool follows JetBrains' recommended path for
@@ -55,13 +63,14 @@ YouTrack (path is version-dependent, but currently):
 
 Give it a scope that can **read YouTrack and the user list** — the migrator calls
 `/api/admin/users`, so a token with only issue-read scope will 403 on the users
-phase. The token looks like `perm:dXNlcm5hbWU=.…`.
+phase. Treat the token as a secret; pass it through your secret-management
+process, never in a committed command or checkpoint.
 
 ### `--migration-secret` — NextTrack migration API secret
 
 The migration endpoints require the header `x-migration-secret`, validated
 (timing-safe, exact match) against the API's `MIGRATION_API_SECRET` env var. It
-must be **exactly 32 characters**. If the API has no secret set, *every* migration
+must be **at least 32 characters**. If the API has no secret set, *every* migration
 request is rejected with 403.
 
 Generate one and set it on the API before running:
@@ -94,21 +103,22 @@ body — but the API's JWT guard also accepts an `Authorization: Bearer` header,
 that is what the CLI sends. So you extract the `access_token` cookie from a login
 response and pass it as the token.
 
-The migration endpoints also require the user to be a **global admin**, so log in
-as an admin account (dev seed defaults: `admin@nexttrack.local` / `Password123!`,
-overridable via `ADMIN_EMAIL` / `ADMIN_PASSWORD` when seeding).
+The migration endpoints also require the user to be a **global admin**. For a
+development seed, read the current admin email and password constants in
+`apps/api/prisma/seed-dev.ts`; both are environment-overridable. Do not copy
+credentials into this README or a checkpoint.
 
 ```bash
 # Log in and print response headers; the token is in the Set-Cookie line
 curl -i -X POST http://localhost:3001/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@nexttrack.local","password":"Password123!"}'
+  -d '{"email":"<admin-email>","password":"<admin-password>"}'
 ```
 
 Look for:
 
 ```
-Set-Cookie: access_token=eyJhbGciOiJIUzI1NiI...; Path=/; Max-Age=900; HttpOnly; SameSite=Lax
+Set-Cookie: access_token=<redacted>; Path=/; Max-Age=900; HttpOnly; SameSite=Lax
 ```
 
 The value between `access_token=` and the first `;` is your `--target-token`.
@@ -118,7 +128,7 @@ One-liner to capture it into a shell variable:
 ```bash
 TARGET_TOKEN=$(curl -s -i -X POST http://localhost:3001/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@nexttrack.local","password":"Password123!"}' \
+  -d '{"email":"<admin-email>","password":"<admin-password>"}' \
   | grep -i '^set-cookie: access_token=' \
   | sed -E 's/^set-cookie: access_token=([^;]+);.*/\1/I')
 echo "$TARGET_TOKEN"
@@ -144,10 +154,10 @@ anything** to NextTrack. Use it to confirm connectivity, credentials, and counts
 cd packages/migrator
 pnpm migrate -- \
   --source-url https://youtrack.company.com \
-  --source-token perm:XXXXXXXX \
+  --source-token '<youtrack-permanent-token>' \
   --target-url http://localhost:3001 \
   --target-token "$TARGET_TOKEN" \
-  --migration-secret <32-char-secret> \
+  --migration-secret '<configured-migration-secret>' \
   --projects DEVX \
   --dry-run \
   --verbose
@@ -168,10 +178,10 @@ the pilot so you can inspect fidelity before committing.
 cd packages/migrator
 pnpm migrate -- \
   --source-url https://youtrack.company.com \
-  --source-token perm:XXXXXXXX \
+  --source-token '<youtrack-permanent-token>' \
   --target-url http://localhost:3001 \
   --target-token "$TARGET_TOKEN" \
-  --migration-secret <32-char-secret> \
+  --migration-secret '<configured-migration-secret>' \
   --projects DEVX \
   --with-attachments \
   --with-closed-issues \
@@ -185,18 +195,97 @@ Compares source vs. target counts per project.
 ```bash
 pnpm verify -- \
   --source-url https://youtrack.company.com \
-  --source-token perm:XXXXXXXX \
+  --source-token '<youtrack-permanent-token>' \
   --target-url http://localhost:3001 \
   --target-token "$TARGET_TOKEN" \
-  --migration-secret <32-char-secret> \
+  --migration-secret '<configured-migration-secret>' \
   --projects DEVX
 ```
 
 ### Resuming
 
-A run writes progress to the checkpoint file. If it stops (error, expired token),
-fix the cause and re-run the same command with `--resume`. Inspect progress with
-`pnpm status -- --checkpoint-file ./devx-checkpoint.json`.
+A new manifest-backed run prints `Migration run ID: <run-id>` and stores that ID,
+the immutable configuration hash, and checkpoint version `0.2.0` in the
+checkpoint file. Keep the checkpoint with the run: `--resume` reopens that exact
+server-side run ID rather than starting another one.
+
+If a run stops, fix the cause and repeat the same command with `--resume` and the
+same `--checkpoint-file`. A pre-`0.2.0` checkpoint has no compatible manifest
+identity and is rejected; start a new run without `--resume`. Do not edit a
+checkpoint to bypass this check.
+
+The resume configuration is immutable. It covers the normalized source and
+target URLs, selected projects (or `--all-projects`), attachment, time-tracking,
+board and closed-issue flags, estimate field, dry-run mode, concurrency, batch
+size, and rate limit. The server also pins source system/tenant, configuration
+hash, migration-spec version, and approved-exclusion version. Identity fields
+are named directly in a `MIGRATION_RESUME_CONFIG_MISMATCH` refusal; behavioral
+option changes are represented by the aggregate `configHash`. Credentials are
+deliberately absent from the stored configuration, so an expired credential may
+be replaced before resuming without weakening run identity.
+
+In the manifest-backed users pilot, authentication responses (`401` or `403`)
+are fatal run-level blockers. The current user is reported best-effort, the next
+user is not attempted, and the CLI records an `INTERRUPTED` checkpoint without
+completing the manifest or scheduling reindex. Restore valid authorization and
+resume; do not interpret one authentication outage as a collection of user
+failures. Later domain workstreams will adopt this behavior as they become
+manifest-backed.
+
+For the users pilot, an unchanged retry is safe: a verified user with the same
+canonical checksum skips transform/load/verify, while a changed checksum
+reopens only that user. User loads are also source-ID idempotent. Starting the
+same fingerprint again while its run is active returns that active run; after
+completion, a new start creates a new run. Prefer `--resume` whenever a
+checkpoint already exists. The remaining legacy domain phases do not gain these
+manifest guarantees until their roadmap workstreams are complete.
+
+The local checkpoint summary is available without server access:
+
+```bash
+pnpm status -- --checkpoint-file ./devx-checkpoint.json
+```
+
+### Inspecting the server manifest
+
+Manifest inspection endpoints are guarded exactly like writes: every request
+needs both a global-admin bearer token and the configured `x-migration-secret`
+(at least 32 characters). Use placeholders or environment-backed secret
+injection; never paste real values into scripts, logs, tickets, or this file.
+
+```bash
+curl -sS '<target-url>/api/admin/migration/runs/<run-id>' \
+  -H 'Authorization: Bearer <target-admin-token>' \
+  -H 'x-migration-secret: <configured-migration-secret>'
+
+curl -sS '<target-url>/api/admin/migration/runs/<run-id>/entities?limit=100' \
+  -H 'Authorization: Bearer <target-admin-token>' \
+  -H 'x-migration-secret: <configured-migration-secret>'
+```
+
+The global API envelope is `{ "data": <route-payload>, "meta": ... }`. For the
+run endpoint, the route payload is `{ "data": <run>, "counts": { ... } }`; for
+the entity-list endpoint it is `{ "data": [<entity>, ...] }`. Entity listing is
+bounded and cursor-paginated (`limit` is 1–500) and can be filtered by
+`entityType` or `status`.
+
+Run statuses are `RUNNING` (active or reopened), `COMPLETED` (every discovered
+entity is terminal), and `FAILED` (reserved by the schema; the current
+foundation has no run-failure endpoint and leaves interrupted runs `RUNNING`).
+The `counts` object groups manifest entities by these entity statuses:
+
+| Entity status       | Meaning                                                                     |
+| ------------------- | --------------------------------------------------------------------------- |
+| `DISCOVERED`        | New entity, or a prior terminal entity reopened by a changed checksum       |
+| `TRANSFORMED`       | An execution attempt has begun; the target load is not recorded yet         |
+| `LOADED`            | A target ID is persisted and explicit verification remains                  |
+| `VERIFIED`          | Terminal success; an unchanged resume skips callbacks                       |
+| `FAILED`            | Nonterminal entity failure; retry or approve an exclusion before completion |
+| `EXCLUDED_APPROVED` | Terminal omission explicitly allowed by the pinned design specification     |
+
+Only `VERIFIED` and `EXCLUDED_APPROVED` are terminal for completion. Counts in
+any other state make the completion endpoint refuse with
+`MIGRATION_RUN_INCOMPLETE`.
 
 ## Flags (migrate)
 
@@ -206,7 +295,7 @@ fix the cause and re-run the same command with `--resume`. Inspect progress with
 | `--source-token <token>` | yes | — | YouTrack permanent token |
 | `--target-url <url>` | yes | — | NextTrack base URL (no `/api`) |
 | `--target-token <token>` | yes | — | NextTrack admin JWT (`access_token` cookie value) |
-| `--migration-secret <secret>` | yes | — | Value of `MIGRATION_API_SECRET` (32 chars) |
+| `--migration-secret <secret>` | yes | — | Value of `MIGRATION_API_SECRET` (at least 32 chars) |
 | `--projects <keys>` | one of these | — | Comma-separated keys, e.g. `DEVX,OPS` |
 | `--all-projects` | one of these | `false` | Migrate every project |
 | `--with-attachments` | no | `false` | Download + upload attachments |
