@@ -125,6 +125,27 @@ describe('ManifestEntityExecutor', () => {
     expect(handlers.verify).not.toHaveBeenCalled();
   });
 
+  it('rejects a verified discovery response from a foreign run before accepting its target or invoking callbacks', async () => {
+    const { api, handlers } = setup(
+      manifestEntity('VERIFIED', {
+        runId: 'foreign-run',
+        targetId: 'foreign-target',
+      }),
+    );
+
+    await expect(
+      new ManifestEntityExecutor(runId, api).execute(entity, handlers),
+    ).rejects.toMatchObject({
+      name: 'ManifestDiscoveryIntegrityError',
+      code: 'MIGRATION_MANIFEST_INTEGRITY_ERROR',
+      message: `Manifest discovery identity mismatch for user ${entity.sourceId}`,
+    });
+    expect(handlers.transform).not.toHaveBeenCalled();
+    expect(handlers.load).not.toHaveBeenCalled();
+    expect(handlers.verify).not.toHaveBeenCalled();
+    expect(api.transitionEntity).not.toHaveBeenCalled();
+  });
+
   it('runs callbacks when discovery reopens a changed checksum as discovered', async () => {
     const changed = canonicalEntity(
       {

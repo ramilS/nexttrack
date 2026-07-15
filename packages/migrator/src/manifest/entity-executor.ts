@@ -23,6 +23,15 @@ export class MigrationVerificationMismatchError extends Error {
   }
 }
 
+export class ManifestDiscoveryIntegrityError extends Error {
+  readonly code = 'MIGRATION_MANIFEST_INTEGRITY_ERROR';
+
+  constructor(entityType: string, sourceId: string) {
+    super(`Manifest discovery identity mismatch for ${entityType} ${sourceId}`);
+    this.name = 'ManifestDiscoveryIntegrityError';
+  }
+}
+
 export class ManifestEntityExecutor {
   constructor(
     private readonly runId: string,
@@ -132,13 +141,12 @@ export class ManifestEntityExecutor {
 
   private assertDiscoveredIdentity<T>(entity: CanonicalEntity<T>, manifest: MigrationEntity): void {
     if (
+      manifest.runId !== this.runId ||
       manifest.entityType !== entity.entityType ||
       manifest.sourceId !== entity.sourceId ||
       manifest.sourceChecksum !== entity.checksum
     ) {
-      throw new Error(
-        `Manifest discovery identity mismatch for ${entity.entityType} ${entity.sourceId}`,
-      );
+      throw new ManifestDiscoveryIntegrityError(entity.entityType, entity.sourceId);
     }
   }
 
