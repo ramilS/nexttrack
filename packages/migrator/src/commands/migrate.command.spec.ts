@@ -411,6 +411,57 @@ function incompleteError(): AxiosError {
   });
 }
 
+function authenticationError(): AxiosError {
+  const config: InternalAxiosRequestConfig = {
+    method: 'post',
+    url: '/admin/migration/users',
+    headers: new AxiosHeaders({ Authorization: 'Bearer target-secret' }),
+  };
+  return new AxiosError('unauthorized', 'UNAUTHORIZED', config, undefined, {
+    status: 401,
+    statusText: 'Unauthorized',
+    headers: new AxiosHeaders(),
+    config,
+    data: {
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'sensitive-response-body-must-not-be-logged',
+      },
+    },
+  });
+}
+
+describe('terminal migration interruption', () => {
+  it('reports a sanitized run-level authentication blocker and stops without completion', async () => {
+    const fatal = authenticationError();
+    const exit = new Error('process exited');
+    stubLegacyPhases();
+    const prototype = Object.getPrototypeOf(new MigrateCommand());
+    vi.spyOn(prototype, 'migrateUsers').mockRejectedValue(fatal);
+    vi.spyOn(MigrationRunCoordinator.prototype, 'open').mockResolvedValue({
+      runId: 'run-1',
+      configHash: 'a'.repeat(64),
+    });
+    const save = vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
+    const complete = vi.spyOn(OurApiClient.prototype, 'completeMigrationRun');
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw exit;
+    });
+
+    await expect(new MigrateCommand().run(options())).rejects.toBe(exit);
+
+    expect(save).toHaveBeenLastCalledWith(
+      expect.objectContaining({ status: 'INTERRUPTED', runId: 'run-1' }),
+    );
+    expect(complete).not.toHaveBeenCalled();
+    const terminalOutput = output.mock.calls.flat().join(' ');
+    expect(terminalOutput).toContain('Migration blocked by authentication (HTTP 401)');
+    expect(terminalOutput).not.toContain('sensitive-response-body-must-not-be-logged');
+    expect(terminalOutput).not.toContain('target-secret');
+  });
+});
+
 describe('manifest completion and reindex gate', () => {
   it('completes the manifest before queuing reindex and reports the returned counts', async () => {
     const events: string[] = [];

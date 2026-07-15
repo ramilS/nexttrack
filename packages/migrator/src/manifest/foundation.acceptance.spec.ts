@@ -6,9 +6,12 @@ import {
   OurApiClient,
   TransitionMigrationEntity,
 } from "../loaders/api-client";
-import { classifyMigrationError } from "../utils/error-classification";
 import { ManifestEntityExecutor } from "./entity-executor";
 import { canonicalEntity } from "./manifest.types";
+import {
+  migrationRunTerminalResult,
+  MigrationRunTerminalResult,
+} from "./run-blocker";
 
 const RUN_ID = "foundation-run-1";
 const NOW = "2026-07-14T00:00:00.000Z";
@@ -50,30 +53,64 @@ class FakeYouTrack {
 
 class FakeTarget {
   readonly createdUserSourceIds: string[] = [];
+  /** Actual target writes, excluding idempotent reconciliation reads. */
   readonly loadCallsBySourceId = new Map<string, number>();
+  readonly loadCallbackAttemptsBySourceId = new Map<string, number>();
   readonly verifyCallsBySourceId = new Map<string, number>();
   readonly loadFailure = unauthorizedError();
   private readonly users = new Map<string, TargetUser>();
+  private readonly stalledWriteReached: Promise<void>;
+  private resolveStalledWrite!: () => void;
+  private totalLoadCallbackAttempts = 0;
+  private hasStalled = false;
 
-  constructor(private readonly failLoadNumber?: number) {}
+  constructor(
+    private readonly options: {
+      failLoadAttempt?: number;
+      stallAfterWriteSourceId?: string;
+    } = {},
+  ) {
+    this.stalledWriteReached = new Promise((resolve) => {
+      this.resolveStalledWrite = resolve;
+    });
+  }
 
   async load(user: SourceUser): Promise<{ targetId: string }> {
-    const callCount =
-      [...this.loadCallsBySourceId.values()].reduce(
-        (sum, count) => sum + count,
-        0,
-      ) + 1;
-    this.loadCallsBySourceId.set(
+    this.totalLoadCallbackAttempts++;
+    this.loadCallbackAttemptsBySourceId.set(
       user.id,
-      (this.loadCallsBySourceId.get(user.id) ?? 0) + 1,
+      (this.loadCallbackAttemptsBySourceId.get(user.id) ?? 0) + 1,
     );
-    if (callCount === this.failLoadNumber) throw this.loadFailure;
+    if (this.totalLoadCallbackAttempts === this.options.failLoadAttempt) {
+      throw this.loadFailure;
+    }
 
     const existing = this.users.get(user.id);
     const targetId = existing?.targetId ?? `target-${user.id}`;
-    if (!existing) this.createdUserSourceIds.push(user.id);
-    this.users.set(user.id, { ...user, targetId });
+    const next = { ...user, targetId };
+    if (!existing || !sameTargetUser(existing, next)) {
+      if (!existing) this.createdUserSourceIds.push(user.id);
+      this.users.set(user.id, next);
+      this.loadCallsBySourceId.set(
+        user.id,
+        (this.loadCallsBySourceId.get(user.id) ?? 0) + 1,
+      );
+    }
+
+    if (!this.hasStalled && this.options.stallAfterWriteSourceId === user.id) {
+      this.hasStalled = true;
+      this.resolveStalledWrite();
+      return new Promise<never>(() => undefined);
+    }
     return { targetId };
+  }
+
+  waitForStalledWrite(): Promise<void> {
+    return this.stalledWriteReached;
+  }
+
+  hasUser(sourceId: string): boolean {
+    return this.users.has(sourceId);
   }
 
   async verify(targetId: string, expected: SourceUser): Promise<void> {
@@ -83,6 +120,15 @@ class FakeTarget {
     );
     expect(this.users.get(expected.id)).toEqual({ ...expected, targetId });
   }
+}
+
+function sameTargetUser(left: TargetUser, right: TargetUser): boolean {
+  return (
+    left.id === right.id &&
+    left.name === right.name &&
+    left.email === right.email &&
+    left.targetId === right.targetId
+  );
 }
 
 class FakeManifest {
@@ -237,16 +283,9 @@ class FakeManifest {
   }
 }
 
-class ProcessInterruptedError extends Error {}
-
 type ProcessResult =
   | { status: "COMPLETED"; entityFailures: string[] }
-  | {
-      status: "BLOCKED";
-      blocker: "AUTHENTICATION";
-      entityFailures: string[];
-      originalError: unknown;
-    };
+  | MigrationRunTerminalResult;
 
 class AcceptanceProcess {
   constructor(
@@ -256,10 +295,9 @@ class AcceptanceProcess {
     private readonly manifest: FakeManifest,
   ) {}
 
-  async run(interruptAfterSuccesses?: number): Promise<ProcessResult> {
+  async run(): Promise<ProcessResult> {
     const executor = new ManifestEntityExecutor(this.runId, this.manifest.api);
     const entityFailures: string[] = [];
-    let successfulExecutions = 0;
 
     for (const user of this.source.extractUsers()) {
       const entity = canonicalEntity(
@@ -280,21 +318,12 @@ class AcceptanceProcess {
           entityFailures.push(user.id);
           continue;
         }
-        successfulExecutions++;
-        if (successfulExecutions === interruptAfterSuccesses) {
-          throw new ProcessInterruptedError("external process interruption");
-        }
       } catch (error) {
-        if (error instanceof ProcessInterruptedError) throw error;
-        if (classifyMigrationError(error) === "FATAL") {
-          return {
-            status: "BLOCKED",
-            blocker: "AUTHENTICATION",
-            entityFailures,
-            originalError: error,
-          };
+        const terminal = migrationRunTerminalResult(error);
+        if (terminal.blocker === "AUTHENTICATION") {
+          return terminal;
         }
-        throw error;
+        throw terminal.originalError;
       }
     }
 
@@ -319,7 +348,7 @@ function unauthorizedError(): AxiosError {
   const config: InternalAxiosRequestConfig = {
     method: "post",
     url: "/admin/migration/users",
-    headers: new AxiosHeaders(),
+    headers: new AxiosHeaders({ Authorization: "Bearer must-not-be-logged" }),
   };
   return new AxiosError(
     "target authentication expired",
@@ -332,7 +361,10 @@ function unauthorizedError(): AxiosError {
       headers: new AxiosHeaders(),
       config,
       data: {
-        error: { code: "UNAUTHORIZED", message: "Authentication required" },
+        error: {
+          code: "UNAUTHORIZED",
+          message: "Authentication required; sensitive-body-must-not-be-logged",
+        },
       },
     },
   );
@@ -341,15 +373,24 @@ function unauthorizedError(): AxiosError {
 describe("manifest foundation acceptance", () => {
   it("resumes after interruption, skips unchanged verified users, and reopens only changed checksums", async () => {
     const source = new FakeYouTrack(sourceUsers());
-    const target = new FakeTarget();
+    const target = new FakeTarget({ stallAfterWriteSourceId: "yt-user-1" });
     const manifest = new FakeManifest();
 
-    await expect(
-      new AcceptanceProcess(RUN_ID, source, target, manifest).run(1),
-    ).rejects.toBeInstanceOf(ProcessInterruptedError);
+    const abandonedProcess = new AcceptanceProcess(
+      RUN_ID,
+      source,
+      target,
+      manifest,
+    ).run();
+    await target.waitForStalledWrite();
+    void abandonedProcess;
+
     expect(target.createdUserSourceIds).toEqual(["yt-user-1"]);
+    expect(target.hasUser("yt-user-1")).toBe(true);
     expect(target.loadCallsBySourceId.get("yt-user-1")).toBe(1);
-    expect(manifest.statuses()).toEqual(["VERIFIED"]);
+    expect(target.loadCallbackAttemptsBySourceId.get("yt-user-1")).toBe(1);
+    expect(target.verifyCallsBySourceId.has("yt-user-1")).toBe(false);
+    expect(manifest.statuses()).toEqual(["TRANSFORMED"]);
     expect(manifest.status()).toBe("RUNNING");
     expect(manifest.completionRunIds).toEqual([]);
 
@@ -363,14 +404,21 @@ describe("manifest foundation acceptance", () => {
     ]);
     expect(new Set(target.createdUserSourceIds).size).toBe(3);
     expect(target.loadCallsBySourceId.get("yt-user-1")).toBe(1);
+    expect(target.loadCallbackAttemptsBySourceId.get("yt-user-1")).toBe(2);
     expect(manifest.statuses()).toEqual(["VERIFIED", "VERIFIED", "VERIFIED"]);
     expect(manifest.status()).toBe("COMPLETED");
     expect(manifest.completionRunIds).toEqual([RUN_ID]);
 
     const completedLoadCounts = new Map(target.loadCallsBySourceId);
+    const completedLoadCallbackAttempts = new Map(
+      target.loadCallbackAttemptsBySourceId,
+    );
     const completedVerifyCounts = new Map(target.verifyCallsBySourceId);
     await new AcceptanceProcess(RUN_ID, source, target, manifest).run();
     expect(target.loadCallsBySourceId).toEqual(completedLoadCounts);
+    expect(target.loadCallbackAttemptsBySourceId).toEqual(
+      completedLoadCallbackAttempts,
+    );
     expect(target.verifyCallsBySourceId).toEqual(completedVerifyCounts);
     expect(manifest.statuses()).toEqual(["VERIFIED", "VERIFIED", "VERIFIED"]);
     expect(manifest.status()).toBe("COMPLETED");
@@ -392,6 +440,13 @@ describe("manifest foundation acceptance", () => {
         ["yt-user-3", 1],
       ]),
     );
+    expect(target.loadCallbackAttemptsBySourceId).toEqual(
+      new Map([
+        ["yt-user-1", 2],
+        ["yt-user-2", 2],
+        ["yt-user-3", 1],
+      ]),
+    );
     expect(target.createdUserSourceIds).toEqual([
       "yt-user-1",
       "yt-user-2",
@@ -404,7 +459,7 @@ describe("manifest foundation acceptance", () => {
 
   it("stops the run at a fatal authentication failure and preserves the original error", async () => {
     const source = new FakeYouTrack(sourceUsers());
-    const target = new FakeTarget(2);
+    const target = new FakeTarget({ failLoadAttempt: 2 });
     const manifest = new FakeManifest();
 
     const output = await new AcceptanceProcess(
@@ -417,20 +472,28 @@ describe("manifest foundation acceptance", () => {
     expect(output).toMatchObject({
       status: "BLOCKED",
       blocker: "AUTHENTICATION",
-      entityFailures: [],
     });
     expect(output.status).toBe("BLOCKED");
     if (output.status !== "BLOCKED") throw new Error("Expected blocked output");
     expect(output.originalError).toBe(target.loadFailure);
     expect((output.originalError as AxiosError).response?.status).toBe(401);
-    expect(classifyMigrationError(output.originalError)).toBe("FATAL");
-    expect(target.loadCallsBySourceId).toEqual(
+    expect(output.terminalMessage).toContain(
+      "Migration blocked by authentication (HTTP 401)",
+    );
+    expect(output.terminalMessage).not.toContain(
+      "sensitive-body-must-not-be-logged",
+    );
+    expect(output.terminalMessage).not.toContain("must-not-be-logged");
+    expect(output).not.toHaveProperty("entityFailures");
+    expect(target.loadCallsBySourceId).toEqual(new Map([["yt-user-1", 1]]));
+    expect(target.loadCallsBySourceId.has("yt-user-3")).toBe(false);
+    expect(target.loadCallbackAttemptsBySourceId).toEqual(
       new Map([
         ["yt-user-1", 1],
         ["yt-user-2", 1],
       ]),
     );
-    expect(target.loadCallsBySourceId.has("yt-user-3")).toBe(false);
+    expect(target.loadCallbackAttemptsBySourceId.has("yt-user-3")).toBe(false);
     expect(manifest.statuses()).toEqual(["VERIFIED", "FAILED"]);
     expect(manifest.status()).toBe("RUNNING");
     expect(manifest.completionRunIds).toEqual([]);

@@ -29,6 +29,7 @@ import { mapStatesToStatuses } from '../transformers/state.transformer';
 import { formatHttpError } from '../utils/http-error';
 import { buildRunConfig } from '../manifest/run-config';
 import { MigrationRunCoordinator } from '../manifest/migration-run.coordinator';
+import { migrationRunTerminalResult } from '../manifest/run-blocker';
 import { canonicalEntity, CanonicalEntity } from '../manifest/manifest.types';
 import {
   ManifestEntityExecutor,
@@ -425,10 +426,11 @@ export class MigrateCommand {
       await this.checkpointService.markCompleted(checkpoint);
       this.summary.printSummary(checkpoint, startTime, manifest);
     } catch (err: any) {
+      const terminal = migrationRunTerminalResult(err);
       checkpoint.status = 'INTERRUPTED';
       checkpoint.idMap = this.idMap.serialize();
       await this.checkpointService.save(checkpoint);
-      this.reporter.error(`Migration interrupted: ${formatHttpError(err)}`);
+      this.reporter.error(terminal.terminalMessage);
       this.reporter.info('Run with --resume to continue from this point');
       process.exit(1);
     }
