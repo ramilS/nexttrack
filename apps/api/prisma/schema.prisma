@@ -1299,3 +1299,77 @@ enum WorkflowTrigger {
 
   @@map("workflow_trigger")
 }
+
+model MigrationRun {
+  id               String             @id @default(uuid())
+  sourceSystem     String             @map("source_system") @db.VarChar(50)
+  sourceTenant     String             @map("source_tenant") @db.VarChar(255)
+  sourceUrl        String             @map("source_url") @db.VarChar(2048)
+  targetUrl        String             @map("target_url") @db.VarChar(2048)
+  config           Json
+  configHash       String             @map("config_hash") @db.VarChar(64)
+  specVersion      String             @map("spec_version") @db.VarChar(50)
+  exclusionVersion String             @map("exclusion_version") @db.VarChar(50)
+  fingerprintHash  String             @map("fingerprint_hash") @db.VarChar(64)
+  status           MigrationRunStatus @default(RUNNING)
+  startedAt        DateTime           @default(now()) @map("started_at") @db.Timestamptz(3)
+  completedAt      DateTime?          @map("completed_at") @db.Timestamptz(3)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  entities MigrationEntity[]
+
+  @@index([sourceSystem, sourceTenant, status])
+  @@index([fingerprintHash, status])
+  @@index([status, updatedAt])
+  @@map("migration_runs")
+}
+
+model MigrationEntity {
+  id             String                @id @default(uuid())
+  runId          String                @map("run_id")
+  entityType     String                @map("entity_type") @db.VarChar(100)
+  sourceId       String                @map("source_id") @db.VarChar(500)
+  sourceChecksum String                @map("source_checksum") @db.VarChar(64)
+  targetId       String?               @map("target_id")
+  status         MigrationEntityStatus @default(DISCOVERED)
+  attemptCount   Int                   @default(0) @map("attempt_count")
+  errorCode      String?               @map("error_code") @db.VarChar(100)
+  errorMessage   String?               @map("error_message") @db.Text
+  errorDetails   Json?                 @map("error_details")
+  discoveredAt   DateTime              @default(now()) @map("discovered_at") @db.Timestamptz(3)
+  transformedAt  DateTime?             @map("transformed_at") @db.Timestamptz(3)
+  loadedAt       DateTime?             @map("loaded_at") @db.Timestamptz(3)
+  verifiedAt     DateTime?             @map("verified_at") @db.Timestamptz(3)
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  run MigrationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, entityType, sourceId])
+  @@index([runId, id])
+  @@index([runId, status, id])
+  @@index([runId, entityType, id])
+  @@index([runId, status, entityType, id])
+  @@index([runId, targetId])
+  @@map("migration_entities")
+}
+
+enum MigrationRunStatus {
+  RUNNING
+  FAILED
+  COMPLETED
+
+  @@map("migration_run_status")
+}
+
+enum MigrationEntityStatus {
+  DISCOVERED
+  TRANSFORMED
+  LOADED
+  VERIFIED
+  FAILED
+  EXCLUDED_APPROVED
+
+  @@map("migration_entity_status")
+}

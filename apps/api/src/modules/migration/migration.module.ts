@@ -13,6 +13,8 @@ import { MigrationController } from './migration.controller';
 import { MigrationService } from './migration.service';
 import { MigrationGuard } from './migration.guard';
 import { MigrationRepository } from './migration.repository';
+import { MigrationManifestRepository } from './migration-manifest.repository';
+import { MigrationManifestService } from './migration-manifest.service';
 
 @Module({
   imports: [
@@ -28,6 +30,12 @@ import { MigrationRepository } from './migration.repository';
     AttachmentsModule,
   ],
   controllers: [MigrationController],
-  providers: [MigrationService, MigrationGuard, MigrationRepository],
+  providers: [
+    MigrationService,
+    MigrationGuard,
+    MigrationRepository,
+    MigrationManifestRepository,
+    MigrationManifestService,
+  ],
 })
 export class MigrationModule {}

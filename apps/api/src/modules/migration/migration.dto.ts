@@ -25,7 +25,17 @@ import {
   migrationProjectResultSchema,
   migrationCustomFieldResultSchema,
   migrationActivitiesResultSchema,
+  migrationRunResultSchema,
+  migrationRunSummarySchema,
+  migrationEntitiesResultSchema,
+  migrationEntityResultSchema,
 } from './dto/migration-responses';
+import {
+  discoverMigrationEntitiesSchema,
+  listMigrationEntitiesQuerySchema,
+  startMigrationRunSchema,
+  transitionMigrationEntitySchema,
+} from './dto/migration-manifest.dto';
 import {
   createTagSchema,
   createIssueLinkSchema,
@@ -183,3 +193,11 @@ export class SetAttachmentMetadataDto extends createZodDto(setAttachmentMetadata
 export class MigrationAttachmentMetaDto extends createZodDto(migrationAttachmentMetaSchema) {}
 export class MigrationCreateCustomFieldDto extends createZodDto(createCustomFieldSchema) {}
 export class MigrationCustomFieldResultDto extends createZodDto(migrationCustomFieldResultSchema) {}
+export class StartMigrationRunDto extends createZodDto(startMigrationRunSchema) {}
+export class DiscoverMigrationEntitiesDto extends createZodDto(discoverMigrationEntitiesSchema) {}
+export class TransitionMigrationEntityDto extends createZodDto(transitionMigrationEntitySchema) {}
+export class ListMigrationEntitiesQueryDto extends createZodDto(listMigrationEntitiesQuerySchema) {}
+export class MigrationRunResultDto extends createZodDto(migrationRunResultSchema) {}
+export class MigrationRunSummaryDto extends createZodDto(migrationRunSummarySchema) {}
+export class MigrationEntitiesResultDto extends createZodDto(migrationEntitiesResultSchema) {}
+export class MigrationEntityResultDto extends createZodDto(migrationEntityResultSchema) {}

@@ -96,6 +96,43 @@ export class MigrationRepository {
     });
   }
 
+  async upsertUserByYtId(
+    input: MigrationUserCreateInput,
+  ): Promise<{ user: MigrationUserRow; created: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${'migration-user:' + input.ytId}, 0))::text
+      `;
+      const existing = await tx.user.findUnique({ where: { ytId: input.ytId } });
+      if (existing) {
+        const user = await tx.user.update({
+          where: { id: existing.id },
+          data: {
+            email: input.email,
+            name: input.name,
+            avatarUrl: input.avatarUrl,
+            isBlocked: input.isBlocked,
+            migratedFrom: input.migratedFrom,
+            updatedAt: existing.updatedAt,
+          },
+        });
+        return { user, created: false };
+      }
+      const user = await tx.user.create({
+        data: {
+          email: input.email,
+          name: input.name,
+          avatarUrl: input.avatarUrl,
+          isBlocked: input.isBlocked,
+          migratedFrom: input.migratedFrom,
+          ytId: input.ytId,
+          hasPassword: false,
+        },
+      });
+      return { user, created: true };
+    });
+  }
+
   async findProjectByKey(
     key: string,
   ): Promise<{ id: string; key: string } | null> {

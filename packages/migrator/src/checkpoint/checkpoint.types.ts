@@ -1,5 +1,11 @@
+import type { SafeMigrationRunConfig } from '../manifest/run-config';
+
+export const CHECKPOINT_VERSION = '0.2.0' as const;
+
 export interface MigrationCheckpoint {
-  version: string;
+  version: typeof CHECKPOINT_VERSION;
+  runId?: string;
+  configHash: string;
   startedAt: string;
   updatedAt: string;
   config: MigrationConfig;
@@ -33,25 +39,13 @@ export interface PhaseProgress {
 
 export interface MigrationError {
   phase: string;
+  projectKey?: string;
   entityId: string;
   message: string;
   timestamp: string;
 }
 
-export interface MigrationConfig {
-  sourceUrl: string;
-  targetUrl: string;
-  projects: string[];
-  allProjects: boolean;
-  withAttachments: boolean;
-  withTimeTracking: boolean;
-  withBoards: boolean;
-  withClosedIssues: boolean;
-  concurrency: number;
-  batchSize: number;
-  rateLimit: number;
-  dryRun: boolean;
-}
+export type MigrationConfig = SafeMigrationRunConfig;
 
 export function createPhaseProgress(): PhaseProgress {
   return {

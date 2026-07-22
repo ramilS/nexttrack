@@ -43,3 +43,7 @@ yarn-error.log*
 .agents
 .claude
 .worktrees/
+.codex
+.pnpm-store
+AGENTS.md
+landing

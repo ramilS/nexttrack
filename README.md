@@ -2,9 +2,9 @@
 
 > Open-source project management tool inspired by YouTrack. Built as a monorepo with NestJS + Next.js.
 
-![CI](https://github.com/your-org/next_track/actions/workflows/ci.yml/badge.svg)
-![Docker](https://github.com/your-org/next_track/actions/workflows/docker.yml/badge.svg)
-![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)
+[![CI](https://github.com/ramilS/nexttrack/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/ramilS/nexttrack/actions/workflows/ci.yml)
+[![E2E Tests](https://github.com/ramilS/nexttrack/actions/workflows/e2e.yml/badge.svg?branch=master)](https://github.com/ramilS/nexttrack/actions/workflows/e2e.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ---
 
@@ -169,14 +169,17 @@ API logs the exact URL. Note: Swagger UI is served at `/docs`, **not** under the
 
 ### Docker Images
 
-Images are built on every push to `main` and published to GitHub Container Registry:
+Images are published to GitHub Container Registry:
 
 ```
-ghcr.io/<your-org>/next_track/api:latest
-ghcr.io/<your-org>/next_track/web:latest
+ghcr.io/ramils/nexttrack/api:latest
+ghcr.io/ramils/nexttrack/web:latest
 ```
 
-Tagged releases produce semver-tagged images (`v1.0.0`, `v1.0`).
+The `Docker Build & Push` workflow is currently **manual-only** (`workflow_dispatch`) until the
+first release — automatic builds on push to `master` and on `v*` tags are commented out in
+`.github/workflows/docker.yml`. Once re-enabled, tagged releases produce semver-tagged images
+(`v1.0.0`, `v1.0`).
 
 ## Project Structure
 
