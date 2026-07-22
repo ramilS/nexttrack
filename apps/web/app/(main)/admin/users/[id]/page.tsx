@@ -21,24 +21,27 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { UserAvatar } from '@/components/shared/user-avatar';
 import { ColorDot } from '@/components/shared/color-dot';
 import { PageHeader } from '@/components/shared/page-header';
-import { useUser, useUserMemberships, useAdminUpdateUser } from '@/lib/hooks/use-users';
+import {
+  useUser,
+  useUserMemberships,
+  useAdminUpdateUser,
+  useUpdateUserMembershipRole,
+} from '@/lib/hooks/use-users';
 import { isAdminRole } from '@/lib/auth/roles';
 import { useRoles } from '@/lib/hooks/use-roles';
-import { projectsApi } from '@/lib/api/projects.api';
-import { useQueryClient } from '@tanstack/react-query';
-import { toast } from 'sonner';
 import { format } from 'date-fns';
 
 export default function AdminUserDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const queryClient = useQueryClient();
   const { data: user, isLoading } = useUser(id);
   const { data: memberships, isLoading: membershipsLoading } = useUserMemberships(id);
   const { data: roles } = useRoles();
   const updateUser = useAdminUpdateUser();
+  const updateMembershipRole = useUpdateUserMembershipRole();
 
   const [name, setName] = useState('');
+  const [pendingMembershipProjectId, setPendingMembershipProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -54,14 +57,17 @@ export default function AdminUserDetailPage() {
     updateUser.mutate({ userId: id, data });
   }
 
-  async function handleMemberRoleChange(projectKey: string, userId: string, roleId: string) {
-    try {
-      await projectsApi.updateMember(projectKey, userId, { roleId });
-      queryClient.invalidateQueries({ queryKey: ['admin-users', 'memberships', id] });
-      toast.success('Role updated');
-    } catch {
-      toast.error('Failed to update role');
-    }
+  async function handleMemberRoleChange(
+    projectId: string,
+    projectKey: string,
+    userId: string,
+    roleId: string,
+  ) {
+    setPendingMembershipProjectId(projectId);
+    updateMembershipRole.mutate(
+      { projectKey, userId, roleId },
+      { onSettled: () => setPendingMembershipProjectId(null) },
+    );
   }
 
   const hasChanges = user && name !== user.name;
@@ -173,28 +179,48 @@ export default function AdminUserDetailPage() {
                     </Link>
                     <p className="text-xs text-muted-foreground">{m.project.key}</p>
                   </div>
-                  <Select
-                    value={m.role.id}
-                    onValueChange={(v: string | null) => {
-                      if (v) handleMemberRoleChange(m.project.key, user.id, v);
-                    }}
-                  >
-                    <SelectTrigger className="h-7 w-auto text-xs">
-                      <SelectValue>
-                        {(value: string | null) => {
-                          const role = roles?.find((r) => r.id === value);
-                          return role?.name ?? 'Select role';
-                        }}
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                      {roles?.map((role) => (
-                        <SelectItem key={role.id} value={role.id} label={role.name}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  {m.canChangeRole ? (
+                    <Select
+                      value={m.role.id}
+                      onValueChange={(v: string | null) => {
+                        if (v) {
+                          void handleMemberRoleChange(
+                            m.project.id,
+                            m.project.key,
+                            user.id,
+                            v,
+                          );
+                        }
+                      }}
+                    >
+                      <SelectTrigger
+                        className="h-7 w-auto text-xs"
+                        aria-label={`Project role for ${m.project.name}`}
+                        disabled={pendingMembershipProjectId === m.project.id}
+                      >
+                        <SelectValue>
+                          {(value: string | null) => {
+                            const role = roles?.find((r) => r.id === value);
+                            return role?.name ?? 'Select role';
+                          }}
+                        </SelectValue>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {roles?.map((role) => (
+                          <SelectItem key={role.id} value={role.id} label={role.name}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-right">
+                      <Badge variant="secondary">Project Admin</Badge>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Assign another Project Admin before changing this role.
+                      </p>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>

@@ -193,6 +193,45 @@ describe('Users Integration', () => {
     });
   });
 
+  // ─── Project memberships ──────────────────────────────────
+
+  describe('User project memberships', () => {
+    it('marks a sole Project Admin role as non-editable', async () => {
+      const member = await createRegularUser('member@test.local', 'Project Member');
+      await adminReq()
+        .post('/projects')
+        .send({ key: 'ROLE', name: 'Role Test' })
+        .expect(201);
+
+      const initial = await adminReq()
+        .get(`/users/${adminId}/memberships`)
+        .expect(200);
+
+      expect(initial.body.data).toEqual([
+        expect.objectContaining({
+          project: expect.objectContaining({ key: 'ROLE' }),
+          canChangeRole: false,
+        }),
+      ]);
+
+      await adminReq()
+        .post('/projects/ROLE/members')
+        .send({
+          userId: member.id,
+          roleId: '00000000-0000-0000-0000-000000000001',
+        })
+        .expect(201);
+
+      const withSecondAdmin = await adminReq()
+        .get(`/users/${adminId}/memberships`)
+        .expect(200);
+
+      expect(withSecondAdmin.body.data[0]).toEqual(
+        expect.objectContaining({ canChangeRole: true }),
+      );
+    });
+  });
+
   // ─── Block / Unblock ───────────────────────────────────────
 
   describe('Block / Unblock', () => {

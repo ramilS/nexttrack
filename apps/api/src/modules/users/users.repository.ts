@@ -87,11 +87,16 @@ const MEMBERSHIP_INCLUDE = {
   roleRef: { select: { id: true, name: true, permissions: true } },
 } as const;
 
+const PROJECT_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001';
+
 type MembershipRow = Prisma.ProjectMemberGetPayload<{
   include: typeof MEMBERSHIP_INCLUDE;
 }>;
 
-function toMembership(m: MembershipRow): UserMembership {
+function toMembership(
+  m: MembershipRow,
+  canChangeRole: boolean,
+): UserMembership {
   return {
     project: {
       id: m.project.id,
@@ -106,6 +111,7 @@ function toMembership(m: MembershipRow): UserMembership {
         ? (m.roleRef.permissions as string[])
         : [],
     },
+    canChangeRole,
     joinedAt: m.joinedAt.toISOString(),
   };
 }
@@ -366,7 +372,31 @@ export class UsersRepository {
       include: MEMBERSHIP_INCLUDE,
       orderBy: { joinedAt: 'desc' },
     });
-    return rows.map(toMembership);
+
+    const adminProjectIds = rows
+      .filter((membership) => membership.roleId === PROJECT_ADMIN_ROLE_ID)
+      .map((membership) => membership.projectId);
+    const adminCounts = adminProjectIds.length > 0
+      ? await this.prisma.projectMember.groupBy({
+        by: ['projectId'],
+        where: {
+          projectId: { in: adminProjectIds },
+          roleId: PROJECT_ADMIN_ROLE_ID,
+        },
+        _count: { _all: true },
+      })
+      : [];
+    const adminCountByProjectId = new Map(
+      adminCounts.map((count) => [count.projectId, count._count._all]),
+    );
+
+    return rows.map((membership) =>
+      toMembership(
+        membership,
+        membership.roleId !== PROJECT_ADMIN_ROLE_ID ||
+          (adminCountByProjectId.get(membership.projectId) ?? 0) > 1,
+      ),
+    );
   }
 
   // ─── Refresh tokens (temporary; moves to RefreshTokensRepository with auth) ──

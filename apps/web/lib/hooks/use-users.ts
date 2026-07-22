@@ -1,8 +1,14 @@
 'use client';
 
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { usersApi, type ListUsersQuery, type SendInviteInput, type AdminUpdateUserInput, type ListInvitesQuery } from '@/lib/api/users.api';
+import { projectsApi } from '@/lib/api/projects.api';
+import { projectKeys } from './use-projects';
 import { useMutationWithToast } from './use-mutation-with-toast';
+import { getApiErrorMessage } from '@/lib/api/error-message';
+import { ErrorCode } from '@repo/shared';
+import { isAxiosError } from 'axios';
+import { toast } from 'sonner';
 
 const userKeys = {
   all: ['admin-users'] as const,
@@ -11,6 +17,15 @@ const userKeys = {
   memberships: (id: string) => [...userKeys.all, 'memberships', id] as const,
   invites: ['admin-invites'] as const,
 };
+
+export function getMembershipRoleUpdateErrorMessage(error: unknown): string {
+  const code = isAxiosError(error)
+    ? (error.response?.data as { error?: { code?: string } } | undefined)?.error?.code
+    : undefined;
+  return code === ErrorCode.CANNOT_REMOVE_LAST_OWNER
+    ? 'Assign another Project Admin before changing this role.'
+    : (getApiErrorMessage(error) ?? 'Failed to update role');
+}
 
 export function useUser(id: string) {
   return useQuery({
@@ -31,6 +46,23 @@ export function useUserMemberships(id: string) {
       return data;
     },
     enabled: !!id,
+  });
+}
+
+export function useUpdateUserMembershipRole() {
+  return useMutation({
+    mutationFn: ({ projectKey, userId, roleId }: {
+      projectKey: string;
+      userId: string;
+      roleId: string;
+    }) => projectsApi.updateMember(projectKey, userId, { roleId }),
+    meta: { invalidates: [userKeys.all, projectKeys.all] },
+    onSuccess: () => {
+      toast.success('Role updated');
+    },
+    onError: (error) => {
+      toast.error(getMembershipRoleUpdateErrorMessage(error));
+    },
   });
 }
 
