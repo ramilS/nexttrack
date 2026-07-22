@@ -258,6 +258,17 @@ export class MigrationManifestRepository {
       const run = await this.lockRun(tx, runId);
       if (!run) return { outcome: 'not_found' };
 
+      if (run.status === MigrationRunStatus.COMPLETED) {
+        const groups = await tx.migrationEntity.groupBy({
+          by: ['status'],
+          where: { runId },
+          _count: { _all: true },
+        });
+        const counts: MigrationStatusCounts = {};
+        for (const group of groups) counts[group.status] = group._count._all;
+        return { outcome: 'completed', summary: { run, counts } };
+      }
+
       const nonterminal = await tx.migrationEntity.count({
         where: {
           runId,

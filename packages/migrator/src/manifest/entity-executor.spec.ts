@@ -30,6 +30,7 @@ function manifestEntity(
     attemptCount: 0,
     errorCode: null,
     errorMessage: null,
+    errorDetails: null,
     discoveredAt: '2026-07-14T00:00:00.000Z',
     transformedAt: null,
     loadedAt: null,
@@ -276,6 +277,20 @@ describe('ManifestEntityExecutor', () => {
       expect.objectContaining({
         status: 'FAILED',
         error: expect.objectContaining({ code: 'LOOKUP_VALIDATION_ERROR' }),
+      }),
+    );
+  });
+
+  it('normalizes an unstable upstream error code to a stable machine code', async () => {
+    const { api, handlers } = setup();
+    handlers.load.mockRejectedValue(axiosError(422, 'lowercase-freeform'));
+
+    await new ManifestEntityExecutor(runId, api).execute(entity, handlers);
+
+    expect(api.transitionEntity).toHaveBeenLastCalledWith(
+      runId,
+      expect.objectContaining({
+        error: expect.objectContaining({ code: 'MIGRATION_ENTITY_FAILED' }),
       }),
     );
   });

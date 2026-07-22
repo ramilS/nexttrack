@@ -9,7 +9,9 @@ import { AxiosError } from 'axios';
 export function formatHttpError(err: unknown): string {
   const ax = err as AxiosError<Record<string, unknown>> | undefined;
   if (!ax?.isAxiosError) {
-    return err instanceof Error ? err.message : String(err);
+    return sanitizeMigrationErrorMessage(
+      err instanceof Error ? err.message : String(err),
+    );
   }
 
   const method = ax.config?.method?.toUpperCase() ?? '?';
@@ -17,7 +19,9 @@ export function formatHttpError(err: unknown): string {
 
   if (!ax.response) {
     // No response: DNS, connection refused, timeout, etc.
-    return `${method} ${url} → no response (${ax.code ?? ax.message})`;
+    return sanitizeMigrationErrorMessage(
+      `${method} ${url} → no response (${ax.code ?? ax.message})`,
+    );
   }
 
   const body = ax.response.data as
@@ -44,12 +48,43 @@ export function formatHttpError(err: unknown): string {
     details = nested?.details;
   }
 
-  return (
+  return sanitizeMigrationErrorMessage(
     `${method} ${url} → ${ax.response.status}` +
     (code ? ` [${code}]` : '') +
     (detail != null ? `: ${stringify(detail)}` : '') +
-    (details != null ? ` ${stringify(details)}` : '')
+    (details != null ? ` ${stringify(details)}` : ''),
   );
+}
+
+const MAX_ERROR_MESSAGE_LENGTH = 2_000;
+
+export function sanitizeMigrationErrorMessage(value: string): string {
+  const sanitized = value
+    .replace(/\b(Bearer|Basic)\s+\S+/gi, '$1 [redacted]')
+    .replace(
+      /\b([A-Za-z0-9_-]*(?:authorization|cookie|token|secret|password|credential|api[-_]?key)[A-Za-z0-9_-]*)\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi,
+      '$1=[redacted]',
+    )
+    .replace(/\b(https?:\/\/)[^\s/:@]+:[^\s/@]+@/gi, '$1[redacted]@')
+    .replace(
+      /\beyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b/g,
+      '[redacted]',
+    )
+    .replace(/\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/gi, '[redacted]');
+  return truncateUtf8(sanitized, MAX_ERROR_MESSAGE_LENGTH);
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  let result = '';
+  let bytes = 0;
+  for (const character of value) {
+    const characterBytes = Buffer.byteLength(character, 'utf8');
+    if (bytes + characterBytes > maxBytes) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
 }
 
 function stringify(value: unknown): string {

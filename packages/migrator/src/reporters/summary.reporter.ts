@@ -1,4 +1,5 @@
 import chalk from 'chalk';
+import { checkpointProjectKey } from '../checkpoint/checkpoint.service';
 import { MigrationCheckpoint } from '../checkpoint/checkpoint.types';
 import { MigrationEntityStatus, MigrationRunSummary } from '../loaders/api-client';
 
@@ -22,13 +23,20 @@ export class SummaryReporter {
 
     console.log('');
     console.log(chalk.gray('─'.repeat(50)));
+    const isDryRun = checkpoint.config.dryRun;
     console.log(
-      checkpoint.status === 'COMPLETED'
+      checkpoint.status === 'COMPLETED' && isDryRun
+        ? chalk.green.bold('DRY RUN COMPLETE')
+        : checkpoint.status === 'COMPLETED'
         ? chalk.green.bold('MIGRATION COMPLETE')
         : chalk.red.bold(`MIGRATION ${checkpoint.status}`),
     );
     console.log(chalk.gray('─'.repeat(50)));
-    console.log(`Run ID:       ${checkpoint.runId}`);
+    console.log(
+      checkpoint.runId
+        ? `Run ID:       ${checkpoint.runId}`
+        : 'Run ID:       none (local dry run)',
+    );
     console.log(`Duration:     ${durationStr}`);
     console.log(`Errors:       ${checkpoint.errors.length}`);
     console.log('');
@@ -45,16 +53,16 @@ export class SummaryReporter {
     console.log('Legacy checkpoint progress:');
     this.printPhase('Users', checkpoint.progress.users);
     for (const [key, progress] of Object.entries(checkpoint.progress.issues)) {
-      this.printPhase(`Issues [${key}]`, progress);
+      this.printPhase(`Issues [${checkpointProjectKey(key)}]`, progress);
     }
     for (const [key, progress] of Object.entries(checkpoint.progress.comments)) {
-      this.printPhase(`Comments [${key}]`, progress);
+      this.printPhase(`Comments [${checkpointProjectKey(key)}]`, progress);
     }
     for (const [key, progress] of Object.entries(checkpoint.progress.attachments)) {
-      this.printPhase(`Attachments [${key}]`, progress);
+      this.printPhase(`Attachments [${checkpointProjectKey(key)}]`, progress);
     }
     for (const [key, progress] of Object.entries(checkpoint.progress.timeLogs)) {
-      this.printPhase(`Time Logs [${key}]`, progress);
+      this.printPhase(`Time Logs [${checkpointProjectKey(key)}]`, progress);
     }
 
     if (checkpoint.errors.length > 0) {
@@ -78,10 +86,10 @@ export class SummaryReporter {
     console.log('Progress:');
     this.printPhase('Users', checkpoint.progress.users);
     for (const [key, progress] of Object.entries(checkpoint.progress.issues)) {
-      this.printPhase(`Issues [${key}]`, progress);
+      this.printPhase(`Issues [${checkpointProjectKey(key)}]`, progress);
     }
     for (const [key, progress] of Object.entries(checkpoint.progress.comments)) {
-      this.printPhase(`Comments [${key}]`, progress);
+      this.printPhase(`Comments [${checkpointProjectKey(key)}]`, progress);
     }
 
     console.log('');

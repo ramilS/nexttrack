@@ -31,6 +31,19 @@ function checkpoint(): MigrationCheckpoint {
 afterEach(() => vi.restoreAllMocks());
 
 describe('SummaryReporter', () => {
+  it('sanitizes legacy raw progress keys in the status view', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const value = checkpoint();
+    value.progress.issues['access_token=abcdefghijklmnopqrstuvwxyz'] =
+      createPhaseProgress();
+
+    new SummaryReporter().printStatus(value);
+
+    const output = log.mock.calls.flat().join('\n');
+    expect(output).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(output).toContain('[redacted-');
+  });
+
   it('prints run identity, manifest status counts, and labels checkpoint counters legacy', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
 

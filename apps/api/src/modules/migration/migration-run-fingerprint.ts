@@ -14,7 +14,7 @@ type FingerprintInput = Pick<
   | 'exclusionVersion'
 >;
 
-function normalizeUrl(value: string): string {
+export function normalizeMigrationUrl(value: string): string {
   const url = new URL(value);
   url.hostname = url.hostname.toLowerCase();
   return url.toString().replace(/\/$/, '');
@@ -31,8 +31,8 @@ export function buildMigrationRunFingerprint(input: FingerprintInput): {
   fingerprintHash: string;
 } {
   const sourceTenant = input.sourceTenant.trim().toLowerCase();
-  const sourceUrl = normalizeUrl(input.sourceUrl);
-  const targetUrl = normalizeUrl(input.targetUrl);
+  const sourceUrl = normalizeMigrationUrl(input.sourceUrl);
+  const targetUrl = normalizeMigrationUrl(input.targetUrl);
   const canonical = [
     FINGERPRINT_VERSION,
     input.sourceSystem,

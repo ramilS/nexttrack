@@ -92,6 +92,7 @@ export interface MigrationEntity {
   attemptCount: number;
   errorCode: string | null;
   errorMessage: string | null;
+  errorDetails: Record<string, unknown> | null;
   discoveredAt: string;
   transformedAt: string | null;
   loadedAt: string | null;
@@ -211,7 +212,7 @@ export class OurApiClient {
     return retry(async () => {
       const { data } = await this.http.post('/admin/migration/users', dto);
       return unwrapEnvelope<{ data: any; existed: boolean }>(data);
-    });
+    }, MANIFEST_RETRY_OPTIONS);
   }
 
   async findUserByEmail(email: string): Promise<any | null> {

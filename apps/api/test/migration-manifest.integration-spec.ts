@@ -13,6 +13,7 @@ import {
 import { ErrorCode } from '@repo/shared/error-codes';
 import { TEST_SECRETS } from '@repo/test-support';
 import { MigrationManifestService } from '@/modules/migration/migration-manifest.service';
+import { canonicalJsonChecksum } from '@/modules/migration/migration-json';
 import { migrationConfig } from '@/config';
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request, { type Test } from 'supertest';
@@ -68,18 +69,214 @@ describe('Migration manifest (Integration)', () => {
       .set('x-migration-secret', MIGRATION_SECRET) as T;
   }
 
-  function runInput() {
+  function runInput(): {
+    sourceSystem: 'youtrack-cloud';
+    sourceTenant: string;
+    sourceUrl: string;
+    targetUrl: string;
+    config: Record<string, unknown>;
+    configHash: string;
+    specVersion: '2026-07-14';
+    exclusionVersion: '2026-07-14';
+  } {
+    const config = {
+      sourceUrl: 'https://example.youtrack.cloud',
+      targetUrl: 'http://localhost:3001',
+      projects: ['APP'],
+      allProjects: false,
+      withAttachments: false,
+      withTimeTracking: false,
+      withBoards: false,
+      withClosedIssues: false,
+      estimateField: null,
+      dryRun: false,
+      concurrency: 3,
+      batchSize: 50,
+      rateLimit: 10,
+    };
     return {
       sourceSystem: 'youtrack-cloud',
       sourceTenant: 'example.youtrack.cloud',
       sourceUrl: 'https://example.youtrack.cloud',
       targetUrl: 'http://localhost:3001',
-      config: { projects: ['APP'] },
-      configHash: 'a'.repeat(64),
+      config,
+      configHash: canonicalJsonChecksum(config),
       specVersion: '2026-07-14',
       exclusionVersion: '2026-07-14',
     };
   }
+
+  it('upserts a migrated user by source id and controls email collisions', async () => {
+    const endpoint = '/admin/migration/users';
+    const first = await migrationRequest(request(ctx.app.getHttpServer()).post(endpoint))
+      .send({
+        ytId: 'yt-user-1',
+        email: 'ALICE@example.com',
+        name: 'Alice',
+        avatarUrl: '/old',
+        isBlocked: false,
+        migratedFrom: 'youtrack',
+      })
+      .expect(201);
+    const targetId = first.body.data.data.id as string;
+    const createdAt = first.body.data.data.createdAt as string;
+    const updatedAt = first.body.data.data.updatedAt as string;
+
+    const changed = await migrationRequest(request(ctx.app.getHttpServer()).post(endpoint))
+      .send({
+        ytId: 'yt-user-1',
+        email: 'renamed@example.com',
+        name: 'Alice Renamed',
+        avatarUrl: '/new',
+        isBlocked: true,
+        migratedFrom: 'youtrack-cloud',
+      })
+      .expect(201);
+
+    expect(changed.body.data).toMatchObject({
+      existed: true,
+      data: {
+        id: targetId,
+        email: 'renamed@example.com',
+        name: 'Alice Renamed',
+        avatarUrl: '/new',
+        isBlocked: true,
+        migratedFrom: 'youtrack-cloud',
+        createdAt,
+        updatedAt,
+      },
+    });
+
+    await ctx.prisma.user.create({
+      data: { email: 'owned@example.com', name: 'Owner', hasPassword: false },
+    });
+    await migrationRequest(request(ctx.app.getHttpServer()).post(endpoint))
+      .send({
+        ytId: 'yt-user-1',
+        email: 'owned@example.com',
+        name: 'Collision',
+        isBlocked: false,
+        migratedFrom: 'youtrack',
+      })
+      .expect(409)
+      .expect(({ body }) => {
+        expect(body.error.code).toBe(ErrorCode.MIGRATION_USER_EMAIL_CONFLICT);
+        expect(JSON.stringify(body)).not.toContain('owned@example.com');
+      });
+  });
+
+  it('keeps concurrent retries for one migrated source user idempotent', async () => {
+    const payload = {
+      ytId: 'yt-concurrent',
+      email: 'concurrent@example.com',
+      name: 'Concurrent User',
+      isBlocked: false,
+      migratedFrom: 'youtrack',
+    };
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        migrationRequest(
+          request(ctx.app.getHttpServer()).post('/admin/migration/users'),
+        )
+          .send(payload)
+          .expect(201),
+      ),
+    );
+    expect(new Set(responses.map((response) => response.body.data.data.id)).size).toBe(1);
+    expect(await ctx.prisma.user.count({ where: { ytId: payload.ytId } })).toBe(1);
+  });
+
+  it('rejects caller-controlled config hashes and source tenants before persistence', async () => {
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).post('/admin/migration/runs'),
+    )
+      .send({ ...runInput(), configHash: 'b'.repeat(64) })
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body.error.code).toBe(ErrorCode.MIGRATION_CONFIG_HASH_MISMATCH),
+      );
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).post('/admin/migration/runs'),
+    )
+      .send({ ...runInput(), sourceTenant: 'attacker.example' })
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body.error.code).toBe(ErrorCode.MIGRATION_SOURCE_TENANT_MISMATCH),
+      );
+    expect(await ctx.prisma.migrationRun.count()).toBe(0);
+  });
+
+  it.each([
+    (base: ReturnType<typeof runInput>) => ({
+      ...base.config,
+      unknown: true,
+    }),
+    (base: ReturnType<typeof runInput>) => ({
+      ...base.config,
+      estimateField: 'Bearer abcdefghijklmnopqrstuvwxyz',
+    }),
+    (base: ReturnType<typeof runInput>) => ({
+      ...base.config,
+      sourceUrl: 'https://other.youtrack.cloud',
+    }),
+    (base: ReturnType<typeof runInput>) => ({
+      ...base.config,
+      projects: ['access_token=secret'],
+    }),
+  ])('rejects strict unsafe run config without persistence', async (mutate) => {
+    const base = runInput();
+    const config = mutate(base);
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).post('/admin/migration/runs'),
+    )
+      .send({ ...base, config, configHash: canonicalJsonChecksum(config) })
+      .expect(400);
+    expect(await ctx.prisma.migrationRun.count()).toBe(0);
+  });
+
+  it.each([
+    'https://user:password@example.youtrack.cloud',
+    'https://example.youtrack.cloud?token=value',
+    'https://example.youtrack.cloud#secret',
+  ])('rejects non-origin source URLs without persistence', async (sourceUrl) => {
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).post('/admin/migration/runs'),
+    )
+      .send({ ...runInput(), sourceUrl })
+      .expect(400)
+      .expect(({ body }) =>
+        expect(body.error.code).toBe(ErrorCode.MIGRATION_RUN_URL_INVALID),
+      );
+    expect(await ctx.prisma.migrationRun.count()).toBe(0);
+  });
+
+  it('uses recursively canonical config JSON for active-run identity', async () => {
+    const base = runInput();
+    const reordered = {
+      rateLimit: 10,
+      batchSize: 50,
+      concurrency: 3,
+      dryRun: false,
+      estimateField: null,
+      withClosedIssues: false,
+      withBoards: false,
+      withTimeTracking: false,
+      withAttachments: false,
+      allProjects: false,
+      projects: ['APP'],
+      targetUrl: 'http://localhost:3001',
+      sourceUrl: 'https://example.youtrack.cloud',
+    };
+    const first = await startRun({
+      ...base,
+    });
+    const second = await startRun({
+      ...base,
+      config: reordered,
+      configHash: canonicalJsonChecksum(reordered),
+    });
+    expect(second.body.data.data.id).toBe(first.body.data.data.id);
+  });
 
   async function startRun(input = runInput()) {
     return migrationRequest(
@@ -165,7 +362,7 @@ describe('Migration manifest (Integration)', () => {
           sourceTenant: stored.sourceTenant,
           sourceUrl: stored.sourceUrl,
           targetUrl: stored.targetUrl,
-          config: runInput().config,
+          config: { projects: ['APP'] },
           configHash: stored.configHash,
           specVersion: stored.specVersion,
           exclusionVersion: stored.exclusionVersion,
@@ -361,6 +558,88 @@ describe('Migration manifest (Integration)', () => {
     });
   });
 
+  it('persists and returns useful sanitized failure details', async () => {
+    const started = await startRun();
+    const runId = started.body.data.data.id as string;
+    const checksum = 'b'.repeat(64);
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).post(
+        `/admin/migration/runs/${runId}/entities/discover`,
+      ),
+    ).send({ entities: [{ entityType: 'issue', sourceId: '2-42', sourceChecksum: checksum }] });
+
+    const failed = await migrationRequest(
+      request(ctx.app.getHttpServer()).patch(
+        `/admin/migration/runs/${runId}/entities/state`,
+      ),
+    )
+      .send({
+        entityType: 'issue',
+        sourceId: '2-42',
+        sourceChecksum: checksum,
+        status: MigrationEntityStatus.FAILED,
+        error: {
+          code: 'UPSTREAM_422',
+          message:
+            'Target rejected entity: sk-proj-abcdefghijklmnopqrstuvwxyz0123456789',
+          details: {
+            status: 422,
+            operation: 'createIssue',
+            nested: {
+              authorization: 'Bearer should-never-persist',
+              api_key: 'should-never-persist',
+              reason: 'invalid state',
+            },
+            cookie: 'session=should-never-persist',
+          },
+        },
+      })
+      .expect(200);
+
+    const list = await migrationRequest(
+      request(ctx.app.getHttpServer()).get(
+        `/admin/migration/runs/${runId}/entities`,
+      ),
+    ).expect(200);
+    const stored = await ctx.prisma.migrationEntity.findFirstOrThrow({
+      where: { runId, sourceId: '2-42' },
+    });
+    for (const value of [failed.body.data.data.errorDetails, list.body.data.data[0].errorDetails, stored.errorDetails]) {
+      expect(value).toMatchObject({
+        status: 422,
+        operation: 'createIssue',
+        nested: { reason: 'invalid state' },
+      });
+      expect(JSON.stringify(value)).not.toMatch(
+        /authorization|cookie|api_key|should-never-persist/i,
+      );
+    }
+    for (const message of [
+      failed.body.data.data.errorMessage,
+      list.body.data.data[0].errorMessage,
+      stored.errorMessage,
+    ]) {
+      expect(message).toContain('Target rejected entity');
+      expect(message).toContain('[redacted]');
+      expect(message).not.toContain('abcdefghijklmnopqrstuvwxyz0123456789');
+    }
+  });
+
+  it('returns an already completed run unchanged, including with an active successor', async () => {
+    const service = ctx.app.get(MigrationManifestService);
+    const first = await startRun();
+    const firstId = first.body.data.data.id as string;
+    const initial = await service.complete(firstId);
+    const completedAt = initial.run.completedAt;
+    const updatedAt = initial.run.updatedAt;
+    await startRun();
+
+    const repeated = await service.complete(firstId);
+    expect(repeated).toEqual(initial);
+    expect(repeated.run.completedAt).toEqual(completedAt);
+    expect(repeated.run.updatedAt).toEqual(updatedAt);
+  });
+
   it('validates exact run literals, checksums, batch size, transitions, and list limits', async () => {
     await migrationRequest(
       request(ctx.app.getHttpServer()).post('/admin/migration/runs'),
@@ -414,6 +693,19 @@ describe('Migration manifest (Integration)', () => {
         sourceId: '2-42',
         sourceChecksum: 'not-a-checksum',
         status: MigrationEntityStatus.TRANSFORMED,
+      })
+      .expect(400);
+    await migrationRequest(
+      request(ctx.app.getHttpServer()).patch(
+        `/admin/migration/runs/${runId}/entities/state`,
+      ),
+    )
+      .send({
+        entityType: 'issue',
+        sourceId: '2-42',
+        sourceChecksum: 'b'.repeat(64),
+        status: MigrationEntityStatus.FAILED,
+        error: { code: 'lowercase freeform', message: 'failed' },
       })
       .expect(400);
     await migrationRequest(

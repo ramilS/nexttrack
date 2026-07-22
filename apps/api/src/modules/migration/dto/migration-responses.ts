@@ -171,6 +171,7 @@ const migrationEntitySchema = z.object({
   attemptCount: z.number().int().nonnegative(),
   errorCode: z.string().nullable(),
   errorMessage: z.string().nullable(),
+  errorDetails: z.record(z.string(), z.unknown()).nullable(),
   discoveredAt: z.iso.datetime(),
   transformedAt: z.iso.datetime().nullable(),
   loadedAt: z.iso.datetime().nullable(),

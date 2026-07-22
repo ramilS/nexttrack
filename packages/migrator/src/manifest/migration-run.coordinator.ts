@@ -10,7 +10,7 @@ import { sourceChecksum } from './stable-checksum';
 const RESUME_CONFIG_MISMATCH = 'MIGRATION_RESUME_CONFIG_MISMATCH' as const;
 
 interface ResumeCheckpoint {
-  runId: string;
+  runId?: string;
   configHash: string;
 }
 
@@ -48,7 +48,7 @@ export class MigrationRunCoordinator {
       return { runId: result.data.id, configHash };
     }
 
-    if (!checkpoint) {
+    if (!checkpoint?.runId) {
       throw new Error('A manifest-backed checkpoint is required to resume migration');
     }
 

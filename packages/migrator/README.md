@@ -147,8 +147,14 @@ baked into the script, so pass flags after `--`.
 
 ### 1. Dry run (recommended first pass)
 
-Reads YouTrack and prints `[DRY] Would create…` for every entity **without writing
-anything** to NextTrack. Use it to confirm connectivity, credentials, and counts.
+Reads YouTrack, transforms and validates source records, and prints dry-run
+counts **without mutating NextTrack**. It validates users, projects and issue
+payloads; parent and non-parent link mapping; tag-color conversion; comment
+rich text and timestamps; field-change history mapping; attachment metadata;
+time-log rows; and board/sprint metadata plus source issue membership. It does
+not download attachment bytes. It does not start or inspect a server manifest,
+discover/transition manifest entities, write target entities, complete a server
+run, or enqueue reindexing.
 
 ```bash
 cd packages/migrator
@@ -163,11 +169,12 @@ pnpm migrate -- \
   --verbose
 ```
 
-> **Dry run registers the target maps (statuses, custom fields) but skips all
-> writes.** It resolves the same name→id mappings the real run uses, so unmapped
-> custom fields already surface as warnings; it cannot, however, prove that
-> issue/user references resolve (users aren't created in dry run). Follow it with
-> a small real run against a disposable NextTrack DB before committing.
+> **Dry run may read target status/custom-field maps but performs no target or
+> manifest mutation.** Its checkpoint is a local report only, contains no server
+> run ID, and cannot be resumed with `--resume`. It validates references in
+> source form only: it cannot prove that issue/user references resolve to target
+> IDs because it creates neither users nor projects. Follow it with a small real
+> run against a disposable NextTrack DB before committing.
 
 ### 2. Real run (single project pilot)
 
@@ -303,7 +310,7 @@ any other state make the completion endpoint refuse with
 | `--with-boards` | no | `false` | Recreate agile boards as SCRUM boards + their sprints + sprint membership |
 | `--with-closed-issues` | no | `false` | Include resolved/closed issues (default: unresolved only) |
 | `--estimate-field <name>` | no | — | YouTrack custom field to map into the native `estimate` (story points). See Known limitations |
-| `--dry-run` | no | `false` | Read + log, no writes |
+| `--dry-run` | no | `false` | Local extraction/transformation report; no target or manifest mutations |
 | `--resume` | no | `false` | Continue from checkpoint |
 | `--checkpoint-file <path>` | no | `./migration-checkpoint.json` | Progress file |
 | `--concurrency <n>` | no | `3` | Parallel requests to YouTrack |

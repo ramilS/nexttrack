@@ -112,6 +112,32 @@ describe('buildRunConfig', () => {
     );
   });
 
+  it.each([
+    'A',
+    'TOO-LONG-PROJECT',
+    'access_token=secret',
+    'APP\nINJECTED',
+    'Bearer abcdefghijklmnopqrstuvwxyz',
+  ])('rejects an unsafe project key without echoing it: %s', (project) => {
+    expect(() => buildRunConfig(options({ projects: [project] }))).toThrow(
+      'Migration project keys are invalid',
+    );
+    try {
+      buildRunConfig(options({ projects: [project] }));
+    } catch (error) {
+      expect((error as Error).message).not.toContain(project);
+    }
+  });
+
+  it.each([
+    ['concurrency', 0], ['concurrency', 101], ['concurrency', 1.5],
+    ['batchSize', 0], ['batchSize', 501], ['rateLimit', 0], ['rateLimit', 1_001],
+  ] as const)('rejects a value outside the server %s bounds', (field, value) => {
+    expect(() => buildRunConfig(options({ [field]: value }))).toThrow(
+      `Migration ${field} is invalid`,
+    );
+  });
+
   it('pins the manifest semantic versions', () => {
     expect(MIGRATION_SPEC_VERSION).toBe('2026-07-14');
     expect(EXCLUSION_VERSION).toBe('2026-07-14');

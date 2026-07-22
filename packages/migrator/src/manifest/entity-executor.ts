@@ -161,6 +161,10 @@ export class ManifestEntityExecutor {
   }
 
   private errorCode(error: unknown): string {
+    const stableCode = (value: string): string =>
+      /^[A-Z][A-Z0-9_]{0,99}$/.test(value)
+        ? value
+        : 'MIGRATION_ENTITY_FAILED';
     if (axios.isAxiosError(error)) {
       const body = error.response?.data;
       if (typeof body === 'object' && body !== null && 'error' in body) {
@@ -171,7 +175,7 @@ export class ManifestEntityExecutor {
           'code' in nested &&
           typeof nested.code === 'string'
         ) {
-          return nested.code;
+          return stableCode(nested.code);
         }
       }
     }
@@ -181,7 +185,7 @@ export class ManifestEntityExecutor {
       'code' in error &&
       typeof error.code === 'string'
     ) {
-      return error.code;
+      return stableCode(error.code);
     }
     return 'MIGRATION_ENTITY_FAILED';
   }

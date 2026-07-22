@@ -265,6 +265,7 @@ class FakeManifest {
       attemptCount: 0,
       errorCode: null,
       errorMessage: null,
+      errorDetails: null,
       discoveredAt: NOW,
       transformedAt: null,
       loadedAt: null,

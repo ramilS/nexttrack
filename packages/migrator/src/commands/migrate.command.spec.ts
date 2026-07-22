@@ -6,13 +6,20 @@ import {
   registerCustomFieldMap,
 } from './migrate.command';
 import { IdMapService } from '../id-map/id-map.service';
-import { CheckpointService } from '../checkpoint/checkpoint.service';
+import {
+  CheckpointService,
+  checkpointProjectKey,
+  normalizeCheckpointProgressKeys,
+} from '../checkpoint/checkpoint.service';
 import { MigrationRunCoordinator } from '../manifest/migration-run.coordinator';
 import { ProjectsExtractor } from '../extractors/projects.extractor';
 import { UsersExtractor } from '../extractors/users.extractor';
 import { AxiosError, AxiosHeaders, InternalAxiosRequestConfig } from 'axios';
 import { OurApiClient } from '../loaders/api-client';
-import { MigrationCheckpoint } from '../checkpoint/checkpoint.types';
+import {
+  MigrationCheckpoint,
+  createPhaseProgress,
+} from '../checkpoint/checkpoint.types';
 import { SummaryReporter } from '../reporters/summary.reporter';
 import { UserTransformer } from '../transformers/user.transformer';
 import { canonicalMigratedUser, verifyMigratedUser } from './migrate.command';
@@ -43,6 +50,82 @@ function options(overrides: Partial<MigrateOptions> = {}): MigrateOptions {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+it('uses stable collision-resistant safe checkpoint keys for secret-shaped projects', () => {
+  const first = checkpointProjectKey('access_token=first-secret-value');
+  const second = checkpointProjectKey('access_token=second-secret-value');
+
+  expect(first).not.toBe(second);
+  expect(first).not.toContain('first-secret-value');
+  expect(second).not.toContain('second-secret-value');
+  expect(checkpointProjectKey('APP')).toBe('APP');
+  expect(checkpointProjectKey('access_token=first-secret-value')).toBe(first);
+});
+
+it('matches stable unsafe project keys when evaluating and repairing phase failures', () => {
+  const command = new MigrateCommand();
+  const rawProject = 'access_token=first-secret-value';
+  const safeProject = checkpointProjectKey(rawProject);
+  const failed = {
+    status: 'FAILED' as const, total: 1, completed: 0,
+    lastPage: 0, lastId: null,
+  };
+  const checkpoint = {
+    progress: { issues: { [safeProject]: failed } },
+    errors: [{
+      phase: 'issues', projectKey: safeProject, entityId: '2-1',
+      message: 'failed', timestamp: '2026-07-14T00:00:00.000Z',
+    }],
+  } as unknown as MigrationCheckpoint;
+
+  expect(Reflect.apply(Reflect.get(command, 'phaseStatus'), command, [
+    checkpoint, 'issues', rawProject,
+  ])).toBe('FAILED');
+  Reflect.apply(Reflect.get(command, 'prepareLegacyPhaseAttempt'), command, [
+    checkpoint, 'issues', [rawProject],
+  ]);
+  expect(checkpoint.progress.issues[safeProject]).toMatchObject({
+    status: 'PENDING', completed: 0,
+  });
+});
+
+it('migrates legacy raw unsafe progress keys and merges collisions conservatively', () => {
+  const rawProject = 'access_token=first-secret-value';
+  const safeProject = checkpointProjectKey(rawProject);
+  const checkpoint = {
+    progress: {
+      users: createPhaseProgress(),
+      issues: {
+        [rawProject]: { ...createPhaseProgress(), status: 'COMPLETED', completed: 5 },
+        [safeProject]: { ...createPhaseProgress(), status: 'FAILED', completed: 2 },
+      },
+    },
+    errors: [
+      {
+        phase: 'issues', projectKey: rawProject, entityId: '2-1',
+        message: 'failed', timestamp: '2026-07-14T00:00:00.000Z',
+      },
+      {
+        phase: 'client_secret=phase-secret',
+        projectKey: 'refresh_token=project-secret',
+        entityId: 'sk-proj-abcdefghijklmnopqrstuvwxyz0123456789',
+        message: 'Bearer abcdefghijklmnopqrstuvwxyz',
+        timestamp: '2026-07-14T00:00:00.000Z',
+      },
+    ],
+  } as unknown as MigrationCheckpoint;
+
+  normalizeCheckpointProgressKeys(checkpoint);
+
+  expect(checkpoint.progress.issues[rawProject]).toBeUndefined();
+  expect(checkpoint.progress.issues[safeProject]).toMatchObject({
+    status: 'FAILED', completed: 2,
+  });
+  expect(checkpoint.errors[0]?.projectKey).toBe(safeProject);
+  const serialized = JSON.stringify(checkpoint.errors[1]);
+  expect(serialized).not.toMatch(/phase-secret|project-secret|abcdefghijklmnopqrstuvwxyz/);
+  expect(checkpoint.errors[1]?.phase).toContain('[unknown-');
 });
 
 describe('registerStatusMap', () => {
@@ -470,7 +553,7 @@ describe('manifest completion and reindex gate', () => {
       runId: 'run-1',
       configHash: 'a'.repeat(64),
     });
-    vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
+    const save = vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
     vi.spyOn(CheckpointService.prototype, 'markCompleted').mockResolvedValue(undefined);
     vi.spyOn(OurApiClient.prototype, 'completeMigrationRun').mockImplementation(async () => {
       events.push('complete');
@@ -641,5 +724,575 @@ describe('manifest completion and reindex gate', () => {
 
     expect(complete).toHaveBeenCalledWith('run-1');
     expect(reindex).toHaveBeenCalledWith('APP');
+  });
+
+  it('reruns a completed legacy phase that has historical errors and can finish after repair', async () => {
+    stubLegacyPhases();
+    const prototype = Object.getPrototypeOf(new MigrateCommand());
+    const migrateProject = vi
+      .spyOn(prototype, 'migrateProject')
+      .mockResolvedValue(undefined);
+    const completedPhase = {
+      status: 'COMPLETED' as const,
+      total: 1,
+      completed: 1,
+      lastPage: 0,
+      lastId: null,
+    };
+    vi.spyOn(CheckpointService.prototype, 'load').mockResolvedValue({
+      version: '0.2.0',
+      runId: 'run-1',
+      configHash: 'a'.repeat(64),
+      startedAt: '2026-07-14T00:00:00.000Z',
+      updatedAt: '2026-07-14T00:00:00.000Z',
+      config: {} as MigrationCheckpoint['config'],
+      status: 'FAILED',
+      idMap: {},
+      progress: {
+        users: completedPhase,
+        projects: { APP: completedPhase },
+        issues: {}, comments: {}, tags: {}, attachments: {}, timeLogs: {},
+        boards: {}, parentLinks: {}, links: {},
+      },
+      errors: [{
+        phase: 'projects',
+        entityId: 'APP',
+        message: 'old failure',
+        timestamp: '2026-07-14T00:00:00.000Z',
+      }],
+    });
+    vi.spyOn(MigrationRunCoordinator.prototype, 'open').mockResolvedValue({
+      runId: 'run-1', configHash: 'a'.repeat(64),
+    });
+    vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
+    vi.spyOn(CheckpointService.prototype, 'markCompleted').mockResolvedValue(undefined);
+    const complete = vi.spyOn(OurApiClient.prototype, 'completeMigrationRun')
+      .mockResolvedValue(completedManifest());
+    const reindex = vi.spyOn(OurApiClient.prototype, 'reindexProject')
+      .mockResolvedValue(undefined);
+    vi.spyOn(SummaryReporter.prototype, 'printSummary').mockImplementation(() => undefined);
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+
+    await new MigrateCommand().run(options({ resume: true }));
+
+    expect(migrateProject).toHaveBeenCalled();
+    expect(complete).toHaveBeenCalledWith('run-1');
+    expect(reindex).toHaveBeenCalledWith('APP');
+  });
+
+  it('resets only projects affected by structured legacy phase errors', () => {
+    const command = new MigrateCommand();
+    const phase = {
+      status: 'COMPLETED' as const, total: 1, completed: 1,
+      lastPage: 0, lastId: null,
+    };
+    const checkpoint = {
+      progress: { projects: { APP: { ...phase }, OPS: { ...phase } } },
+      errors: [{
+        phase: 'projects', projectKey: 'APP', entityId: 'APP',
+        message: 'old failure', timestamp: '2026-07-14T00:00:00.000Z',
+      }],
+    } as unknown as MigrationCheckpoint;
+
+    Reflect.apply(Reflect.get(command, 'prepareLegacyPhaseAttempt'), command, [
+      checkpoint, 'projects', ['APP', 'OPS'],
+    ]);
+
+    expect(checkpoint.progress.projects.APP).toMatchObject({
+      status: 'PENDING', completed: 0,
+    });
+    expect(checkpoint.progress.projects.OPS).toEqual(phase);
+  });
+});
+
+describe('true dry run', () => {
+  it.each([
+    ['history', 'migrateHistory', 'activitiesExtractor', 'getForIssue'],
+    ['comments', 'migrateComments', 'commentsExtractor', 'getForIssue'],
+    ['attachments', 'migrateAttachments', 'attachmentsExtractor', 'getForIssue'],
+    ['timeLogs', 'migrateTimeLogs', 'timeLogsExtractor', 'getForIssue'],
+    ['boards', 'migrateBoards', 'boardsExtractor', 'extractForProject'],
+  ] as const)(
+    'records a dry-run %s source extractor failure in its phase',
+    async (phase, method, extractorField, extractorMethod) => {
+      const command = new MigrateCommand();
+      const migrationOptions = options({ dryRun: true });
+      const checkpoint = Reflect.apply(
+        Reflect.get(command, 'initDryRunCheckpoint'),
+        command,
+        [migrationOptions],
+      ) as MigrationCheckpoint;
+      const issue = {
+        id: '2-1', numberInProject: 1, links: [],
+        created: 1_700_000_000_000, updated: 1_700_000_001_000,
+        resolved: null,
+      };
+      const extractor = vi.fn().mockRejectedValue(new Error(`${phase} failed`));
+      Reflect.set(command, 'idMap', new IdMapService());
+      Reflect.set(command, 'issuesExtractor', {
+        extract: async function* () {
+          yield [issue];
+        },
+      });
+      Reflect.set(command, extractorField, { [extractorMethod]: extractor });
+      Reflect.set(command, 'reporter', {
+        log: vi.fn(), warn: vi.fn(), info: vi.fn(), done: vi.fn(),
+      });
+      Reflect.set(command, 'checkpointService', {
+        save: vi.fn(),
+        updateProgress: vi.fn(async (
+          cp: MigrationCheckpoint,
+          progressPhase: keyof MigrationCheckpoint['progress'],
+          project: string,
+          update: Record<string, unknown>,
+        ) => {
+          const record = cp.progress[progressPhase] as Record<string, unknown>;
+          record[checkpointProjectKey(project)] = {
+            ...(record[checkpointProjectKey(project)] as object | undefined ??
+              createPhaseProgress()),
+            ...update,
+          };
+        }),
+      });
+
+      await expect(
+        Reflect.apply(Reflect.get(command, method), command, [
+          'APP', checkpoint, migrationOptions,
+        ]),
+      ).resolves.toBeUndefined();
+
+      expect(extractor).toHaveBeenCalled();
+      expect(checkpoint.errors).toEqual([
+        expect.objectContaining({ phase, projectKey: 'APP' }),
+      ]);
+    },
+  );
+
+  it('records an issue-source extraction failure as the issues phase', async () => {
+    const command = new MigrateCommand();
+    const migrationOptions = options({ dryRun: true });
+    const checkpoint = Reflect.apply(
+      Reflect.get(command, 'initDryRunCheckpoint'), command, [migrationOptions],
+    ) as MigrationCheckpoint;
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'issuesExtractor', {
+      extract: async function* () {
+        throw new Error('source unavailable');
+      },
+    });
+    Reflect.set(command, 'reporter', {
+      createCounter: () => ({ start: vi.fn(), increment: vi.fn(), stop: vi.fn() }),
+      done: vi.fn(), warn: vi.fn(), log: vi.fn(), info: vi.fn(),
+    });
+    Reflect.set(command, 'checkpointService', {
+      save: vi.fn(),
+      updateProgress: vi.fn(async (
+        cp: MigrationCheckpoint,
+        phase: keyof MigrationCheckpoint['progress'],
+        project: string,
+        update: Record<string, unknown>,
+      ) => {
+        const record = cp.progress[phase] as Record<string, unknown>;
+        record[checkpointProjectKey(project)] = {
+          ...createPhaseProgress(), ...update,
+        };
+      }),
+    });
+
+    await Reflect.apply(Reflect.get(command, 'migrateIssues'), command, [
+      'APP', checkpoint, migrationOptions,
+    ]);
+
+    expect(checkpoint.errors).toEqual([
+      expect.objectContaining({ phase: 'issues', projectKey: 'APP' }),
+    ]);
+    expect(checkpoint.progress.issues.APP).toMatchObject({ status: 'FAILED' });
+  });
+
+  it('records a replayed issue-source extraction failure in the dependent phase', async () => {
+    const command = new MigrateCommand();
+    const migrationOptions = options({ dryRun: true });
+    const checkpoint = Reflect.apply(
+      Reflect.get(command, 'initDryRunCheckpoint'), command, [migrationOptions],
+    ) as MigrationCheckpoint;
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'issuesExtractor', {
+      extract: async function* () {
+        throw new Error('source unavailable');
+      },
+    });
+    Reflect.set(command, 'reporter', { warn: vi.fn(), info: vi.fn(), log: vi.fn(), done: vi.fn() });
+    Reflect.set(command, 'checkpointService', { save: vi.fn() });
+
+    await Reflect.apply(Reflect.get(command, 'migrateHistory'), command, [
+      'APP', checkpoint, migrationOptions,
+    ]);
+
+    expect(checkpoint.errors).toEqual([
+      expect.objectContaining({ phase: 'history', projectKey: 'APP' }),
+    ]);
+  });
+
+  it('rejects an unsafe project key before logging or opening a coordinator', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const open = vi.spyOn(MigrationRunCoordinator.prototype, 'open');
+
+    await expect(
+      new MigrateCommand().run(
+        options({ projects: ['access_token=abcdefghijklmnopqrstuvwxyz'] }),
+      ),
+    ).rejects.toThrow('Migration project keys are invalid');
+
+    expect(JSON.stringify([...log.mock.calls, ...warn.mock.calls])).not.toContain(
+      'abcdefghijklmnopqrstuvwxyz',
+    );
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('transforms source users without any target or manifest mutation or server run id', async () => {
+    const transform = vi.spyOn(UserTransformer.prototype, 'transform');
+    vi.spyOn(UsersExtractor.prototype, 'extract').mockImplementation(async function* () {
+      yield [{
+        id: 'yt-1', login: 'alice', email: 'ALICE@example.com',
+        fullName: 'Alice', banned: false,
+      }] as never;
+    });
+    const save = vi
+      .spyOn(CheckpointService.prototype, 'save')
+      .mockResolvedValue(undefined);
+    vi.spyOn(CheckpointService.prototype, 'markCompleted').mockResolvedValue(undefined);
+    vi.spyOn(SummaryReporter.prototype, 'printSummary').mockImplementation(() => undefined);
+    const output = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    const mutations = [
+      vi.spyOn(OurApiClient.prototype, 'startMigrationRun'),
+      vi.spyOn(OurApiClient.prototype, 'getMigrationRun'),
+      vi.spyOn(OurApiClient.prototype, 'discoverEntities'),
+      vi.spyOn(OurApiClient.prototype, 'transitionEntity'),
+      vi.spyOn(OurApiClient.prototype, 'createMigratedUser'),
+      vi.spyOn(OurApiClient.prototype, 'completeMigrationRun'),
+      vi.spyOn(OurApiClient.prototype, 'reindexProject'),
+    ];
+
+    await new MigrateCommand().run(options({ dryRun: true, projects: [] }));
+
+    for (const mutation of mutations) expect(mutation).not.toHaveBeenCalled();
+    for (const [checkpoint] of save.mock.calls) {
+      expect(checkpoint.runId).toBeUndefined();
+    }
+    const text = output.mock.calls.flat().join(' ');
+    expect(text).toContain('[DRY] Users: 1 extracted and transformed; none written');
+    expect(text).not.toContain('Migration run ID:');
+    expect(transform).toHaveBeenCalledOnce();
+  });
+
+  it('runs the issue transformer during dry-run validation', async () => {
+    const command = new MigrateCommand();
+    const transform = vi.fn().mockReturnValue({ title: 'validated' });
+    const counter = { start: vi.fn(), increment: vi.fn(), stop: vi.fn() };
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'issueTransformer', { transform });
+    Reflect.set(command, 'issuesExtractor', {
+      extract: async function* () { yield [{ id: 'yt-issue-1', numberInProject: 1 }]; },
+    });
+    Reflect.set(command, 'checkpointService', {
+      updateProgress: vi.fn(async (
+        checkpoint: MigrationCheckpoint,
+        _phase: string,
+        project: string,
+        update: Record<string, unknown>,
+      ) => {
+        checkpoint.progress.issues[project] = {
+          ...(checkpoint.progress.issues[project] ?? {
+            status: 'PENDING', total: null, completed: 0, lastPage: 0, lastId: null,
+          }),
+          ...update,
+        } as never;
+      }),
+      save: vi.fn(),
+    });
+    Reflect.set(command, 'reporter', {
+      createCounter: vi.fn(() => counter), log: vi.fn(), done: vi.fn(), warn: vi.fn(),
+    });
+    const checkpoint = {
+      progress: { issues: {} }, errors: [], idMap: {},
+    } as unknown as MigrationCheckpoint;
+
+    await Reflect.apply(Reflect.get(command, 'migrateIssues'), command, [
+      'APP', checkpoint, options({ dryRun: true }),
+    ]);
+
+    expect(transform).toHaveBeenCalledOnce();
+    expect(counter.increment).toHaveBeenCalledOnce();
+  });
+
+  it('records a missing requested project as a failed dry-run validation', async () => {
+    const command = new MigrateCommand();
+    const checkpoint = {
+      progress: { projects: {} }, errors: [], idMap: {},
+    } as unknown as MigrationCheckpoint;
+    Reflect.set(command, 'projectsExtractor', {
+      extractProjects: vi.fn().mockResolvedValue([]),
+    });
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'reporter', { warn: vi.fn(), done: vi.fn() });
+    Reflect.set(command, 'checkpointService', {
+      save: vi.fn(),
+      updateProgress: vi.fn(async (
+        cp: MigrationCheckpoint,
+        _phase: string,
+        project: string,
+        update: Record<string, unknown>,
+      ) => {
+        cp.progress.projects[project] = {
+          ...(cp.progress.projects[project] ?? {
+            status: 'PENDING', total: null, completed: 0, lastPage: 0, lastId: null,
+          }),
+          ...update,
+        } as never;
+      }),
+    });
+
+    await Reflect.apply(Reflect.get(command, 'migrateProject'), command, [
+      'MISSING', checkpoint, options({ dryRun: true }),
+    ]);
+
+    expect(checkpoint.errors).toEqual([
+      expect.objectContaining({ phase: 'projects', projectKey: 'MISSING' }),
+    ]);
+    expect(checkpoint.progress.projects.MISSING?.status).toBe('FAILED');
+  });
+
+  it('validates a source project on a clean target without reading target maps', async () => {
+    const command = new MigrateCommand();
+    const checkpoint = {
+      progress: { projects: {} }, errors: [], idMap: {},
+    } as unknown as MigrationCheckpoint;
+    const getStatusMap = vi.spyOn(OurApiClient.prototype, 'getStatusMap');
+    const getCustomFieldMap = vi.spyOn(OurApiClient.prototype, 'getCustomFieldMap');
+    Reflect.set(command, 'projectsExtractor', {
+      extractProjects: vi.fn().mockResolvedValue([{ id: 'yt-project', name: 'App' }]),
+      getStates: vi.fn().mockResolvedValue([{ name: 'Open' }]),
+    });
+    Reflect.set(command, 'fieldDefsExtractor', {
+      collect: vi.fn().mockResolvedValue([
+        { name: 'Environment', ytType: 'SingleEnumIssueCustomField', optionNames: ['Prod'] },
+      ]),
+    });
+    Reflect.set(command, 'teamExtractor', { getUserRoles: vi.fn().mockResolvedValue(new Map()) });
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'reporter', { log: vi.fn(), info: vi.fn(), warn: vi.fn(), done: vi.fn() });
+    Reflect.set(command, 'checkpointService', {
+      save: vi.fn(),
+      updateProgress: vi.fn(async (
+        cp: MigrationCheckpoint,
+        _phase: string,
+        project: string,
+        update: Record<string, unknown>,
+      ) => {
+        cp.progress.projects[project] = {
+          ...(cp.progress.projects[project] ?? createPhaseProgress()), ...update,
+        } as never;
+      }),
+    });
+
+    await Reflect.apply(Reflect.get(command, 'migrateProject'), command, [
+      'APP', checkpoint, options({ dryRun: true }),
+    ]);
+
+    expect(getStatusMap).not.toHaveBeenCalled();
+    expect(getCustomFieldMap).not.toHaveBeenCalled();
+    expect(checkpoint.errors).toHaveLength(0);
+    expect(checkpoint.progress.projects.APP?.status).toBe('COMPLETED');
+    const idMap = Reflect.get(command, 'idMap') as IdMapService;
+    expect(idMap.getStatusId('APP', 'Open')).toMatch(/^[0-9a-f-]{36}$/);
+    expect(idMap.getCustomFieldId('Environment')).toMatch(/^[0-9a-f-]{36}$/);
+    expect(idMap.getEnumOptionId('Environment', 'Prod')).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it('exits nonzero when a real dry-run command cannot find a requested project', async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.spyOn(UsersExtractor.prototype, 'extract').mockImplementation(async function* () {});
+    vi.spyOn(ProjectsExtractor.prototype, 'extractProjects').mockResolvedValue([]);
+    vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
+    vi.spyOn(SummaryReporter.prototype, 'printSummary').mockImplementation(() => undefined);
+    const commandPrototype = MigrateCommand.prototype as unknown as Record<
+      string,
+      (...args: unknown[]) => Promise<void>
+    >;
+    for (const phase of [
+      'migrateIssues', 'linkParentIssues', 'migrateLinks', 'migrateTags',
+      'migrateComments', 'migrateHistory', 'restoreTimestamps',
+    ]) {
+      vi.spyOn(commandPrototype, phase).mockResolvedValue(undefined);
+    }
+    const complete = vi.spyOn(OurApiClient.prototype, 'completeMigrationRun');
+    const reindex = vi.spyOn(OurApiClient.prototype, 'reindexProject');
+
+    await new MigrateCommand().run(
+      options({ dryRun: true, projects: ['MISSING'] }),
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(complete).not.toHaveBeenCalled();
+    expect(reindex).not.toHaveBeenCalled();
+    process.exitCode = previousExitCode;
+  });
+
+  it('redacts credential values before checkpoint persistence and warning logs', async () => {
+    const command = new MigrateCommand();
+    const save = vi.fn();
+    const warn = vi.fn();
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'checkpointService', { save });
+    Reflect.set(command, 'reporter', { warn });
+    const checkpoint = {
+      errors: [], idMap: {},
+    } as unknown as MigrationCheckpoint;
+
+    await Reflect.apply(Reflect.get(command, 'recordError'), command, [
+      checkpoint,
+      'issues',
+      '2-42',
+      new Error('POST /issues: Bearer abcdefghijklmnopqrstuvwxyz'),
+      'APP',
+    ]);
+
+    expect(checkpoint.errors[0]?.message).toBe(
+      'POST /issues: Bearer [redacted]',
+    );
+    expect(warn).toHaveBeenCalledWith(
+      'Error [issues] 2-42: POST /issues: Bearer [redacted]',
+    );
+    expect(JSON.stringify(save.mock.calls)).not.toContain(
+      'abcdefghijklmnopqrstuvwxyz',
+    );
+  });
+
+  it('persists and summarizes a thrown dry-run extraction failure with nonzero exit', async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.spyOn(UsersExtractor.prototype, 'extract').mockImplementation(async function* () {
+      throw new Error(
+        'source read failed: sk-proj-abcdefghijklmnopqrstuvwxyz0123456789',
+      );
+    });
+    const save = vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
+    const summary = vi
+      .spyOn(SummaryReporter.prototype, 'printSummary')
+      .mockImplementation(() => undefined);
+    const complete = vi.spyOn(OurApiClient.prototype, 'completeMigrationRun');
+    const reindex = vi.spyOn(OurApiClient.prototype, 'reindexProject');
+    const start = vi.spyOn(OurApiClient.prototype, 'startMigrationRun');
+
+    await new MigrateCommand().run(options({ dryRun: true, projects: [] }));
+
+    expect(process.exitCode).toBe(1);
+    const persisted = save.mock.calls.at(-1)?.[0];
+    expect(persisted?.status).toBe('FAILED');
+    expect(persisted?.errors.at(-1)?.message).toBe(
+      'source read failed: [redacted]',
+    );
+    expect(summary).toHaveBeenCalledOnce();
+    expect(start).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(reindex).not.toHaveBeenCalled();
+    process.exitCode = previousExitCode;
+  });
+
+  it('sanitizes the fallback-user failure warning', async () => {
+    const command = new MigrateCommand();
+    const warn = vi.fn();
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'api', {
+      createMigratedUser: vi.fn().mockRejectedValue(
+        new Error('Bearer abcdefghijklmnopqrstuvwxyz'),
+      ),
+    });
+    Reflect.set(command, 'reporter', { warn });
+
+    await Reflect.apply(Reflect.get(command, 'ensureFallbackUser'), command, [
+      options(),
+    ]);
+
+    expect(warn).toHaveBeenCalledWith(
+      'Could not create the migration ghost user: Bearer [redacted]. ' +
+        'Issues from deleted YouTrack accounts will fail to migrate.',
+    );
+  });
+
+  it('persists a failed local checkpoint when all-project discovery throws', async () => {
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    vi.spyOn(ProjectsExtractor.prototype, 'extractProjects').mockRejectedValue(
+      new Error('discovery failed: client_secret=abcdefghijklmnopqrstuvwxyz'),
+    );
+    const save = vi.spyOn(CheckpointService.prototype, 'save').mockResolvedValue(undefined);
+    const summary = vi
+      .spyOn(SummaryReporter.prototype, 'printSummary')
+      .mockImplementation(() => undefined);
+    const start = vi.spyOn(OurApiClient.prototype, 'startMigrationRun');
+
+    await new MigrateCommand().run(
+      options({ dryRun: true, allProjects: true, projects: [] }),
+    );
+
+    expect(process.exitCode).toBe(1);
+    expect(save.mock.calls.at(-1)?.[0]).toMatchObject({
+      status: 'FAILED',
+      errors: [expect.objectContaining({ message: expect.stringContaining('[redacted]') })],
+    });
+    expect(summary).toHaveBeenCalledOnce();
+    expect(start).not.toHaveBeenCalled();
+    process.exitCode = previousExitCode;
+  });
+
+  it('sanitizes checkpoint and log metadata fields', async () => {
+    const command = new MigrateCommand();
+    const warn = vi.fn();
+    const save = vi.fn();
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'reporter', { warn });
+    Reflect.set(command, 'checkpointService', { save });
+    const checkpoint = { errors: [], idMap: {} } as unknown as MigrationCheckpoint;
+
+    await Reflect.apply(Reflect.get(command, 'recordError'), command, [
+      checkpoint,
+      'attachments',
+      'file-access_token=abcdefghijklmnopqrstuvwxyz',
+      new Error('download failed'),
+      'client_secret=abcdefghijklmnopqrstuvwxyz',
+    ]);
+
+    const serialized = JSON.stringify({ checkpoint, calls: warn.mock.calls });
+    expect(serialized).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(serialized).toContain('[redacted]');
+  });
+
+  it('sanitizes a missing source project key before warning', async () => {
+    const command = new MigrateCommand();
+    const warn = vi.fn();
+    Reflect.set(command, 'projectsExtractor', {
+      extractProjects: vi.fn().mockResolvedValue([]),
+    });
+    Reflect.set(command, 'idMap', new IdMapService());
+    Reflect.set(command, 'reporter', { warn });
+    Reflect.set(command, 'checkpointService', {
+      save: vi.fn(),
+      updateProgress: vi.fn(),
+    });
+    const checkpoint = {
+      progress: { projects: {} }, errors: [], idMap: {},
+    } as unknown as MigrationCheckpoint;
+
+    await Reflect.apply(Reflect.get(command, 'migrateProject'), command, [
+      'access_token=abcdefghijklmnopqrstuvwxyz',
+      checkpoint,
+      options({ dryRun: true }),
+    ]);
+
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    expect(JSON.stringify(warn.mock.calls)).toContain('[redacted]');
   });
 });

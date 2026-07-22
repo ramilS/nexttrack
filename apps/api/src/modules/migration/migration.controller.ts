@@ -69,6 +69,10 @@ import {
 } from './migration.dto';
 import type { MigrationEntity, MigrationRun } from '@prisma/client';
 import type { MigrationRunSummary } from './migration-manifest.repository';
+import {
+  sanitizeMigrationErrorDetails,
+  sanitizeMigrationErrorMessage,
+} from './migration-json';
 
 // Bulk admin import behind MigrationGuard (admin JWT + secret) — the global
 // per-IP throttle only breaks high-throughput migration; it is not a public route.
@@ -373,7 +377,15 @@ export class MigrationController {
       status: entity.status,
       attemptCount: entity.attemptCount,
       errorCode: entity.errorCode,
-      errorMessage: entity.errorMessage,
+      errorMessage: entity.errorMessage
+        ? sanitizeMigrationErrorMessage(entity.errorMessage)
+        : null,
+      errorDetails:
+        entity.errorDetails &&
+        typeof entity.errorDetails === 'object' &&
+        !Array.isArray(entity.errorDetails)
+          ? sanitizeMigrationErrorDetails(entity.errorDetails)
+          : null,
       discoveredAt: entity.discoveredAt.toISOString(),
       transformedAt: entity.transformedAt?.toISOString() ?? null,
       loadedAt: entity.loadedAt?.toISOString() ?? null,

@@ -21,7 +21,17 @@ import {
   type MigrationManifestStore,
   type StartMigrationRunInput,
 } from './migration-manifest.repository';
-import { buildMigrationRunFingerprint } from './migration-run-fingerprint';
+import {
+  buildMigrationRunFingerprint,
+  normalizeMigrationUrl,
+} from './migration-run-fingerprint';
+import {
+  canonicalJsonChecksum,
+  containsMigrationSecret,
+  sanitizeMigrationErrorDetails,
+  sanitizeMigrationErrorMessage,
+} from './migration-json';
+import { safeMigrationRunConfigSchema } from './dto/migration-manifest.dto';
 
 const ALLOWED: Readonly<
   Record<MigrationEntityStatus, readonly MigrationEntityStatus[]>
@@ -62,6 +72,7 @@ export interface TransitionMigrationEntityInput extends DiscoverEntityInput {
 const SECRET_KEY = /(secret|token|password|credential|authorization|api[-_]?key)/i;
 
 function containsSecret(value: unknown): boolean {
+  if (typeof value === 'string') return containsMigrationSecret(value);
   if (Array.isArray(value)) return value.some(containsSecret);
   if (value === null || typeof value !== 'object') return false;
   return Object.entries(value).some(
@@ -77,15 +88,49 @@ export class MigrationManifestService {
   ) {}
 
   async startRun(input: StartMigrationRunInput): Promise<MigrationRun> {
-    if (containsSecret(input.config)) {
+    const parsedConfig = safeMigrationRunConfigSchema.safeParse(input.config);
+    if (!parsedConfig.success || containsSecret(parsedConfig.data)) {
       throw new ValidationError(
         ErrorCode.MIGRATION_RESUME_CONFIG_MISMATCH,
         'Migration configuration must not contain secrets',
       );
     }
-    const fingerprint = buildMigrationRunFingerprint(input);
-    return this.repository.createOrReturnActiveRun({
+    const config = parsedConfig.data;
+    const configHash = canonicalJsonChecksum(config);
+    if (configHash !== input.configHash) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_CONFIG_HASH_MISMATCH,
+        'Migration configuration hash does not match the configuration',
+      );
+    }
+    this.assertSafeRunUrl(input.sourceUrl);
+    this.assertSafeRunUrl(input.targetUrl);
+    const sourceUrl = normalizeMigrationUrl(input.sourceUrl);
+    const targetUrl = normalizeMigrationUrl(input.targetUrl);
+    if (config.sourceUrl !== sourceUrl || config.targetUrl !== targetUrl) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_RESUME_CONFIG_MISMATCH,
+        'Migration configuration URLs do not match the run URLs',
+      );
+    }
+    const sourceTenant = new URL(sourceUrl).hostname.toLowerCase();
+    if (input.sourceTenant.trim().toLowerCase() !== sourceTenant) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_SOURCE_TENANT_MISMATCH,
+        'Migration source tenant does not match the source URL',
+      );
+    }
+    const validated = {
       ...input,
+      config,
+      configHash,
+      sourceTenant,
+      sourceUrl,
+      targetUrl,
+    };
+    const fingerprint = buildMigrationRunFingerprint(validated);
+    return this.repository.createOrReturnActiveRun({
+      ...validated,
       sourceTenant: fingerprint.sourceTenant,
       sourceUrl: fingerprint.sourceUrl,
       targetUrl: fingerprint.targetUrl,
@@ -162,8 +207,10 @@ export class MigrationManifestService {
     if (input.status === MigrationEntityStatus.VERIFIED) patch.verifiedAt = now;
     if (input.status === MigrationEntityStatus.FAILED && input.error) {
       patch.errorCode = input.error.code;
-      patch.errorMessage = input.error.message;
-      patch.errorDetails = input.error.details ?? null;
+      patch.errorMessage = sanitizeMigrationErrorMessage(input.error.message);
+      patch.errorDetails = input.error.details
+        ? sanitizeMigrationErrorDetails(input.error.details)
+        : null;
     }
     const updated = await this.repository.updateEntity({
       id: entity.id,
@@ -217,5 +264,26 @@ export class MigrationManifestService {
       ErrorCode.MIGRATION_INVALID_STATE_TRANSITION,
       `Cannot transition migration entity from ${from} to ${to}`,
     );
+  }
+
+  private assertSafeRunUrl(value: string): void {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_RUN_URL_INVALID,
+        'Migration run URLs must be valid HTTP(S) origins',
+      );
+    }
+    if (
+      (url.protocol !== 'http:' && url.protocol !== 'https:') ||
+      url.username || url.password || url.search || url.hash
+    ) {
+      throw new ValidationError(
+        ErrorCode.MIGRATION_RUN_URL_INVALID,
+        'Migration run URLs must be HTTP(S) origins without credentials, query strings, or fragments',
+      );
+    }
   }
 }

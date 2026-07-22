@@ -246,4 +246,45 @@ describe('OurApiClient migration manifest methods', () => {
     await expect(client.completeMigrationRun(run.id)).rejects.toBe(error);
     expect(post).toHaveBeenCalledTimes(1);
   });
+
+  it.each([400, 401, 403, 409, 422])(
+    'does not retry createMigratedUser after HTTP %s and preserves the error',
+    async (status) => {
+      const { client, http } = setup();
+      const error = { isAxiosError: true, response: { status } };
+      const post = vi.spyOn(http, 'post').mockRejectedValue(error);
+
+      await expect(
+        client.createMigratedUser({
+          ytId: 'yt-1',
+          email: 'alice@example.com',
+          name: 'Alice',
+          avatarUrl: null,
+          isBlocked: false,
+          migratedFrom: 'youtrack',
+        }),
+      ).rejects.toBe(error);
+      expect(post).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('retries transient createMigratedUser failures and preserves the final error', async () => {
+    vi.useFakeTimers();
+    const { client, http } = setup();
+    const error = { isAxiosError: true, response: { status: 503 } };
+    const post = vi.spyOn(http, 'post').mockRejectedValue(error);
+    const promise = client.createMigratedUser({
+      ytId: 'yt-1',
+      email: 'alice@example.com',
+      name: 'Alice',
+      avatarUrl: null,
+      isBlocked: false,
+      migratedFrom: 'youtrack',
+    });
+
+    const assertion = expect(promise).rejects.toBe(error);
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(post).toHaveBeenCalledTimes(4);
+  });
 });

@@ -1,7 +1,11 @@
 import { YouTrackClient } from '../youtrack/youtrack-client';
 import { OurApiClient } from '../loaders/api-client';
 import { IdMapService } from '../id-map/id-map.service';
-import { CheckpointService } from '../checkpoint/checkpoint.service';
+import {
+  CheckpointService,
+  checkpointPhaseKey,
+  checkpointProjectKey,
+} from '../checkpoint/checkpoint.service';
 import {
   CHECKPOINT_VERSION,
   MigrationCheckpoint,
@@ -26,11 +30,15 @@ import { mapTagColor } from '../transformers/tag.transformer';
 import { mapYtLink, resolveParentYtId } from '../transformers/link.transformer';
 import { richTextToTiptap } from '../transformers/rich-text';
 import { mapStatesToStatuses } from '../transformers/state.transformer';
-import { formatHttpError } from '../utils/http-error';
+import {
+  formatHttpError,
+  sanitizeMigrationErrorMessage,
+} from '../utils/http-error';
 import { buildRunConfig } from '../manifest/run-config';
 import { MigrationRunCoordinator } from '../manifest/migration-run.coordinator';
 import { migrationRunTerminalResult } from '../manifest/run-blocker';
 import { canonicalEntity, CanonicalEntity } from '../manifest/manifest.types';
+import { sourceChecksum } from '../manifest/stable-checksum';
 import {
   ManifestEntityExecutor,
   MigrationVerificationMismatchError,
@@ -39,7 +47,9 @@ import {
 import { CreateUserMigrationDto, UserTransformer } from '../transformers/user.transformer';
 import { IssueTransformer, UnmappedFieldReport } from '../transformers/issue.transformer';
 import { YtUser } from '../youtrack/types/yt-user.type';
+import { YtIssue } from '../youtrack/types/yt-issue.type';
 import axios from 'axios';
+import { createHash } from 'node:crypto';
 
 export interface MigrateOptions {
   sourceUrl: string;
@@ -149,6 +159,47 @@ export function registerCustomFieldMap(
   }
 }
 
+function dryRunUuid(kind: string, projectKey: string, name: string): string {
+  const hash = createHash('sha256')
+    .update(`${kind}\0${projectKey}\0${name}`)
+    .digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+}
+
+// A dry-run must validate the same transformer paths as a real migration, but
+// must not read or create target records. Model the IDs that target creation
+// would produce with deterministic UUID-shaped placeholders instead.
+function registerDryRunProjectMaps(
+  idMap: IdMapService,
+  projectKey: string,
+  states: Array<{ name: string }>,
+  defs: YtFieldDef[],
+): void {
+  // The real target always has an initial workflow status, even if YouTrack
+  // returned an empty state bundle. Preserve that fallback during validation.
+  if (states.length === 0) {
+    idMap.registerStatus(
+      projectKey,
+      '__dry_run_initial__',
+      dryRunUuid('status', projectKey, '__dry_run_initial__'),
+    );
+  }
+  for (const state of states) {
+    idMap.registerStatus(projectKey, state.name, dryRunUuid('status', projectKey, state.name));
+  }
+  for (const def of defs) {
+    if (buildCustomFieldDto(def).kind !== 'create') continue;
+    idMap.registerCustomField(def.name, dryRunUuid('field', projectKey, def.name));
+    for (const option of def.optionNames) {
+      idMap.registerEnumOption(
+        def.name,
+        option,
+        dryRunUuid('field-option', `${projectKey}:${def.name}`, option),
+      );
+    }
+  }
+}
+
 export class MigrateCommand {
   private yt!: YouTrackClient;
   private api!: OurApiClient;
@@ -170,6 +221,24 @@ export class MigrateCommand {
 
   private userTransformer!: UserTransformer;
   private issueTransformer!: IssueTransformer;
+  private async *phaseIssues(
+    projectKey: string,
+    options: MigrateOptions,
+    checkpoint: MigrationCheckpoint,
+    phase: string,
+  ): AsyncGenerator<YtIssue[]> {
+    // Do not materialize a whole tenant in dry-run memory. Each dependent
+    // source phase replays the bounded issue extractor, trading read requests
+    // for the same memory profile as a real migration.
+    try {
+      yield* this.issuesExtractor.extract(projectKey, {
+        withClosedIssues: options.withClosedIssues,
+        batchSize: options.batchSize,
+      });
+    } catch (err) {
+      await this.recordError(checkpoint, phase, projectKey, err, projectKey);
+    }
+  }
 
   async run(options: MigrateOptions): Promise<void> {
     const initialConfig = buildRunConfig(options);
@@ -179,6 +248,10 @@ export class MigrateCommand {
 
     const startTime = Date.now();
     let checkpoint: MigrationCheckpoint | null = null;
+
+    if (options.dryRun && options.resume) {
+      throw new Error('--dry-run cannot be combined with --resume');
+    }
 
     if (options.resume) {
       const loaded = await this.checkpointService.load();
@@ -212,13 +285,35 @@ export class MigrateCommand {
     this.reporter.info(`Source: ${options.sourceUrl}`);
     this.reporter.info(`Target: ${options.targetUrl}`);
 
+    if (options.dryRun) {
+      checkpoint ??= this.initDryRunCheckpoint(options);
+      await this.checkpointService.save(checkpoint);
+      try {
+        if (options.allProjects) {
+          const projects = await this.projectsExtractor.extractProjects();
+          options.projects = projects.map((project) => project.shortName);
+        }
+        options.projects = buildRunConfig(options).projects;
+        this.reporter.info(`Projects: ${options.projects.join(', ')}`);
+        checkpoint.config = buildRunConfig(options);
+        checkpoint.configHash = sourceChecksum(checkpoint.config);
+        await this.checkpointService.save(checkpoint);
+        await this.runDryRun(checkpoint, options, startTime);
+      } catch (error) {
+        checkpoint.status = 'FAILED';
+        await this.recordError(checkpoint, 'dry-run', 'command', error);
+        this.summary.printSummary(checkpoint, startTime);
+        process.exitCode = 1;
+      }
+      return;
+    }
+
     // Resolve project keys if --all-projects
     if (options.allProjects) {
       const projects = await this.projectsExtractor.extractProjects();
-      options.projects = projects.map((p) => p.shortName);
+      options.projects = projects.map((project) => project.shortName);
     }
     options.projects = buildRunConfig(options).projects;
-
     this.reporter.info(`Projects: ${options.projects.join(', ')}`);
 
     const run = await new MigrationRunCoordinator(this.api).open(options, checkpoint);
@@ -242,8 +337,9 @@ export class MigrateCommand {
       // Step 2: Projects + Workflows
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Projects + Workflows');
+      this.prepareLegacyPhaseAttempt(checkpoint, 'projects', options.projects);
       for (const projectKey of options.projects) {
-        if (checkpoint.progress.projects[projectKey]?.status === 'COMPLETED') {
+        if (checkpoint.progress.projects[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
           this.reporter.skip(`Project ${projectKey} (already migrated)`);
           continue;
         }
@@ -253,8 +349,9 @@ export class MigrateCommand {
       // Step 3: Issues
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Issues');
+      this.prepareLegacyPhaseAttempt(checkpoint, 'issues', options.projects);
       for (const projectKey of options.projects) {
-        if (checkpoint.progress.issues[projectKey]?.status === 'COMPLETED') {
+        if (checkpoint.progress.issues[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
           this.reporter.skip(`Issues ${projectKey} (already migrated)`);
           continue;
         }
@@ -264,8 +361,9 @@ export class MigrateCommand {
       // Step 4: Parent links
       step++;
       this.reporter.section(step, totalSteps, 'Linking parent issues');
+      this.prepareLegacyPhaseAttempt(checkpoint, 'parentLinks', options.projects);
       for (const projectKey of options.projects) {
-        if (checkpoint.progress.parentLinks[projectKey]?.status === 'COMPLETED') {
+        if (checkpoint.progress.parentLinks[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
           continue;
         }
         await this.linkParentIssues(projectKey, checkpoint, options);
@@ -274,8 +372,9 @@ export class MigrateCommand {
       // Step 5: Issue links (non-parent)
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Links');
+      this.prepareLegacyPhaseAttempt(checkpoint, 'links', options.projects);
       for (const projectKey of options.projects) {
-        if (checkpoint.progress.links[projectKey]?.status === 'COMPLETED') {
+        if (checkpoint.progress.links[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
           continue;
         }
         await this.migrateLinks(projectKey, checkpoint, options);
@@ -284,8 +383,9 @@ export class MigrateCommand {
       // Step 6: Tags
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Tags');
+      this.prepareLegacyPhaseAttempt(checkpoint, 'tags', options.projects);
       for (const projectKey of options.projects) {
-        if (checkpoint.progress.tags[projectKey]?.status === 'COMPLETED') {
+        if (checkpoint.progress.tags[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
           continue;
         }
         await this.migrateTags(projectKey, checkpoint, options);
@@ -294,8 +394,9 @@ export class MigrateCommand {
       // Step 7: Comments
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Comments');
+      this.prepareLegacyPhaseAttempt(checkpoint, 'comments', options.projects);
       for (const projectKey of options.projects) {
-        if (checkpoint.progress.comments[projectKey]?.status === 'COMPLETED') {
+        if (checkpoint.progress.comments[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
           continue;
         }
         await this.migrateComments(projectKey, checkpoint, options);
@@ -306,6 +407,7 @@ export class MigrateCommand {
       // issue; inserting activity rows doesn't touch the issue's updated_at.
       step++;
       this.reporter.section(step, totalSteps, 'Migrating Change History');
+      checkpoint.errors = checkpoint.errors.filter((error) => error.phase !== 'history');
       for (const projectKey of options.projects) {
         await this.migrateHistory(projectKey, checkpoint, options);
       }
@@ -314,8 +416,9 @@ export class MigrateCommand {
       if (options.withAttachments) {
         step++;
         this.reporter.section(step, totalSteps, 'Migrating Attachments');
+        this.prepareLegacyPhaseAttempt(checkpoint, 'attachments', options.projects);
         for (const projectKey of options.projects) {
-          if (checkpoint.progress.attachments[projectKey]?.status === 'COMPLETED') {
+          if (checkpoint.progress.attachments[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
             continue;
           }
           await this.migrateAttachments(projectKey, checkpoint, options);
@@ -326,8 +429,9 @@ export class MigrateCommand {
       if (options.withTimeTracking) {
         step++;
         this.reporter.section(step, totalSteps, 'Migrating Time Logs');
+        this.prepareLegacyPhaseAttempt(checkpoint, 'timeLogs', options.projects);
         for (const projectKey of options.projects) {
-          if (checkpoint.progress.timeLogs[projectKey]?.status === 'COMPLETED') {
+          if (checkpoint.progress.timeLogs[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
             continue;
           }
           await this.migrateTimeLogs(projectKey, checkpoint, options);
@@ -338,8 +442,9 @@ export class MigrateCommand {
       if (options.withBoards) {
         step++;
         this.reporter.section(step, totalSteps, 'Migrating Boards + Sprints');
+        this.prepareLegacyPhaseAttempt(checkpoint, 'boards', options.projects);
         for (const projectKey of options.projects) {
-          if (checkpoint.progress.boards[projectKey]?.status === 'COMPLETED') {
+          if (checkpoint.progress.boards[checkpointProjectKey(projectKey)]?.status === 'COMPLETED') {
             continue;
           }
           await this.migrateBoards(projectKey, checkpoint, options);
@@ -354,6 +459,7 @@ export class MigrateCommand {
       // ES picks up the corrected values.
       step++;
       this.reporter.section(step, totalSteps, 'Restoring timestamps');
+      checkpoint.errors = checkpoint.errors.filter((error) => error.phase !== 'timestamps');
       for (const projectKey of options.projects) {
         await this.restoreTimestamps(projectKey, checkpoint, options);
       }
@@ -409,7 +515,7 @@ export class MigrateCommand {
             await this.api.reindexProject(projectKey);
             this.reporter.info(`Reindex queued for ${projectKey}`);
           } catch (err) {
-            await this.recordError(checkpoint, 'reindex', projectKey, err);
+            await this.recordError(checkpoint, 'reindex', projectKey, err, projectKey);
           }
         }
       }
@@ -501,7 +607,7 @@ export class MigrateCommand {
       this.idMap.setFallbackUserId(result.data.id);
     } catch (err: any) {
       this.reporter.warn(
-        `Could not create the migration ghost user: ${err?.message}. ` +
+        `Could not create the migration ghost user: ${formatHttpError(err)}. ` +
           `Issues from deleted YouTrack accounts will fail to migrate.`,
       );
     }
@@ -536,6 +642,57 @@ export class MigrateCommand {
     };
   }
 
+  private initDryRunCheckpoint(options: MigrateOptions): MigrationCheckpoint {
+    const config = buildRunConfig(options);
+    return {
+      version: CHECKPOINT_VERSION,
+      configHash: sourceChecksum(config),
+      startedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      config,
+      status: 'RUNNING',
+      idMap: {},
+      progress: {
+        users: createPhaseProgress(),
+        projects: {}, issues: {}, comments: {}, tags: {}, attachments: {},
+        timeLogs: {}, boards: {}, parentLinks: {}, links: {},
+      },
+      errors: [],
+    };
+  }
+
+  private async runDryRun(
+    checkpoint: MigrationCheckpoint,
+    options: MigrateOptions,
+    startTime: number,
+  ): Promise<void> {
+    await this.migrateUsers(checkpoint, options);
+    for (const projectKey of options.projects) {
+      await this.migrateProject(projectKey, checkpoint, options);
+      await this.migrateIssues(projectKey, checkpoint, options);
+      await this.linkParentIssues(projectKey, checkpoint, options);
+      await this.migrateLinks(projectKey, checkpoint, options);
+      await this.migrateTags(projectKey, checkpoint, options);
+      await this.migrateComments(projectKey, checkpoint, options);
+      await this.migrateHistory(projectKey, checkpoint, options);
+      if (options.withAttachments) {
+        await this.migrateAttachments(projectKey, checkpoint, options);
+      }
+      if (options.withTimeTracking) {
+        await this.migrateTimeLogs(projectKey, checkpoint, options);
+      }
+      if (options.withBoards) {
+        await this.migrateBoards(projectKey, checkpoint, options);
+      }
+      await this.restoreTimestamps(projectKey, checkpoint, options);
+    }
+    checkpoint.status = checkpoint.errors.length === 0 ? 'COMPLETED' : 'FAILED';
+    checkpoint.idMap = this.idMap.serialize();
+    await this.checkpointService.save(checkpoint);
+    this.summary.printSummary(checkpoint, startTime);
+    if (checkpoint.status === 'FAILED') process.exitCode = 1;
+  }
+
   private countSteps(options: MigrateOptions): number {
     // users, projects, issues, parent-links, links, tags, comments, history,
     // restore-timestamps, reindex
@@ -546,6 +703,52 @@ export class MigrateCommand {
     return steps;
   }
 
+  private prepareLegacyPhaseAttempt(
+    checkpoint: MigrationCheckpoint,
+    phase: Exclude<keyof MigrationCheckpoint['progress'], 'users'>,
+    projects: string[],
+  ): void {
+    const historical = checkpoint.errors.filter((error) => error.phase === phase);
+    if (historical.length > 0) {
+      checkpoint.errors = checkpoint.errors.filter((error) => error.phase !== phase);
+    }
+    const hasUnscopedLegacyError = historical.some((error) => !error.projectKey);
+    const affectedProjects = new Set(
+      historical.flatMap((error) =>
+        error.projectKey ? [checkpointProjectKey(error.projectKey)] : [],
+      ),
+    );
+    const progress = checkpoint.progress[phase] as Record<string, ReturnType<typeof createPhaseProgress>>;
+    for (const project of projects) {
+      const safeProject = checkpointProjectKey(project);
+      const prior = progress[safeProject];
+      if (
+        hasUnscopedLegacyError ||
+        affectedProjects.has(safeProject) ||
+        prior?.status === 'FAILED'
+      ) {
+        progress[safeProject] = createPhaseProgress();
+      }
+    }
+  }
+
+  private phaseStatus(
+    checkpoint: MigrationCheckpoint,
+    phase: string,
+    projectKey?: string,
+  ): 'COMPLETED' | 'FAILED' {
+    return checkpoint.errors.some(
+      (error) =>
+        error.phase === phase &&
+        (!projectKey ||
+          !error.projectKey ||
+          checkpointProjectKey(error.projectKey) ===
+            checkpointProjectKey(projectKey)),
+    )
+      ? 'FAILED'
+      : 'COMPLETED';
+  }
+
   // Import each issue's field-change history as backdated Activity rows. The
   // author resolves to the migrated user or the ghost ("Deleted User"). One
   // activities request per issue (bounded), idempotent server-side.
@@ -554,45 +757,47 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    if (options.dryRun) {
-      this.reporter.log(`[DRY] Would migrate change history for ${projectKey}`);
-      return;
-    }
-
     const ghost = this.idMap.getFallbackUserId();
     let created = 0;
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'history')) {
       for (const ytIssue of batch) {
-        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
-        if (!ourIssueId) continue;
-
         let activities;
         try {
           activities = await this.activitiesExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          await this.recordError(checkpoint, 'history', ytIssue.id, err);
+          await this.recordError(checkpoint, 'history', ytIssue.id, err, projectKey);
           continue;
         }
 
-        const entries = activities
-          .map(mapActivity)
-          .map((m) => ({
-            type: m.type,
-            actorId: (m.authorYtId && this.idMap.getUserId(m.authorYtId)) || ghost || '',
-            createdAt: new Date(m.timestamp).toISOString(),
-            payload: m.payload,
-          }))
-          .filter((e) => e.actorId);
+        let entries;
+        try {
+          entries = activities.map(mapActivity).map((m) => ({
+              type: m.type,
+              actorId: (m.authorYtId && this.idMap.getUserId(m.authorYtId)) || ghost || '',
+              createdAt: new Date(m.timestamp).toISOString(),
+              payload: m.payload,
+            }));
+        } catch (err) {
+          await this.recordError(checkpoint, 'history', ytIssue.id, err, projectKey);
+          continue;
+        }
+        if (options.dryRun) {
+          created += entries.length;
+          this.reporter.log(
+            `[DRY] Validated ${entries.length} history entries for ${projectKey}-${ytIssue.numberInProject}`,
+          );
+          continue;
+        }
+        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+        if (!ourIssueId) continue;
+        entries = entries.filter((entry) => entry.actorId);
         if (entries.length === 0) continue;
 
         try {
           await this.api.createActivities(ourIssueId, entries);
           created += entries.length;
         } catch (err) {
-          await this.recordError(checkpoint, 'history', ytIssue.id, err);
+          await this.recordError(checkpoint, 'history', ytIssue.id, err, projectKey);
         }
       }
     }
@@ -609,28 +814,27 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    if (options.dryRun) {
-      this.reporter.log(`[DRY] Would restore timestamps for ${projectKey}`);
-      return;
-    }
-
     let restored = 0;
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'timestamps')) {
       for (const ytIssue of batch) {
-        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
-        if (!ourIssueId) continue;
         try {
-          await this.api.setOriginalDates(ourIssueId, {
+          const dates = {
             createdAt: new Date(ytIssue.created).toISOString(),
             updatedAt: new Date(ytIssue.updated).toISOString(),
             resolvedAt: ytIssue.resolved ? new Date(ytIssue.resolved).toISOString() : null,
+          };
+          if (options.dryRun) {
+            restored++;
+            continue;
+          }
+          const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+          if (!ourIssueId) continue;
+          await this.api.setOriginalDates(ourIssueId, {
+            ...dates,
           });
           restored++;
         } catch (err) {
-          await this.recordError(checkpoint, 'timestamps', ytIssue.id, err);
+          await this.recordError(checkpoint, 'timestamps', ytIssue.id, err, projectKey);
         }
       }
     }
@@ -642,15 +846,22 @@ export class MigrateCommand {
     phase: string,
     entityId: string,
     err: any,
+    projectKey?: string,
   ): Promise<void> {
+    const safePhase = checkpointPhaseKey(phase);
+    const safeProjectKey = projectKey
+      ? checkpointProjectKey(projectKey)
+      : undefined;
+    const safeEntityId = sanitizeMigrationErrorMessage(entityId);
     const message = formatHttpError(err);
     checkpoint.errors.push({
-      phase,
-      entityId,
+      phase: safePhase,
+      ...(safeProjectKey ? { projectKey: safeProjectKey } : {}),
+      entityId: safeEntityId,
       message,
       timestamp: new Date().toISOString(),
     });
-    this.reporter.warn(`Error [${phase}] ${entityId}: ${message}`);
+    this.reporter.warn(`Error [${safePhase}] ${safeEntityId}: ${message}`);
     // Persist immediately: the periodic (every-100) save can be far away, and the
     // live progress bar clobbers this warning line — so on-disk errors[] is the
     // only reliable place to read the full failure text after an interrupted run.
@@ -663,7 +874,7 @@ export class MigrateCommand {
   private async migrateUsers(
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
-    runId: string,
+    runId?: string,
   ): Promise<void> {
     // A full manifest discovery pass retries prior FAILED user rows. Historical
     // user-attempt errors must not keep a now-VERIFIED resume permanently
@@ -675,17 +886,18 @@ export class MigrateCommand {
 
     let completed = 0;
     const errorsBefore = checkpoint.errors.length;
-    const executor = new ManifestEntityExecutor(runId, this.api);
+    const executor = runId ? new ManifestEntityExecutor(runId, this.api) : null;
 
     for await (const batch of this.usersExtractor.extract()) {
       for (const ytUser of batch) {
+        const canonical = canonicalMigratedUser(ytUser);
         if (options.dryRun) {
           this.reporter.log(`[DRY] Would create user: ${ytUser.email}`);
           completed++;
           continue;
         }
 
-        const canonical = canonicalMigratedUser(ytUser);
+        if (!executor) throw new Error('A server run ID is required outside dry-run mode');
         const result = await executor.execute(canonical, {
           transform: () => ({
             ...this.userTransformer.transform(ytUser),
@@ -721,7 +933,11 @@ export class MigrateCommand {
       completed,
       total: completed,
     });
-    this.reporter.done(`Users: ${completed} processed (legacy checkpoint counter)`);
+    this.reporter.done(
+      options.dryRun
+        ? `[DRY] Users: ${completed} extracted and transformed; none written`
+        : `Users: ${completed} processed (legacy checkpoint counter)`,
+    );
   }
 
   // Derive the project's custom-field definitions from YouTrack and create the
@@ -732,7 +948,7 @@ export class MigrateCommand {
     projectKey: string,
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
-  ): Promise<void> {
+  ): Promise<YtFieldDef[]> {
     let defs: YtFieldDef[];
     try {
       defs = await this.fieldDefsExtractor.collect(projectKey);
@@ -740,8 +956,8 @@ export class MigrateCommand {
       // Non-fatal: without field defs, custom-field VALUES drop, but issues
       // (and their first-class Type/State/Assignee/Priority, read per-issue)
       // still migrate. Record and skip rather than abort the whole run.
-      await this.recordError(checkpoint, 'projects', `${projectKey}:field-defs`, err);
-      return;
+      await this.recordError(checkpoint, 'projects', `${projectKey}:field-defs`, err, projectKey);
+      return [];
     }
     let created = 0;
     const skipped: string[] = [];
@@ -761,7 +977,7 @@ export class MigrateCommand {
         await this.api.createCustomField(projectKey, result.dto);
         created++;
       } catch (err) {
-        await this.recordError(checkpoint, 'projects', `${projectKey}:field:${def.name}`, err);
+        await this.recordError(checkpoint, 'projects', `${projectKey}:field:${def.name}`, err, projectKey);
       }
     }
 
@@ -769,6 +985,7 @@ export class MigrateCommand {
       `Project ${projectKey}: ${created} custom fields provisioned` +
         (skipped.length ? `, skipped ${skipped.join(', ')}` : ''),
     );
+    return defs;
   }
 
   private async migrateProject(
@@ -776,13 +993,27 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
+    const safeProjectKey = sanitizeMigrationErrorMessage(projectKey);
     await this.checkpointService.updateProgress(checkpoint, 'projects', projectKey, {
       status: 'IN_PROGRESS',
     });
 
     const projects = await this.projectsExtractor.extractProjects([projectKey]);
     if (projects.length === 0) {
-      this.reporter.warn(`Project ${projectKey} not found in YouTrack`);
+      this.reporter.warn(`Project ${safeProjectKey} not found in YouTrack`);
+      await this.recordError(
+        checkpoint,
+        'projects',
+        projectKey,
+        new Error('Requested source project was not found'),
+        projectKey,
+      );
+      await this.checkpointService.updateProgress(
+        checkpoint,
+        'projects',
+        projectKey,
+        { status: 'FAILED', completed: 0, total: 0 },
+      );
       return;
     }
 
@@ -804,7 +1035,7 @@ export class MigrateCommand {
           statuses: mapStatesToStatuses(states),
         });
       } catch (err) {
-        await this.recordError(checkpoint, 'projects', projectKey, err);
+        await this.recordError(checkpoint, 'projects', projectKey, err, projectKey);
       }
     }
 
@@ -812,25 +1043,34 @@ export class MigrateCommand {
     // field map below — so YouTrack custom-field values map onto real fields
     // instead of being dropped. First-class fields (Type/State/Assignee/
     // Priority) are excluded; they migrate as native Issue attributes.
-    await this.createCustomFields(projectKey, checkpoint, options);
+    const fieldDefs = await this.createCustomFields(projectKey, checkpoint, options);
 
     // Register the target's REAL status and custom-field ids (by name) so issues
-    // map to valid ids instead of dropping. Read-only.
-    try {
-      const statuses = await this.api.getStatusMap(projectKey);
-      registerStatusMap(this.idMap, projectKey, statuses);
-      const fields = await this.api.getCustomFieldMap(projectKey);
-      registerCustomFieldMap(this.idMap, fields);
-      this.reporter.info(
-        `Project ${projectKey}: registered ${statuses.length} statuses, ${fields.length} custom fields`,
+    // map to valid ids instead of dropping. A dry-run deliberately does not
+    // create the target project, therefore it must not require those maps to
+    // already exist on a clean target.
+    if (options.dryRun) {
+      registerDryRunProjectMaps(this.idMap, projectKey, states, fieldDefs);
+      this.reporter.log(
+        `[DRY] Registered virtual status and custom-field maps for ${projectKey}`,
       );
-    } catch (err) {
-      await this.recordError(checkpoint, 'projects', projectKey, err);
-      this.reporter.warn(
-        `Project ${projectKey}: could not fetch target status/custom-field maps — ` +
-          `is the project created in the target system? Statuses will fall back to ` +
-          `the initial status and custom fields will be dropped.`,
-      );
+    } else {
+      try {
+        const statuses = await this.api.getStatusMap(projectKey);
+        registerStatusMap(this.idMap, projectKey, statuses);
+        const fields = await this.api.getCustomFieldMap(projectKey);
+        registerCustomFieldMap(this.idMap, fields);
+        this.reporter.info(
+          `Project ${projectKey}: registered ${statuses.length} statuses, ${fields.length} custom fields`,
+        );
+      } catch (err) {
+        await this.recordError(checkpoint, 'projects', projectKey, err, projectKey);
+        this.reporter.warn(
+          `Project ${safeProjectKey}: could not fetch target status/custom-field maps — ` +
+            `is the project created in the target system? Statuses will fall back to ` +
+            `the initial status and custom fields will be dropped.`,
+        );
+      }
     }
 
     // Make every migrated user a member of the project (so assignees and
@@ -849,13 +1089,13 @@ export class MigrateCommand {
         await this.api.addProjectMembers(projectKey, members);
         this.reporter.info(`Project ${projectKey}: ${members.length} users added as members`);
       } catch (err) {
-        await this.recordError(checkpoint, 'projects', projectKey, err);
+        await this.recordError(checkpoint, 'projects', projectKey, err, projectKey);
       }
     }
 
     checkpoint.idMap = this.idMap.serialize();
     await this.checkpointService.updateProgress(checkpoint, 'projects', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'projects', projectKey),
       completed: 1,
       total: 1,
     });
@@ -872,48 +1112,55 @@ export class MigrateCommand {
     });
 
     const statusMap = this.idMap.getStatusMap(projectKey);
-    let completed = checkpoint.progress.issues[projectKey]?.completed ?? 0;
+    const progressKey = checkpointProjectKey(projectKey);
+    let completed = checkpoint.progress.issues[progressKey]?.completed ?? 0;
 
     const bar = this.reporter.createCounter(`Issues [${projectKey}]`);
     bar.start(0, completed);
+    try {
+      for await (const batch of this.issuesExtractor.extract(projectKey, {
+        withClosedIssues: options.withClosedIssues,
+        batchSize: options.batchSize,
+      })) {
+        for (const ytIssue of batch) {
+          try {
+            const dto = this.issueTransformer.transform(ytIssue, this.idMap, statusMap, {
+              estimateFieldName: options.estimateField,
+            });
+            if (options.dryRun) {
+              this.reporter.log(
+                `[DRY] Validated issue: ${projectKey}-${ytIssue.numberInProject}`,
+              );
+            } else {
+              const result = await this.api.createMigratedIssue(projectKey, dto);
+              this.idMap.registerIssue(ytIssue.id, result.data.id);
+              this.idMap.registerIssueByNumber(
+                projectKey,
+                ytIssue.numberInProject,
+                ytIssue.id,
+              );
+            }
+          } catch (err) {
+            await this.recordError(checkpoint, 'issues', ytIssue.id, err, projectKey);
+          }
 
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
-      for (const ytIssue of batch) {
-        if (options.dryRun) {
-          this.reporter.log(`[DRY] Would create issue: ${projectKey}-${ytIssue.numberInProject}`);
           completed++;
           bar.increment();
-          continue;
-        }
 
-        try {
-          const dto = this.issueTransformer.transform(ytIssue, this.idMap, statusMap, {
-            estimateFieldName: options.estimateField,
-          });
-          const result = await this.api.createMigratedIssue(projectKey, dto);
-          this.idMap.registerIssue(ytIssue.id, result.data.id);
-          this.idMap.registerIssueByNumber(projectKey, ytIssue.numberInProject, ytIssue.id);
-        } catch (err) {
-          await this.recordError(checkpoint, 'issues', ytIssue.id, err);
-        }
-
-        completed++;
-        bar.increment();
-
-        if (completed % 100 === 0) {
-          checkpoint.idMap = this.idMap.serialize();
-          checkpoint.progress.issues[projectKey]!.completed = completed;
-          await this.checkpointService.save(checkpoint);
+          if (completed % 100 === 0) {
+            checkpoint.idMap = this.idMap.serialize();
+            checkpoint.progress.issues[progressKey]!.completed = completed;
+            await this.checkpointService.save(checkpoint);
+          }
         }
       }
+    } catch (err) {
+      await this.recordError(checkpoint, 'issues', projectKey, err, projectKey);
     }
 
     bar.stop();
     await this.checkpointService.updateProgress(checkpoint, 'issues', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'issues', projectKey),
       completed,
       total: completed,
     });
@@ -925,24 +1172,30 @@ export class MigrateCommand {
     checkpoint: MigrationCheckpoint,
     options: MigrateOptions,
   ): Promise<void> {
-    if (options.dryRun) {
-      this.reporter.log(`[DRY] Would link parent issues for ${projectKey}`);
-      return;
-    }
-
     // Re-extract issues to resolve parent references. YouTrack has no native
     // parent field — the top-level `Issue.parent` is an IssueLink wrapper whose
     // id is the LINK id, not the parent issue. Hierarchy is the INWARD "Subtask"
     // link, resolved via resolveParentYtId.
     let linked = 0;
 
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'parentLinks')) {
       for (const ytIssue of batch) {
-        const parentYtId = resolveParentYtId(ytIssue.links);
+        let parentYtId: string | null;
+        try {
+          parentYtId = resolveParentYtId(ytIssue.links);
+        } catch (err) {
+          await this.recordError(checkpoint, 'parentLinks', ytIssue.id, err, projectKey);
+          continue;
+        }
         if (!parentYtId) continue;
+
+        if (options.dryRun) {
+          linked++;
+          this.reporter.log(
+            `[DRY] Validated parent link ${ytIssue.id} → ${parentYtId}`,
+          );
+          continue;
+        }
 
         const ourIssueId = this.idMap.getIssueId(ytIssue.id);
         const ourParentId = this.idMap.getIssueId(parentYtId);
@@ -952,14 +1205,14 @@ export class MigrateCommand {
             await this.api.setIssueParent(ourIssueId, ourParentId);
             linked++;
           } catch (err) {
-            await this.recordError(checkpoint, 'parentLinks', ytIssue.id, err);
+            await this.recordError(checkpoint, 'parentLinks', ytIssue.id, err, projectKey);
           }
         }
       }
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'parentLinks', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'parentLinks', projectKey),
       completed: linked,
       total: linked,
     });
@@ -981,48 +1234,50 @@ export class MigrateCommand {
 
     let linked = 0;
 
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'links')) {
       for (const ytIssue of batch) {
-        const links = ytIssue.links ?? [];
-        if (links.length === 0) continue;
+        try {
+          const links = ytIssue.links ?? [];
+          if (links.length === 0) continue;
 
-        const sourceId = this.idMap.getIssueId(ytIssue.id);
-        if (!sourceId) continue;
+          const sourceId = options.dryRun ? ytIssue.id : this.idMap.getIssueId(ytIssue.id);
+          if (!sourceId) continue;
 
-        for (const link of links) {
-          const type = mapYtLink(link.linkType.name, link.direction);
-          if (!type) continue; // unknown type, subtask, or inward-symmetric
+          for (const link of links) {
+            const type = mapYtLink(link.linkType.name, link.direction);
+            if (!type) continue; // unknown type, subtask, or inward-symmetric
 
-          for (const target of link.issues ?? []) {
-            const targetId = this.idMap.getIssueId(target.id);
-            if (!targetId || targetId === sourceId) continue;
+            for (const target of link.issues ?? []) {
+              const targetId = options.dryRun ? target.id : this.idMap.getIssueId(target.id);
+              if (!targetId || targetId === sourceId) continue;
 
-            if (options.dryRun) {
-              this.reporter.log(
-                `[DRY] Would link ${projectKey}-${ytIssue.numberInProject}: ${type} → ${target.id}`,
-              );
-              continue;
-            }
+              if (options.dryRun) {
+                this.reporter.log(
+                  `[DRY] Would link ${projectKey}-${ytIssue.numberInProject}: ${type} → ${target.id}`,
+                );
+                linked++;
+                continue;
+              }
 
-            try {
-              await this.api.createIssueLink(sourceId, {
-                type,
-                targetIssueId: targetId,
-              });
-              linked++;
-            } catch (err) {
-              await this.recordError(checkpoint, 'links', ytIssue.id, err);
+              try {
+                await this.api.createIssueLink(sourceId, {
+                  type,
+                  targetIssueId: targetId,
+                });
+                linked++;
+              } catch (err) {
+                await this.recordError(checkpoint, 'links', ytIssue.id, err, projectKey);
+              }
             }
           }
+        } catch (err) {
+          await this.recordError(checkpoint, 'links', ytIssue.id, err, projectKey);
         }
       }
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'links', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'links', projectKey),
       completed: linked,
       total: linked,
     });
@@ -1040,19 +1295,21 @@ export class MigrateCommand {
 
     let tagged = 0;
 
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'tags')) {
       for (const ytIssue of batch) {
         const ytTags = ytIssue.tags ?? [];
         if (ytTags.length === 0) continue;
 
         if (options.dryRun) {
-          this.reporter.log(
-            `[DRY] Would tag ${projectKey}-${ytIssue.numberInProject}: ` +
-              ytTags.map((t) => t.name).join(', '),
-          );
+          try {
+            for (const tag of ytTags) mapTagColor(tag.color);
+            this.reporter.log(
+              `[DRY] Would tag ${projectKey}-${ytIssue.numberInProject}: ` +
+                ytTags.map((t) => t.name).join(', '),
+            );
+          } catch (err) {
+            await this.recordError(checkpoint, 'tags', ytIssue.id, err, projectKey);
+          }
           continue;
         }
 
@@ -1078,7 +1335,7 @@ export class MigrateCommand {
           await this.api.linkIssueTags(ourIssueId, [...new Set(tagIds)]);
           tagged++;
         } catch (err) {
-          await this.recordError(checkpoint, 'tags', ytIssue.id, err);
+          await this.recordError(checkpoint, 'tags', ytIssue.id, err, projectKey);
         }
       }
       checkpoint.idMap = this.idMap.serialize();
@@ -1086,7 +1343,7 @@ export class MigrateCommand {
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'tags', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'tags', projectKey),
       completed: tagged,
       total: tagged,
     });
@@ -1102,34 +1359,38 @@ export class MigrateCommand {
       status: 'IN_PROGRESS',
     });
 
-    let completed = checkpoint.progress.comments[projectKey]?.completed ?? 0;
+    let completed = checkpoint.progress.comments[checkpointProjectKey(projectKey)]?.completed ?? 0;
 
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'comments')) {
       for (const ytIssue of batch) {
-        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
-        if (!ourIssueId) continue;
-
         let comments;
         try {
           comments = await this.commentsExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          await this.recordError(checkpoint, 'comments', ytIssue.id, err);
+          await this.recordError(checkpoint, 'comments', ytIssue.id, err, projectKey);
           continue;
         }
 
         for (const comment of comments) {
-          if (options.dryRun) {
-            this.reporter.log(
-              `[DRY] Would create comment on ${projectKey}-${ytIssue.numberInProject}`,
-            );
-            completed++;
-            continue;
-          }
-
           try {
+            const body = richTextToTiptap(comment.text, {
+              resolveUserMention: (id) =>
+                options.dryRun ? null : this.idMap.getUserId(id) ?? null,
+            });
+            const createdAt = new Date(comment.created).toISOString();
+            if (!comment.id || !comment.author?.id) {
+              throw new Error('Comment source identity or author is missing');
+            }
+            if (options.dryRun) {
+              void body;
+              this.reporter.log(
+                `[DRY] Validated comment on ${projectKey}-${ytIssue.numberInProject}`,
+              );
+              completed++;
+              continue;
+            }
+            const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+            if (!ourIssueId) continue;
             const authorId =
               this.idMap.getUserId(comment.author.id) ?? this.idMap.getFallbackUserId();
             if (!authorId) {
@@ -1140,21 +1401,19 @@ export class MigrateCommand {
             await this.api.createComment(
               ourIssueId,
               authorId,
-              richTextToTiptap(comment.text, {
-                resolveUserMention: (id) => this.idMap.getUserId(id) ?? null,
-              }),
-              new Date(comment.created).toISOString(),
+              body,
+              createdAt,
             );
             completed++;
           } catch (err) {
-            await this.recordError(checkpoint, 'comments', comment.id, err);
+            await this.recordError(checkpoint, 'comments', comment.id, err, projectKey);
           }
         }
       }
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'comments', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'comments', projectKey),
       completed,
       total: completed,
     });
@@ -1170,45 +1429,55 @@ export class MigrateCommand {
       status: 'IN_PROGRESS',
     });
 
-    let completed = checkpoint.progress.attachments[projectKey]?.completed ?? 0;
+    let completed = checkpoint.progress.attachments[checkpointProjectKey(projectKey)]?.completed ?? 0;
 
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'attachments')) {
       for (const ytIssue of batch) {
-        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
-        if (!ourIssueId) continue;
-
         let attachments;
         try {
           attachments = await this.attachmentsExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          await this.recordError(checkpoint, 'attachments', ytIssue.id, err);
+          await this.recordError(checkpoint, 'attachments', ytIssue.id, err, projectKey);
           continue;
         }
+
+        if (options.dryRun) {
+          for (const att of attachments) {
+            try {
+              if (
+                !att.id || !att.name || !att.url || !att.mimeType ||
+                !Number.isFinite(att.size) || att.size < 0
+              ) {
+                throw new Error('Attachment metadata is invalid');
+              }
+              new Date(att.created).toISOString();
+              this.reporter.log(`[DRY] Validated attachment: ${att.name} (${att.size} bytes)`);
+              completed++;
+            } catch (err) {
+              await this.recordError(checkpoint, 'attachments', att.id || ytIssue.id, err, projectKey);
+            }
+          }
+          continue;
+        }
+
+        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+        if (!ourIssueId) continue;
 
         // Idempotency: the upload endpoint is not dedup-aware, so on a --resume
         // (or a partial retry) already-uploaded files would duplicate. Read the
         // issue's existing attachments once and skip matches by name+size.
         let existing = new Set<string>();
-        if (!options.dryRun && attachments.length > 0) {
+        if (attachments.length > 0) {
           try {
             const rows = await this.api.listAttachments(ourIssueId);
             existing = new Set(rows.map((a) => `${a.filename}:${a.size}`));
           } catch (err) {
-            await this.recordError(checkpoint, 'attachments', ytIssue.id, err);
+            await this.recordError(checkpoint, 'attachments', ytIssue.id, err, projectKey);
             continue;
           }
         }
 
         for (const att of attachments) {
-          if (options.dryRun) {
-            this.reporter.log(`[DRY] Would upload: ${att.name} (${att.size} bytes)`);
-            completed++;
-            continue;
-          }
-
           if (existing.has(`${att.name}:${att.size}`)) {
             completed++;
             continue;
@@ -1238,6 +1507,7 @@ export class MigrateCommand {
               'attachments',
               `${att.id} "${att.name}" ${kb}KB ${att.mimeType}`,
               err,
+              projectKey,
             );
           }
         }
@@ -1245,7 +1515,7 @@ export class MigrateCommand {
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'attachments', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'attachments', projectKey),
       completed,
       total: completed,
     });
@@ -1261,24 +1531,39 @@ export class MigrateCommand {
       status: 'IN_PROGRESS',
     });
 
-    let completed = checkpoint.progress.timeLogs[projectKey]?.completed ?? 0;
+    let completed = checkpoint.progress.timeLogs[checkpointProjectKey(projectKey)]?.completed ?? 0;
 
     // Time logs are loaded per-issue
-    for await (const batch of this.issuesExtractor.extract(projectKey, {
-      withClosedIssues: options.withClosedIssues,
-      batchSize: options.batchSize,
-    })) {
+    for await (const batch of this.phaseIssues(projectKey, options, checkpoint, 'timeLogs')) {
       for (const ytIssue of batch) {
-        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
-        if (!ourIssueId) continue;
-
         let timeLogs;
         try {
           timeLogs = await this.timeLogsExtractor.getForIssue(ytIssue.id);
         } catch (err) {
-          await this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
+          await this.recordError(checkpoint, 'timeLogs', ytIssue.id, err, projectKey);
           continue;
         }
+
+        if (options.dryRun) {
+          for (const entry of timeLogs) {
+            try {
+              if (!entry.id || !entry.author?.id || !(entry.duration?.minutes > 0)) {
+                throw new Error('Time-log source row is invalid');
+              }
+              new Date(entry.date).toISOString();
+              completed++;
+            } catch (err) {
+              await this.recordError(checkpoint, 'timeLogs', entry.id || ytIssue.id, err, projectKey);
+            }
+          }
+          this.reporter.log(
+            `[DRY] Validated ${timeLogs.length} time logs on ${projectKey}-${ytIssue.numberInProject}`,
+          );
+          continue;
+        }
+
+        const ourIssueId = this.idMap.getIssueId(ytIssue.id);
+        if (!ourIssueId) continue;
 
         // Author falls back to the ghost user; entries with no resolvable
         // author (and no ghost) or a non-positive duration are dropped.
@@ -1294,25 +1579,17 @@ export class MigrateCommand {
 
         if (entries.length === 0) continue;
 
-        if (options.dryRun) {
-          this.reporter.log(
-            `[DRY] Would import ${entries.length} time logs on ${projectKey}-${ytIssue.numberInProject}`,
-          );
-          completed += entries.length;
-          continue;
-        }
-
         try {
           await this.api.createTimeLogs(ourIssueId, entries);
           completed += entries.length;
         } catch (err) {
-          await this.recordError(checkpoint, 'timeLogs', ytIssue.id, err);
+          await this.recordError(checkpoint, 'timeLogs', ytIssue.id, err, projectKey);
         }
       }
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'timeLogs', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'timeLogs', projectKey),
       completed,
       total: completed,
     });
@@ -1333,13 +1610,36 @@ export class MigrateCommand {
     });
 
     let sprintsCreated = 0;
-    const ytBoards = await this.boardsExtractor.extractForProject(projectKey);
+    let ytBoards;
+    try {
+      ytBoards = await this.boardsExtractor.extractForProject(projectKey);
+    } catch (err) {
+      await this.recordError(checkpoint, 'boards', projectKey, err, projectKey);
+      await this.checkpointService.updateProgress(checkpoint, 'boards', projectKey, {
+        status: 'FAILED', completed: 0, total: 0,
+      });
+      return;
+    }
 
     for (const ytBoard of ytBoards) {
       if (options.dryRun) {
-        this.reporter.log(
-          `[DRY] Would create board "${ytBoard.name}" with ${ytBoard.sprints?.length ?? 0} sprints`,
-        );
+        try {
+          if (!ytBoard.id || !ytBoard.name) throw new Error('Board source metadata is invalid');
+          for (const sprint of ytBoard.sprints ?? []) {
+            if (!sprint.id || !sprint.name) throw new Error('Sprint source metadata is invalid');
+            if (sprint.start !== undefined) new Date(sprint.start).toISOString();
+            if (sprint.finish !== undefined) new Date(sprint.finish).toISOString();
+            for (const issue of sprint.issues ?? []) {
+              if (!issue.id) throw new Error('Sprint issue source identity is missing');
+            }
+            sprintsCreated++;
+          }
+          this.reporter.log(
+            `[DRY] Validated board "${ytBoard.name}" with ${ytBoard.sprints?.length ?? 0} sprints`,
+          );
+        } catch (err) {
+          await this.recordError(checkpoint, 'boards', ytBoard.id || projectKey, err, projectKey);
+        }
         continue;
       }
 
@@ -1368,12 +1668,12 @@ export class MigrateCommand {
           }
         }
       } catch (err) {
-        await this.recordError(checkpoint, 'boards', ytBoard.id, err);
+        await this.recordError(checkpoint, 'boards', ytBoard.id, err, projectKey);
       }
     }
 
     await this.checkpointService.updateProgress(checkpoint, 'boards', projectKey, {
-      status: 'COMPLETED',
+      status: this.phaseStatus(checkpoint, 'boards', projectKey),
       completed: sprintsCreated,
       total: sprintsCreated,
     });

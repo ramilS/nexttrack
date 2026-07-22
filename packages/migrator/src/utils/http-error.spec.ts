@@ -7,6 +7,36 @@ function axiosError(props: Record<string, unknown>): AxiosError {
 }
 
 describe('formatHttpError', () => {
+  it('redacts credential values while preserving actionable diagnostics', () => {
+    expect(
+      formatHttpError(
+        new Error(
+          'POST /issues returned 422: sk-proj-abcdefghijklmnopqrstuvwxyz0123456789',
+        ),
+      ),
+    ).toBe('POST /issues returned 422: [redacted]');
+  });
+  it('redacts a compact JWT with a short payload segment', () => {
+    expect(
+      formatHttpError(new Error('token eyJhbGciOiJIUzI1NiJ9.e30.signaturevalue')),
+    ).toBe('token [redacted]');
+  });
+  it('bounds messages to 2 KiB of UTF-8 without splitting code points', () => {
+    const formatted = formatHttpError(new Error('é'.repeat(2_000)));
+
+    expect(Buffer.byteLength(formatted, 'utf8')).toBeLessThanOrEqual(2_000);
+    expect(formatted).toBe('é'.repeat(1_000));
+  });
+  it.each(['access_token', 'refresh_token', 'client_secret'])(
+    'redacts prefixed credential assignment %s',
+    (key) => {
+      const formatted = formatHttpError(
+        new Error(`${key}=abcdefghijklmnopqrstuvwxyz`),
+      );
+      expect(formatted).toContain('[redacted]');
+      expect(formatted).not.toContain('abcdefghijklmnopqrstuvwxyz');
+    },
+  );
   it('names method, full URL, status, code and message (NextTrack envelope)', () => {
     const err = axiosError({
       config: { method: 'post', baseURL: 'http://localhost:3001/api', url: '/admin/migration/users' } as any,

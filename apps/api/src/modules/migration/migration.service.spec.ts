@@ -3,7 +3,7 @@ import { Readable } from 'stream';
 import { ConflictError, NotFoundError } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
 import { MigrationService, normalizeStatusColor } from './migration.service';
-import { MigrationRepository } from './migration.repository';
+import { MigrationRepository, type MigrationUserRow } from './migration.repository';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
 import { CustomFieldsService } from '@/modules/custom-fields/custom-fields.service';
@@ -45,7 +45,7 @@ describe('MigrationService', () => {
 
   const now = new Date();
 
-  const baseUser = {
+  const baseUser: MigrationUserRow = {
     id: 'user-1',
     email: 'john@example.com',
     name: 'John Doe',
@@ -116,6 +116,7 @@ describe('MigrationService', () => {
       findUserByEmail: jest.fn().mockResolvedValue(null),
       findUserByYtId: jest.fn().mockResolvedValue(null),
       createUser: jest.fn(),
+      upsertUserByYtId: jest.fn(),
       findProjectByKey: jest.fn().mockResolvedValue(null),
       findIssueByYtId: jest.fn().mockResolvedValue(null),
       ensureCounterAtLeast: jest.fn().mockResolvedValue(undefined),
@@ -167,24 +168,23 @@ describe('MigrationService', () => {
       migratedFrom: 'youtrack' as const,
     };
 
-    it('should return existing user with existed=true when email exists', async () => {
-      repo.findUserByEmail.mockResolvedValue(mockUser());
+    it('returns existed=true when the source-id upsert updates', async () => {
+      repo.upsertUserByYtId.mockResolvedValue({ user: mockUser(), created: false });
 
       const result = await service.createUser(dto);
 
       expect(result.existed).toBe(true);
       expect(result.data.email).toBe('john@example.com');
-      expect(repo.createUser).not.toHaveBeenCalled();
+      expect(repo.upsertUserByYtId).toHaveBeenCalled();
     });
 
-    it('should create new user with existed=false when email not found', async () => {
-      repo.findUserByEmail.mockResolvedValue(null);
-      repo.createUser.mockResolvedValue(mockUser());
+    it('returns existed=false when the source-id upsert creates', async () => {
+      repo.upsertUserByYtId.mockResolvedValue({ user: mockUser(), created: true });
 
       const result = await service.createUser(dto);
 
       expect(result.existed).toBe(false);
-      expect(repo.createUser).toHaveBeenCalledWith(
+      expect(repo.upsertUserByYtId).toHaveBeenCalledWith(
         expect.objectContaining({
           email: 'john@example.com',
           name: 'John Doe',
@@ -193,15 +193,41 @@ describe('MigrationService', () => {
       );
     });
 
-    it('reuses an existing user matched by ytId when the email changed (no 409)', async () => {
-      repo.findUserByEmail.mockResolvedValue(null);
-      repo.findUserByYtId.mockResolvedValue(mockUser({ ytId: 'yt-user-1' }));
+    it('updates every mutable migrated field when ytId already exists', async () => {
+      const updated = mockUser({
+        email: 'renamed@example.com',
+        name: 'Renamed',
+        avatarUrl: '/new-avatar',
+        isBlocked: true,
+        migratedFrom: 'youtrack-cloud',
+      });
+      repo.upsertUserByYtId.mockResolvedValue({ user: updated, created: false });
 
-      const result = await service.createUser({ ...dto, email: 'renamed@example.com' });
+      const result = await service.createUser({
+        ...dto,
+        email: 'renamed@example.com',
+        name: 'Renamed',
+        avatarUrl: '/new-avatar',
+        isBlocked: true,
+        migratedFrom: 'youtrack-cloud',
+      });
 
       expect(result.existed).toBe(true);
-      expect(repo.findUserByYtId).toHaveBeenCalledWith('yt-user-1');
-      expect(repo.createUser).not.toHaveBeenCalled();
+      expect(result.data).toMatchObject({
+        ...updated,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      });
+      expect(repo.upsertUserByYtId).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ytId: 'yt-user-1',
+          email: 'renamed@example.com',
+          name: 'Renamed',
+          avatarUrl: '/new-avatar',
+          isBlocked: true,
+          migratedFrom: 'youtrack-cloud',
+        }),
+      );
     });
   });
 

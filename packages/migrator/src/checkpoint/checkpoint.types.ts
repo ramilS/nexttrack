@@ -4,7 +4,7 @@ export const CHECKPOINT_VERSION = '0.2.0' as const;
 
 export interface MigrationCheckpoint {
   version: typeof CHECKPOINT_VERSION;
-  runId: string;
+  runId?: string;
   configHash: string;
   startedAt: string;
   updatedAt: string;
@@ -39,6 +39,7 @@ export interface PhaseProgress {
 
 export interface MigrationError {
   phase: string;
+  projectKey?: string;
   entityId: string;
   message: string;
   timestamp: string;

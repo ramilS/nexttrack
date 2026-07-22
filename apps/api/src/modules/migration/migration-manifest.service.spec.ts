@@ -7,11 +7,30 @@ import {
 import { ErrorCode } from '@repo/shared/error-codes';
 import type { MigrationManifestStore } from './migration-manifest.repository';
 import { MigrationManifestService } from './migration-manifest.service';
+import { canonicalJsonChecksum } from './migration-json';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const ENTITY_ID = '00000000-0000-4000-8000-000000000002';
 const CHECKSUM = 'a'.repeat(64);
 const CHANGED_CHECKSUM = 'b'.repeat(64);
+function safeConfig() {
+  return {
+    sourceUrl: 'https://example.youtrack.cloud',
+    targetUrl: 'http://localhost:3001',
+    projects: ['APP'],
+    allProjects: false,
+    withAttachments: false,
+    withTimeTracking: false,
+    withBoards: false,
+    withClosedIssues: false,
+    estimateField: null,
+    dryRun: false,
+    concurrency: 3,
+    batchSize: 50,
+    rateLimit: 10,
+  };
+}
+const CONFIG_HASH = canonicalJsonChecksum(safeConfig());
 const NOW = new Date('2026-07-14T12:00:00.000Z');
 
 function entity(
@@ -46,7 +65,7 @@ function run(overrides: Partial<MigrationRun> = {}): MigrationRun {
     sourceTenant: 'example.youtrack.cloud',
     sourceUrl: 'https://example.youtrack.cloud',
     targetUrl: 'http://localhost:3001',
-    config: { projects: ['APP'] },
+    config: safeConfig(),
     configHash: CHECKSUM,
     specVersion: '2026-07-14',
     exclusionVersion: '2026-07-14',
@@ -195,7 +214,8 @@ describe('MigrationManifestService', () => {
         status: MigrationEntityStatus.FAILED,
         error: {
           code: 'SOURCE_INVALID',
-          message: 'Source entity is invalid',
+          message:
+            'Source entity is invalid: Bearer abcdefghijklmnopqrstuvwxyz',
           details: { field: 'summary' },
         },
       }),
@@ -210,7 +230,7 @@ describe('MigrationManifestService', () => {
         patch: expect.objectContaining({
           status: MigrationEntityStatus.FAILED,
           errorCode: 'SOURCE_INVALID',
-          errorMessage: 'Source entity is invalid',
+          errorMessage: 'Source entity is invalid: Bearer [redacted]',
           errorDetails: { field: 'summary' },
         }),
       }),
@@ -349,8 +369,8 @@ describe('MigrationManifestService', () => {
       sourceTenant: ' EXAMPLE.youtrack.cloud ',
       sourceUrl: 'https://EXAMPLE.youtrack.cloud/',
       targetUrl: 'http://LOCALHOST:3001/',
-      config: { projects: ['APP'] },
-      configHash: CHECKSUM,
+      config: safeConfig(),
+      configHash: CONFIG_HASH,
       specVersion: '2026-07-14',
       exclusionVersion: '2026-07-14',
     });
@@ -360,12 +380,12 @@ describe('MigrationManifestService', () => {
       sourceTenant: 'example.youtrack.cloud',
       sourceUrl: 'https://example.youtrack.cloud',
       targetUrl: 'http://localhost:3001',
-      config: { projects: ['APP'] },
-      configHash: CHECKSUM,
+      config: safeConfig(),
+      configHash: CONFIG_HASH,
       specVersion: '2026-07-14',
       exclusionVersion: '2026-07-14',
       fingerprintHash:
-        '5d401d386303b95e2c3120e5fef7b296d51498d62b0a5be174e49994327dd886',
+        '6ad63dbe1c1a95cf1b3539922c7d1b400870695869b644eb423bc6c9211936a3',
     });
   });
 

@@ -28,6 +28,7 @@ import { TimeLogsService } from '@/modules/time-tracking/time-logs.service';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { generateDefaultWorkflow } from '@/modules/workflows/default-workflow';
 import { StatusCategory, ActivityType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { Readable } from 'stream';
@@ -98,31 +99,32 @@ export class MigrationService {
   ) {}
 
   async createUser(dto: CreateUserMigrationDto) {
-    // Idempotent by email OR ytId: a re-run must reuse an existing migrated
-    // user even if its email changed between runs (e.g. the ghost user), rather
-    // than hitting the unique ytId constraint (→ 409).
-    const existing =
-      (await this.migrationRepo.findUserByEmail(dto.email)) ??
-      (dto.ytId ? await this.migrationRepo.findUserByYtId(dto.ytId) : null);
-    if (existing) {
-      return { data: this.toMigrationUser(existing), existed: true };
+    try {
+      const result = await this.migrationRepo.upsertUserByYtId({
+        email: dto.email,
+        name: dto.name,
+        avatarUrl: dto.avatarUrl ?? null,
+        isBlocked: dto.isBlocked,
+        migratedFrom: dto.migratedFrom,
+        ytId: dto.ytId,
+      });
+      this.logger.log(
+        result.created ? 'Migrated user created' : 'Migrated user updated',
+        { userId: result.user.id, ytId: dto.ytId, migratedFrom: dto.migratedFrom },
+      );
+      return { data: this.toMigrationUser(result.user), existed: !result.created };
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictError(
+          ErrorCode.MIGRATION_USER_EMAIL_CONFLICT,
+          'Migrated user email is already owned by another user',
+        );
+      }
+      throw error;
     }
-
-    const user = await this.migrationRepo.createUser({
-      email: dto.email,
-      name: dto.name,
-      avatarUrl: dto.avatarUrl ?? null,
-      isBlocked: dto.isBlocked,
-      migratedFrom: dto.migratedFrom,
-      ytId: dto.ytId,
-    });
-    this.logger.log('Migrated user created', {
-      userId: user.id,
-      ytId: dto.ytId,
-      migratedFrom: dto.migratedFrom,
-    });
-
-    return { data: this.toMigrationUser(user), existed: false };
   }
 
   async createIssue(projectKey: string, dto: CreateIssueMigrationDto) {
