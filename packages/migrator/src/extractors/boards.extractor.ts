@@ -5,6 +5,7 @@ const AGILE_FIELDS = [
   'id', 'name',
   'projects(id,shortName)',
   'columnSettings(columns(presentation,fieldValues(name)))',
+  'currentSprint(id,name)',
   'sprints(id,name,goal,start,finish,archived,issues(id))',
 ].join(',');
 

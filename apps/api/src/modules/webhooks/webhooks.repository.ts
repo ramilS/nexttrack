@@ -8,6 +8,7 @@ export interface WebhookRow {
   createdById: string;
   name: string;
   url: string;
+  provider: string;
   secret: string;
   eventTypes: string[];
   isEnabled: boolean;
@@ -23,6 +24,7 @@ export interface WebhookRow {
 export interface WebhookDeliveryContextRow {
   secret: string;
   url: string;
+  provider: string;
   isEnabled: boolean;
   name: string;
 }
@@ -32,6 +34,7 @@ export interface CreateWebhookInput {
   createdById: string;
   name: string;
   url: string;
+  provider: string;
   secret: string;
   eventTypes: string[];
   isEnabled: boolean;
@@ -91,7 +94,7 @@ export class WebhooksRepository {
   ): Promise<WebhookDeliveryContextRow | null> {
     return this.prisma.projectWebhook.findUnique({
       where: { id: webhookId },
-      select: { secret: true, url: true, isEnabled: true, name: true },
+      select: { secret: true, url: true, provider: true, isEnabled: true, name: true },
     });
   }
 

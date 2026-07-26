@@ -31,7 +31,12 @@ function safeUrl(allowPrivateUrls: boolean) {
 }
 
 function createSchemaFor(allowPrivateUrls: boolean) {
-  return createWebhookSchema.extend({ url: safeUrl(allowPrivateUrls) });
+  return createWebhookSchema
+    .extend({ url: safeUrl(allowPrivateUrls) })
+    .refine((data) => data.provider !== 'GENERIC' || !!data.secret, {
+      message: 'secret is required for generic webhooks',
+      path: ['secret'],
+    });
 }
 
 function updateSchemaFor(allowPrivateUrls: boolean) {

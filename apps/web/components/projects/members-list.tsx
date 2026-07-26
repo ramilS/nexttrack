@@ -1,9 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, MoreVertical, Trash2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Plus, MoreVertical, Search, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { useDebounce } from '@/lib/hooks/use-debounce';
 import {
   Select,
   SelectContent,
@@ -43,6 +45,18 @@ export function MembersList({ projectKey, className }: MembersListProps) {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [removingUserId, setRemovingUserId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const debouncedSearch = useDebounce(search, 300);
+
+  const filteredMembers = useMemo(() => {
+    const query = debouncedSearch.trim().toLowerCase();
+    if (!query) return members;
+    return members?.filter(
+      (member) =>
+        member.user.name.toLowerCase().includes(query) ||
+        member.user.email.toLowerCase().includes(query),
+    );
+  }, [members, debouncedSearch]);
 
   async function handleRoleChange(userId: string, roleId: string) {
     try {
@@ -66,11 +80,20 @@ export function MembersList({ projectKey, className }: MembersListProps) {
 
   return (
     <div className={cn('space-y-4', className)}>
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-muted-foreground">
-          {members?.length ?? 0} members
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sm text-muted-foreground shrink-0">
+          {filteredMembers?.length ?? 0} of {members?.length ?? 0} members
         </span>
-        <Button size="sm" onClick={() => setAddOpen(true)}>
+        <div className="relative w-64">
+          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search members..."
+            className="h-8 pl-8 text-sm"
+          />
+        </div>
+        <Button size="sm" onClick={() => setAddOpen(true)} className="shrink-0">
           <Plus className="size-3.5" />
           Add Member
         </Button>
@@ -78,11 +101,15 @@ export function MembersList({ projectKey, className }: MembersListProps) {
 
       <AsyncContent
         loading={isLoading}
-        empty={!members || members.length === 0}
-        emptyState={<EmptyState title="No members" description="Add members to collaborate on this project." />}
+        empty={!filteredMembers || filteredMembers.length === 0}
+        emptyState={
+          search
+            ? <EmptyState title="No matches" description="No members match your search." />
+            : <EmptyState title="No members" description="Add members to collaborate on this project." />
+        }
       >
         <Card className="gap-0 py-0 overflow-hidden">
-          {members?.map((member) => {
+          {filteredMembers?.map((member) => {
             const isAdmin = member.role.id === PROJECT_ADMIN_ROLE_ID;
 
             return (

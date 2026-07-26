@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
-import { Permission } from '@repo/shared';
+import { Permission, GlobalRole } from '@repo/shared';
 import type { Project } from '@repo/shared/schemas';
 import { useHasPermission, useHasAnyPermission } from './use-permission';
 
 const useProjectContextMock = vi.fn<() => Project>();
+let mockAuthUser: { role: `${GlobalRole}` } | null = null;
 
 vi.mock('@/lib/contexts/project.context', () => ({
   useProjectContext: () => useProjectContextMock(),
+}));
+
+vi.mock('@/lib/stores/auth.store', () => ({
+  useAuthStore: (selector: (state: { user: typeof mockAuthUser }) => unknown) =>
+    selector({ user: mockAuthUser }),
 }));
 
 function buildProject(overrides: Partial<Project> = {}): Project {
@@ -49,6 +55,7 @@ function setRolePermissions(permissions: string[] | null): void {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockAuthUser = null;
 });
 
 describe('useHasPermission', () => {
@@ -98,6 +105,35 @@ describe('useHasPermission', () => {
     );
 
     const { result } = renderHook(() => useHasPermission(Permission.PROJECT_SETTINGS_UPDATE));
+
+    expect(result.current).toBe(false);
+  });
+
+  it('bypasses the project role check for a global admin with no project membership', () => {
+    // Mirrors PermissionGuard's `req.user.role === GlobalRole.ADMIN` bypass —
+    // an admin who isn't an explicit project member still sees myRole === null.
+    mockAuthUser = { role: GlobalRole.ADMIN };
+    setRolePermissions(null);
+
+    const { result } = renderHook(() => useHasPermission(Permission.TAG_MANAGE));
+
+    expect(result.current).toBe(true);
+  });
+
+  it('bypasses the project role check for a global admin even with a permission-less role', () => {
+    mockAuthUser = { role: GlobalRole.ADMIN };
+    setRolePermissions([]);
+
+    const { result } = renderHook(() => useHasPermission(Permission.CUSTOM_FIELD_MANAGE));
+
+    expect(result.current).toBe(true);
+  });
+
+  it('does not bypass for a non-admin global role', () => {
+    mockAuthUser = { role: GlobalRole.USER };
+    setRolePermissions(null);
+
+    const { result } = renderHook(() => useHasPermission(Permission.TAG_MANAGE));
 
     expect(result.current).toBe(false);
   });
@@ -164,5 +200,16 @@ describe('useHasAnyPermission', () => {
     );
 
     expect(result.current).toBe(false);
+  });
+
+  it('bypasses the project role check for a global admin with no project membership', () => {
+    mockAuthUser = { role: GlobalRole.ADMIN };
+    setRolePermissions(null);
+
+    const { result } = renderHook(() =>
+      useHasAnyPermission([Permission.TAG_MANAGE, Permission.CUSTOM_FIELD_MANAGE]),
+    );
+
+    expect(result.current).toBe(true);
   });
 });

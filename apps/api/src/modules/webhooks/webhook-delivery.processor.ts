@@ -15,6 +15,15 @@ import {
   assertResolvedAddressIsPublic,
   validateWebhookUrlSync,
 } from './url-validator';
+import {
+  buildChatPayload,
+  formatChatMessage,
+  type ChatWebhookProvider,
+} from './chat-webhook-formatter';
+
+function isChatProvider(provider: string): provider is ChatWebhookProvider {
+  return provider === 'SLACK' || provider === 'DISCORD' || provider === 'TEAMS';
+}
 
 const USER_AGENT = 'next-track-webhooks/1.0';
 
@@ -91,7 +100,14 @@ export class WebhookDeliveryProcessor extends WorkerHost {
             });
 
       const timestamp = Math.floor(Date.now() / 1000).toString();
-      const body = JSON.stringify(data);
+      const body = isChatProvider(webhook.provider)
+        ? JSON.stringify(
+            buildChatPayload(
+              webhook.provider,
+              formatChatMessage(webhook.provider, eventType, data),
+            ),
+          )
+        : JSON.stringify(data);
       const signature = this.sign(
         timestamp,
         body,

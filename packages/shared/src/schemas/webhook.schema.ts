@@ -15,6 +15,16 @@ export const WEBHOOK_EVENT_TYPES = [
 export const webhookEventTypeSchema = z.enum(WEBHOOK_EVENT_TYPES);
 export type WebhookEventType = z.infer<typeof webhookEventTypeSchema>;
 
+// GENERIC delivers the raw event JSON + HMAC signature, for a subscriber the
+// user controls. The chat providers are incoming-webhook URLs the user pastes
+// from Slack/Discord/Teams — those services expect their own envelope
+// (`{text}` / `{content}` / a MessageCard), not our raw payload, and the user
+// has no server to verify a signature against, so `secret` is optional for them
+// (see the cross-field refine in webhook-validation.pipe.ts's schema builders).
+export const WEBHOOK_PROVIDERS = ['GENERIC', 'SLACK', 'DISCORD', 'TEAMS'] as const;
+export const webhookProviderSchema = z.enum(WEBHOOK_PROVIDERS);
+export type WebhookProvider = z.infer<typeof webhookProviderSchema>;
+
 export const WEBHOOK_SECRET_MIN = 32;
 export const WEBHOOK_SECRET_MAX = 256;
 export const WEBHOOK_NAME_MAX = 100;
@@ -22,7 +32,10 @@ export const WEBHOOK_NAME_MAX = 100;
 export const createWebhookSchema = z.object({
   name: z.string().trim().min(1).max(WEBHOOK_NAME_MAX),
   url: z.url(),
-  secret: z.string().min(WEBHOOK_SECRET_MIN).max(WEBHOOK_SECRET_MAX),
+  provider: webhookProviderSchema.default('GENERIC'),
+  // Required for GENERIC, optional (server-generated) for chat providers —
+  // enforced by a refine layered on top in webhook-validation.pipe.ts.
+  secret: z.string().min(WEBHOOK_SECRET_MIN).max(WEBHOOK_SECRET_MAX).optional(),
   eventTypes: z.array(webhookEventTypeSchema).min(1),
   isEnabled: z.boolean().default(true),
 });
@@ -43,6 +56,7 @@ export const webhookSchema = z.object({
   projectId: z.guid(),
   name: z.string(),
   url: z.url(),
+  provider: webhookProviderSchema,
   eventTypes: z.array(webhookEventTypeSchema),
   isEnabled: z.boolean(),
   lastDeliveryAt: z.iso.datetime().nullable(),

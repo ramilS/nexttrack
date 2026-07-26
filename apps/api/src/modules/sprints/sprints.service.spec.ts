@@ -227,6 +227,37 @@ describe("SprintsService", () => {
     });
   });
 
+  describe("setStatusForImport", () => {
+    it("sets CLOSED with backdated closedAt, bypassing the closed-sprint guard", async () => {
+      sprintsRepo.findById.mockResolvedValue(baseSprint());
+      sprintsRepo.update.mockResolvedValue(
+        baseSprint({ status: SprintStatus.CLOSED }),
+      );
+
+      const result = await service.setStatusForImport("board-1", "sprint-1", {
+        status: SprintStatus.CLOSED,
+        closedAt: "2026-06-01T00:00:00.000Z",
+      });
+
+      expect(result.status).toBe(SprintStatus.CLOSED);
+      expect(sprintsRepo.update).toHaveBeenCalledWith("sprint-1", {
+        status: SprintStatus.CLOSED,
+        startedAt: undefined,
+        closedAt: "2026-06-01T00:00:00.000Z",
+      });
+    });
+
+    it("throws NotFoundError when the sprint is not on the board", async () => {
+      sprintsRepo.findById.mockResolvedValue(null);
+
+      await expect(
+        service.setStatusForImport("board-1", "missing", {
+          status: SprintStatus.ACTIVE,
+        }),
+      ).rejects.toThrow(NotFoundError);
+    });
+  });
+
   describe("start", () => {
     it("should start a planning sprint that has issues", async () => {
       sprintsRepo.findById.mockResolvedValue(baseSprint());

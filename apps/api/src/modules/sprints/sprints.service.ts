@@ -93,6 +93,30 @@ export class SprintsService {
     return sprint;
   }
 
+  // Migration-only: set a sprint's final lifecycle status directly, bypassing
+  // the start/close lifecycle guards. The importer MUST call this AFTER adding
+  // issues, because addIssues rejects CLOSED sprints and repo.create always
+  // starts a sprint as PLANNING. startedAt/closedAt carry over YouTrack's
+  // original dates so board/velocity analytics stay accurate.
+  async setStatusForImport(
+    boardId: string,
+    sprintId: string,
+    input: { status: SprintStatus; startedAt?: string; closedAt?: string },
+  ): Promise<Sprint> {
+    await this.findOne(boardId, sprintId);
+    const updated = await this.sprintsRepo.update(sprintId, {
+      status: input.status,
+      startedAt: input.startedAt,
+      closedAt: input.closedAt,
+    });
+    this.logger.log('Migrated sprint status set', {
+      sprintId,
+      boardId,
+      status: input.status,
+    });
+    return updated;
+  }
+
   async update(
     boardId: string,
     sprintId: string,

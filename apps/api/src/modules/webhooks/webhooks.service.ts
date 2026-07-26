@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { AppLogger } from '@/common/logging/app-logger';
 import { NotFoundError } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
@@ -29,6 +30,7 @@ export class WebhooksService {
     const { secret: _secret, ...rest } = webhook;
     return {
       ...rest,
+      provider: rest.provider as Webhook['provider'],
       eventTypes: rest.eventTypes as WebhookEventType[],
       lastDeliveryAt: rest.lastDeliveryAt?.toISOString() ?? null,
       disabledAt: rest.disabledAt?.toISOString() ?? null,
@@ -61,12 +63,18 @@ export class WebhooksService {
   }
 
   async create(projectId: string, userId: string, dto: CreateWebhookParsed) {
+    // Chat providers (Slack/Discord/Teams) sign nothing the receiving side
+    // checks, so the user never supplies a secret for them — generate one
+    // so the column stays non-null and delivery logging stays uniform.
+    const secret = dto.secret ?? crypto.randomBytes(32).toString('hex');
+
     const webhook = await this.repo.create({
       projectId,
       createdById: userId,
       name: dto.name,
       url: dto.url,
-      secret: this.encryption.encrypt(dto.secret),
+      provider: dto.provider,
+      secret: this.encryption.encrypt(secret),
       eventTypes: dto.eventTypes,
       isEnabled: dto.isEnabled,
     });

@@ -113,25 +113,10 @@ export class BoardsService {
     const workflow = await this.requireDefaultWorkflow(projectId);
 
     const allStatusIds = workflow.statuses.map((s) => s.id);
-    const coveredStatusIds = new Set<string>();
-
-    for (const col of dto.columns) {
-      for (const statusId of col.statusIds) {
-        if (!allStatusIds.includes(statusId)) {
-          throw new ValidationError(
-            ErrorCode.WORKFLOW_STATUS_NOT_FOUND,
-            `Status ${statusId} does not exist in the workflow`,
-          );
-        }
-        if (coveredStatusIds.has(statusId)) {
-          throw new ValidationError(
-            ErrorCode.COLUMN_STATUS_DUPLICATE,
-            `Status ${statusId} is assigned to more than one column`,
-          );
-        }
-        coveredStatusIds.add(statusId);
-      }
-    }
+    const coveredStatusIds = this.assertColumnStatusesValid(
+      dto.columns,
+      allStatusIds,
+    );
     for (const statusId of allStatusIds) {
       if (!coveredStatusIds.has(statusId)) {
         throw new ValidationError(
@@ -148,6 +133,59 @@ export class BoardsService {
     });
     const updated = await this.boardsRepo.updateColumns(boardId, dto.columns);
     return toBoard(updated);
+  }
+
+  // Migration-only: set columns WITHOUT the full-coverage requirement of
+  // updateColumns. YouTrack boards column only some states; issues in a state
+  // with no column stay hidden (partitionIssuesByColumn drops them) — mirroring
+  // the source. Still rejects unknown or duplicated statuses.
+  async setColumnsForImport(
+    projectId: string,
+    boardId: string,
+    dto: UpdateColumnsInput,
+  ): Promise<Board> {
+    await this.requireBoard(projectId, boardId);
+    const workflow = await this.requireDefaultWorkflow(projectId);
+    this.assertColumnStatusesValid(
+      dto.columns,
+      workflow.statuses.map((s) => s.id),
+    );
+
+    this.logger.log('Setting migrated board columns', {
+      boardId,
+      projectId,
+      columnCount: dto.columns.length,
+    });
+    const updated = await this.boardsRepo.updateColumns(boardId, dto.columns);
+    return toBoard(updated);
+  }
+
+  // Validates that every column status exists in the workflow and no status is
+  // used twice. Returns the set of covered statuses so callers can additionally
+  // enforce full coverage.
+  private assertColumnStatusesValid(
+    columns: UpdateColumnsInput['columns'],
+    allStatusIds: string[],
+  ): Set<string> {
+    const coveredStatusIds = new Set<string>();
+    for (const col of columns) {
+      for (const statusId of col.statusIds) {
+        if (!allStatusIds.includes(statusId)) {
+          throw new ValidationError(
+            ErrorCode.WORKFLOW_STATUS_NOT_FOUND,
+            `Status ${statusId} does not exist in the workflow`,
+          );
+        }
+        if (coveredStatusIds.has(statusId)) {
+          throw new ValidationError(
+            ErrorCode.COLUMN_STATUS_DUPLICATE,
+            `Status ${statusId} is assigned to more than one column`,
+          );
+        }
+        coveredStatusIds.add(statusId);
+      }
+    }
+    return coveredStatusIds;
   }
 
   async setDefault(projectId: string, boardId: string): Promise<Board> {

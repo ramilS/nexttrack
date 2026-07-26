@@ -47,3 +47,4 @@ yarn-error.log*
 .pnpm-store
 AGENTS.md
 landing
+packages/migrator/demo-checkpoint.json

@@ -261,6 +261,44 @@ describe("BoardsService", () => {
     });
   });
 
+  describe("setColumnsForImport", () => {
+    it("accepts partial coverage — a status without a column stays hidden", async () => {
+      boardsRepo.findEntityInProject.mockResolvedValue(buildBoard());
+      boardsRepo.updateColumns.mockResolvedValue(buildBoard());
+
+      // s2, s3 intentionally uncovered (mirrors a YouTrack board that has no
+      // column for e.g. Released) — updateColumns would reject this.
+      await service.setColumnsForImport(projectId, boardId, {
+        columns: [{ id: "c1", name: "Open", statusIds: ["s1"], ordinal: 0 }],
+      } as never);
+
+      expect(boardsRepo.updateColumns).toHaveBeenCalled();
+    });
+
+    it("still rejects a status that is not in the workflow", async () => {
+      boardsRepo.findEntityInProject.mockResolvedValue(buildBoard());
+
+      await expect(
+        service.setColumnsForImport(projectId, boardId, {
+          columns: [{ id: "c1", name: "X", statusIds: ["s-bogus"], ordinal: 0 }],
+        } as never),
+      ).rejects.toThrow(ValidationError);
+    });
+
+    it("still rejects a status assigned to more than one column", async () => {
+      boardsRepo.findEntityInProject.mockResolvedValue(buildBoard());
+
+      await expect(
+        service.setColumnsForImport(projectId, boardId, {
+          columns: [
+            { id: "c1", name: "A", statusIds: ["s1"], ordinal: 0 },
+            { id: "c2", name: "B", statusIds: ["s1"], ordinal: 1 },
+          ],
+        } as never),
+      ).rejects.toThrow(ValidationError);
+    });
+  });
+
   describe("setDefault", () => {
     it("atomically replaces the default board", async () => {
       boardsRepo.findEntityInProject.mockResolvedValue(buildBoard());
