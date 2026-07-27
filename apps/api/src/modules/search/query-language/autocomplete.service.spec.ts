@@ -171,4 +171,16 @@ describe('AutocompleteService', () => {
     const types = new Set(result.map((s) => s.type));
     expect(types.size).toBeGreaterThanOrEqual(1);
   });
+
+  it('suggests values from legacy enum string options', async () => {
+    customFieldsRepo.findByNameInsensitive.mockResolvedValue({
+      id: 'field-1',
+      type: 'ENUM',
+      config: { options: ['Open', 'Closed'] },
+    });
+
+    const result = await service.getSuggestions('State: O', 9, 'proj-1', 'user-1');
+
+    expect(result).toEqual([{ type: 'VALUE', label: 'Open', color: null }]);
+  });
 });

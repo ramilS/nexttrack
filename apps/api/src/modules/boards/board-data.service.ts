@@ -14,6 +14,36 @@ import { IssuesReader } from "@/modules/issues/issues.reader";
 import { SprintsReader } from "@/modules/sprints/sprints.reader";
 import { BoardIssueRow, toBoardIssueCard } from "./board-issue-card.mapper";
 
+export function partitionIssuesByColumn(
+  issues: BoardIssueRow[],
+  columns: BoardColumn[],
+): BoardColumnData[] {
+  const columnByStatusId = new Map<string, number>();
+  for (const [columnIndex, column] of columns.entries()) {
+    for (const statusId of column.statusIds) {
+      columnByStatusId.set(statusId, columnIndex);
+    }
+  }
+
+  const issuesByColumn = columns.map(() => [] as BoardIssueRow[]);
+  for (const issue of issues) {
+    const columnIndex = columnByStatusId.get(issue.statusId);
+    if (columnIndex !== undefined) issuesByColumn[columnIndex]!.push(issue);
+  }
+
+  return columns.map((column, index) => {
+    const columnIssues = issuesByColumn[index]!;
+    return {
+      column,
+      issues: columnIssues.map(toBoardIssueCard),
+      totalCount: columnIssues.length,
+      isOverWip:
+        (column.wipLimit ?? 0) > 0 &&
+        columnIssues.length > (column.wipLimit ?? 0),
+    };
+  });
+}
+
 /**
  * The read side of the board: assembles the rendered board (columns,
  * swimlanes, sprint context) from issues. Extracted from BoardsService,
@@ -61,7 +91,7 @@ export class BoardDataService {
       ? issues.filter((i) => !storyTypes.includes(i.type))
       : issues;
 
-    const columnData = this.partitionIssuesByColumn(cardIssues, board.columns);
+    const columnData = partitionIssuesByColumn(cardIssues, board.columns);
 
     let swimlanes: BoardSwimlaneData[] = [];
     if (swimlaneBy !== SwimlaneBy.NONE) {
@@ -98,24 +128,6 @@ export class BoardDataService {
       throw new NotFoundError(ErrorCode.BOARD_NOT_FOUND);
     }
     return board;
-  }
-
-  private partitionIssuesByColumn(
-    issues: BoardIssueRow[],
-    columns: BoardColumn[],
-  ): BoardColumnData[] {
-    return columns.map((col) => {
-      const colIssues = issues.filter((i) =>
-        col.statusIds.includes(i.statusId),
-      );
-      return {
-        column: col,
-        issues: colIssues.map(toBoardIssueCard),
-        totalCount: colIssues.length,
-        isOverWip:
-          (col.wipLimit ?? 0) > 0 && colIssues.length > (col.wipLimit ?? 0),
-      };
-    });
   }
 
   private buildEpicSwimlanes(
@@ -165,7 +177,7 @@ export class BoardDataService {
       groupKey: group.key,
       groupLabel: group.label,
       issueNumber: group.issueNumber,
-      columns: this.partitionIssuesByColumn(group.issues, columns),
+      columns: partitionIssuesByColumn(group.issues, columns),
     }));
   }
 
@@ -205,7 +217,7 @@ export class BoardDataService {
     return Array.from(groups.values()).map((group) => ({
       groupKey: group.key,
       groupLabel: group.label,
-      columns: this.partitionIssuesByColumn(group.issues, columns),
+      columns: partitionIssuesByColumn(group.issues, columns),
     }));
   }
 }

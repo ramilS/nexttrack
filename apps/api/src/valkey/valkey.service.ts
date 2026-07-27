@@ -4,6 +4,29 @@ import Redis from 'ioredis';
 import { AppLogger } from '@/common/logging/app-logger';
 import { valkeyConfig } from '@/config';
 
+const COMPARE_AND_DELETE_BY_JSON_FIELD_SCRIPT = `
+  local value = redis.call('GET', KEYS[1])
+  if not value then
+    return 0
+  end
+
+  local ok, decoded = pcall(cjson.decode, value)
+  if not ok or type(decoded) ~= 'table' or decoded[ARGV[1]] ~= ARGV[2] then
+    return 0
+  end
+
+  redis.call('DEL', KEYS[1])
+  return value
+`;
+
+const COMPARE_AND_SET_SCRIPT = `
+  if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return 1
+  end
+  return 0
+`;
+
 @Injectable()
 export class ValkeyService implements OnModuleDestroy {
   private readonly logger = new AppLogger(ValkeyService.name);
@@ -34,8 +57,45 @@ export class ValkeyService implements OnModuleDestroy {
     }
   }
 
+  async setIfAbsent(key: string, value: string, ttlSeconds: number): Promise<boolean> {
+    const result = await this.client.set(key, value, 'EX', ttlSeconds, 'NX');
+    return result === 'OK';
+  }
+
   async get(key: string): Promise<string | null> {
     return this.client.get(key);
+  }
+
+  async compareAndDeleteByJsonField(
+    key: string,
+    field: string,
+    expectedValue: string,
+  ): Promise<string | null> {
+    const result = await this.client.eval(
+      COMPARE_AND_DELETE_BY_JSON_FIELD_SCRIPT,
+      1,
+      key,
+      field,
+      expectedValue,
+    );
+    return typeof result === 'string' ? result : null;
+  }
+
+  async compareAndSet(
+    key: string,
+    expectedValue: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    const result = await this.client.eval(
+      COMPARE_AND_SET_SCRIPT,
+      1,
+      key,
+      expectedValue,
+      value,
+      ttlSeconds,
+    );
+    return result === 1;
   }
 
   async del(key: string): Promise<void> {

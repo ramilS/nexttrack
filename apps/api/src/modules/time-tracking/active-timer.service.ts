@@ -14,11 +14,13 @@ import { TimeLogsService } from './time-logs.service';
 import { IssuesReader } from '@/modules/issues/issues.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
+import { randomUUID } from 'crypto';
 
 interface TimerRedisValue {
   issueId: string;
   startedAt: string;
   description: string | null;
+  timerId?: string;
 }
 
 const TIMER_KEY = (userId: string) => `timer:${userId}`;
@@ -105,13 +107,20 @@ export class ActiveTimerService {
       issueId,
       startedAt: new Date().toISOString(),
       description: description ?? null,
+      timerId: randomUUID(),
     };
 
-    await this.valkey.set(
+    const timerStarted = await this.valkey.setIfAbsent(
       TIMER_KEY(userId),
       JSON.stringify(timerData),
       TIMER_TTL_SECONDS,
     );
+    if (!timerStarted) {
+      const activeTimer = await this.getActiveTimer(userId);
+      throw new ConflictError(ErrorCode.TIMER_ALREADY_RUNNING, 'Timer is already running', {
+        activeTimer,
+      });
+    }
     this.logger.log('Timer started', { issueId, userId });
 
     return this.getActiveTimer(userId);
@@ -123,7 +132,7 @@ export class ActiveTimerService {
       throw new ValidationError(ErrorCode.TIMER_NOT_RUNNING, 'No active timer');
     }
 
-    const timer: TimerRedisValue = JSON.parse(raw);
+    let timer: TimerRedisValue = JSON.parse(raw);
 
     // Re-check on stop: membership/role may have changed since start.
     const issue = await this.issuesRepo.findStartTimerContext(timer.issueId);
@@ -132,12 +141,23 @@ export class ActiveTimerService {
     }
     await this.assertCanLogTime(userId, isAdmin, issue.projectId);
 
+    timer = await this.ensureTimerId(userId, raw, timer);
+
+    const stoppedRaw = await this.valkey.compareAndDeleteByJsonField(
+      TIMER_KEY(userId),
+      'timerId',
+      timer.timerId!,
+    );
+    if (!stoppedRaw) {
+      throw new ValidationError(ErrorCode.TIMER_NOT_RUNNING, 'No active timer');
+    }
+    timer = JSON.parse(stoppedRaw) as TimerRedisValue;
+
     const durationMinutes = Math.max(
       1,
       Math.round((Date.now() - new Date(timer.startedAt).getTime()) / 60000),
     );
 
-    await this.valkey.del(TIMER_KEY(userId));
     this.logger.log('Timer stopped', {
       issueId: timer.issueId,
       userId,
@@ -165,14 +185,41 @@ export class ActiveTimerService {
       throw new ValidationError(ErrorCode.TIMER_NOT_RUNNING, 'No active timer');
     }
 
-    const timer: TimerRedisValue = JSON.parse(raw);
-    timer.description = description;
-    await this.valkey.set(
+    const currentTimer = JSON.parse(raw) as TimerRedisValue;
+    const timer: TimerRedisValue = {
+      ...currentTimer,
+      description,
+      timerId: currentTimer.timerId ?? randomUUID(),
+    };
+    const timerUpdated = await this.valkey.compareAndSet(
       TIMER_KEY(userId),
+      raw,
       JSON.stringify(timer),
       TIMER_TTL_SECONDS,
     );
+    if (!timerUpdated) {
+      throw new ValidationError(ErrorCode.TIMER_NOT_RUNNING, 'No active timer');
+    }
 
     return this.getActiveTimer(userId);
+  }
+
+  private async ensureTimerId(
+    userId: string,
+    initialRaw: string,
+    initialTimer: TimerRedisValue,
+  ): Promise<TimerRedisValue> {
+    if (initialTimer.timerId) return initialTimer;
+
+    const promotedTimer = { ...initialTimer, timerId: randomUUID() };
+    const promoted = await this.valkey.compareAndSet(
+      TIMER_KEY(userId),
+      initialRaw,
+      JSON.stringify(promotedTimer),
+      TIMER_TTL_SECONDS,
+    );
+    if (promoted) return promotedTimer;
+
+    throw new ValidationError(ErrorCode.TIMER_NOT_RUNNING, 'No active timer');
   }
 }

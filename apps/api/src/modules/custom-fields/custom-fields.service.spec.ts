@@ -92,19 +92,18 @@ describe('CustomFieldsService', () => {
       expect(result[0].name).toBe('Priority Score');
     });
 
-    it('persists normalized enum config on read when legacy', async () => {
+    it('returns normalized enum config without persisting it on read when legacy', async () => {
       fieldsRepo.findManyByProject.mockResolvedValue([
         buildEnumField({ config: { options: ['Legacy'] } }),
       ]);
 
-      const result = await service.findAll(projectId);
+      const first = await service.findAll(projectId);
+      const second = await service.findAll(projectId);
 
-      expect(fieldsRepo.updateConfig).toHaveBeenCalledWith(
-        fieldId,
-        expect.objectContaining({ options: expect.any(Array) }),
-      );
-      const opts = result[0].config.options as Array<{ name: string }>;
+      const opts = first[0].config.options as Array<{ id: string; name: string }>;
       expect(opts[0].name).toBe('Legacy');
+      expect((second[0].config.options as Array<{ id: string }>)[0].id).toBe(opts[0].id);
+      expect(fieldsRepo.updateConfig).not.toHaveBeenCalled();
     });
 
     it('does not persist when enum config is already normalized', async () => {
@@ -274,6 +273,27 @@ describe('CustomFieldsService', () => {
   });
 
   describe('updateEnumOption', () => {
+    it('accepts a legacy option id returned by a prior read', async () => {
+      const legacyField = buildEnumField({ config: { options: ['Legacy'] } });
+      fieldsRepo.findManyByProject.mockResolvedValue([legacyField]);
+
+      const [readField] = await service.findAll(projectId);
+      const optionId = (readField.config.options as Array<{ id: string }>)[0].id;
+      fieldsRepo.findOneInProject.mockResolvedValue(legacyField);
+      fieldsRepo.update.mockResolvedValue(readField);
+
+      await service.updateEnumOption(fieldId, projectId, optionId, { name: 'Renamed' } as never);
+
+      expect(fieldsRepo.update).toHaveBeenCalledWith(
+        fieldId,
+        expect.objectContaining({
+          config: expect.objectContaining({
+            options: [expect.objectContaining({ id: optionId, name: 'Renamed' })],
+          }),
+        }),
+      );
+    });
+
     it('updates name and color of an existing option', async () => {
       fieldsRepo.findOneInProject.mockResolvedValue(buildEnumField());
       fieldsRepo.update.mockResolvedValue(buildEnumField());

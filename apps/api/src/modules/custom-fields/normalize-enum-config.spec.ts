@@ -1,8 +1,8 @@
 import { normalizeEnumConfig } from './normalize-enum-config';
 
 describe('normalizeEnumConfig', () => {
-  it('normalizes string options to objects with generated ids', () => {
-    const { config, changed } = normalizeEnumConfig({
+  it('normalizes string options to objects with stable UUID-compatible ids', () => {
+    const { config, changed } = normalizeEnumConfig('field-1', {
       options: ['Production', 'Staging', 'Development'],
     });
 
@@ -10,13 +10,13 @@ describe('normalizeEnumConfig', () => {
     const options = config.options as Array<{ id: string; name: string; color: string | null; ordinal: number }>;
     expect(options).toHaveLength(3);
     expect(options[0]).toMatchObject({ name: 'Production', color: null, ordinal: 0 });
-    expect(options[0].id).toBeTruthy();
+    expect(options[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(options[1]).toMatchObject({ name: 'Staging', color: null, ordinal: 1 });
     expect(options[2]).toMatchObject({ name: 'Development', color: null, ordinal: 2 });
   });
 
   it('normalizes options missing an id', () => {
-    const { config, changed } = normalizeEnumConfig({
+    const { config, changed } = normalizeEnumConfig('field-1', {
       options: [
         { name: 'Open', color: 'green' },
         { name: 'Closed', color: 'red' },
@@ -38,7 +38,7 @@ describe('normalizeEnumConfig', () => {
       ],
     };
 
-    const { config, changed } = normalizeEnumConfig(original);
+    const { config, changed } = normalizeEnumConfig('field-1', original);
 
     expect(changed).toBe(false);
     expect(config).toBe(original);
@@ -46,19 +46,19 @@ describe('normalizeEnumConfig', () => {
 
   it('returns unchanged config when there are no options', () => {
     const original = { maxLength: 100 };
-    const { config, changed } = normalizeEnumConfig(original);
+    const { config, changed } = normalizeEnumConfig('field-1', original);
     expect(changed).toBe(false);
     expect(config).toBe(original);
   });
 
   it('handles null config', () => {
-    const { config, changed } = normalizeEnumConfig(null);
+    const { config, changed } = normalizeEnumConfig('field-1', null);
     expect(changed).toBe(false);
     expect(config).toEqual({});
   });
 
   it('handles mixed string and object options', () => {
-    const { config, changed } = normalizeEnumConfig({
+    const { config, changed } = normalizeEnumConfig('field-1', {
       options: [
         'LegacyOption',
         { id: 'existing-id', name: 'ProperOption', color: 'blue', ordinal: 5 },
@@ -76,4 +76,53 @@ describe('normalizeEnumConfig', () => {
       ordinal: 5,
     });
   });
+
+  it('uses field identity to keep legacy option ids stable without sharing them across fields', () => {
+    const config = { options: ['Production'] };
+
+    const first = normalizeEnumConfig('field-1', config);
+    const second = normalizeEnumConfig('field-1', config);
+    const otherField = normalizeEnumConfig('field-2', config);
+
+    const firstId = (first.config.options as Array<{ id: string }>)[0].id;
+    expect((second.config.options as Array<{ id: string }>)[0].id).toBe(firstId);
+    expect((otherField.config.options as Array<{ id: string }>)[0].id).not.toBe(firstId);
+  });
+
+  it('normalizes malformed options without throwing, omits unusable entries, and preserves input', () => {
+    const original = {
+      label: 'Statuses',
+      options: [
+        { id: 'modern', name: 'Modern', color: null, ordinal: 0 },
+        'Legacy',
+        null,
+        42,
+        true,
+        ['nested'],
+        {},
+        { name: 'Named', color: 123, ordinal: 'bad' },
+      ],
+    };
+    const snapshot = structuredClone(original);
+
+    const result = normalizeEnumConfig('field-1', original);
+
+    expect(result.changed).toBe(true);
+    expect(result.config.options).toEqual([
+      original.options[0],
+      expect.objectContaining({ name: 'Legacy', ordinal: 1 }),
+      expect.objectContaining({ name: 'Named', ordinal: 7, color: null }),
+    ]);
+    expect(result.config.options).toEqual(
+      normalizeEnumConfig('field-1', original).config.options,
+    );
+    expect(original).toEqual(snapshot);
+  });
+
+  it.each([null, undefined, 1, false, [], {}])(
+    'is total for malformed config/options: %p',
+    (options) => {
+      expect(() => normalizeEnumConfig('field-1', { options })).not.toThrow();
+    },
+  );
 });
