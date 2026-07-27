@@ -86,14 +86,6 @@ export class ActiveTimerService {
     issueId: string,
     description?: string,
   ) {
-    const existing = await this.valkey.get(TIMER_KEY(userId));
-    if (existing) {
-      const activeTimer = await this.getActiveTimer(userId);
-      throw new ConflictError(ErrorCode.TIMER_ALREADY_RUNNING, 'Timer is already running', {
-        activeTimer,
-      });
-    }
-
     const issue = await this.issuesRepo.findStartTimerContext(issueId);
     if (!issue) {
       throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
@@ -107,18 +99,24 @@ export class ActiveTimerService {
       description: description ?? null,
     };
 
-    await this.valkey.set(
+    const timerStarted = await this.valkey.setIfAbsent(
       TIMER_KEY(userId),
       JSON.stringify(timerData),
       TIMER_TTL_SECONDS,
     );
+    if (!timerStarted) {
+      const activeTimer = await this.getActiveTimer(userId);
+      throw new ConflictError(ErrorCode.TIMER_ALREADY_RUNNING, 'Timer is already running', {
+        activeTimer,
+      });
+    }
     this.logger.log('Timer started', { issueId, userId });
 
     return this.getActiveTimer(userId);
   }
 
   async stopTimer(userId: string, isAdmin: boolean, description?: string) {
-    const raw = await this.valkey.get(TIMER_KEY(userId));
+    const raw = await this.valkey.getAndDelete(TIMER_KEY(userId));
     if (!raw) {
       throw new ValidationError(ErrorCode.TIMER_NOT_RUNNING, 'No active timer');
     }
@@ -137,7 +135,6 @@ export class ActiveTimerService {
       Math.round((Date.now() - new Date(timer.startedAt).getTime()) / 60000),
     );
 
-    await this.valkey.del(TIMER_KEY(userId));
     this.logger.log('Timer stopped', {
       issueId: timer.issueId,
       userId,
