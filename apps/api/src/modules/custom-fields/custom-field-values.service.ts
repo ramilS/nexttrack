@@ -83,14 +83,19 @@ export class CustomFieldValuesService {
     projectId: string,
   ): Promise<CustomFieldValue[]> {
     const fields = await this.fieldsRepo.findManyByProject(projectId);
-    const normalized = await Promise.all(fields.map((f) => this.normalizedField(f)));
+    const normalized = fields.map((field) => this.normalizedField(field));
 
     const values = await this.valuesRepo.findByIssueAndFields(
       issueId,
       normalized.map((f) => f.id),
     );
     const valueMap = new Map(values.map((v) => [v.customFieldId, v.value]));
-    const displayReferences = await this.loadDisplayReferences(normalized, valueMap);
+    const displayReferences = await this.loadDisplayReferences(
+      normalized.map((field) => ({
+        field,
+        value: valueMap.has(field.id) ? valueMap.get(field.id) ?? null : null,
+      })),
+    );
 
     const result: CustomFieldValue[] = [];
     for (const field of normalized) {
@@ -108,7 +113,7 @@ export class CustomFieldValuesService {
     projectId: string,
   ): Promise<CustomFieldValue> {
     const field = await this.requireField(fieldId, projectId);
-    const normalized = await this.normalizedField(field);
+    const normalized = this.normalizedField(field);
 
     const existing = await this.valuesRepo.findByIssueAndField(issueId, fieldId);
     const oldValue = existing ? existing.value : null;
@@ -121,11 +126,22 @@ export class CustomFieldValuesService {
         );
       }
 
+      const references = await this.loadDisplayReferences([
+        { field: normalized, value: oldValue },
+      ]);
       await this.txService.run(async (tx) => {
         if (existing) {
           await this.valuesRepo.deleteById(existing.id, tx);
         }
-        await this.recordFieldActivity(issueId, userId, normalized, oldValue, null, tx);
+        await this.recordFieldActivity(
+          issueId,
+          userId,
+          normalized,
+          oldValue,
+          null,
+          tx,
+          references,
+        );
         await this.issuesRepo.touchUpdatedAt(issueId, tx);
       });
       this.scheduleReindex(issueId);
@@ -136,13 +152,25 @@ export class CustomFieldValuesService {
         fieldType: normalized.type,
       });
 
-      return this.buildFieldValueDto(normalized, null);
+      return this.buildFieldValueDto(normalized, null, references);
     }
 
     const validatedValue = await this.validator.validate(normalized, rawValue, projectId);
+    const references = await this.loadDisplayReferences([
+      { field: normalized, value: oldValue },
+      { field: normalized, value: validatedValue },
+    ]);
     await this.txService.run(async (tx) => {
       await this.valuesRepo.upsert(issueId, fieldId, validatedValue, tx);
-      await this.recordFieldActivity(issueId, userId, normalized, oldValue, validatedValue, tx);
+      await this.recordFieldActivity(
+        issueId,
+        userId,
+        normalized,
+        oldValue,
+        validatedValue,
+        tx,
+        references,
+      );
       await this.issuesRepo.touchUpdatedAt(issueId, tx);
     });
     this.scheduleReindex(issueId);
@@ -154,7 +182,7 @@ export class CustomFieldValuesService {
       hadPreviousValue: oldValue !== null,
     });
 
-    return this.buildFieldValueDto(normalized, validatedValue);
+    return this.buildFieldValueDto(normalized, validatedValue, references);
   }
 
   async clearFieldValue(
@@ -163,7 +191,7 @@ export class CustomFieldValuesService {
     userId: string,
     projectId: string,
   ): Promise<void> {
-    const field = await this.requireField(fieldId, projectId);
+    const field = this.normalizedField(await this.requireField(fieldId, projectId));
 
     if (field.isRequired) {
       throw new ValidationError(
@@ -175,9 +203,18 @@ export class CustomFieldValuesService {
     const existing = await this.valuesRepo.findByIssueAndField(issueId, fieldId);
     if (!existing) return;
 
+    const references = await this.loadDisplayReferences([{ field, value: existing.value }]);
     await this.txService.run(async (tx) => {
       await this.valuesRepo.deleteById(existing.id, tx);
-      await this.recordFieldActivity(issueId, userId, field, existing.value, null, tx);
+      await this.recordFieldActivity(
+        issueId,
+        userId,
+        field,
+        existing.value,
+        null,
+        tx,
+        references,
+      );
       await this.issuesRepo.touchUpdatedAt(issueId, tx);
     });
     this.scheduleReindex(issueId);
@@ -229,15 +266,13 @@ export class CustomFieldValuesService {
     const projectFields = await this.fieldsRepo.findManyByProject(projectId);
     const fieldById = new Map(projectFields.map((f) => [f.id, f]));
 
-    const pairs = await Promise.all(
-      fieldValues.map(async ({ fieldId, value }) => {
-        const field = fieldById.get(fieldId);
-        if (!field) {
-          throw new NotFoundError(ErrorCode.FIELD_NOT_FOUND);
-        }
-        return { field: await this.normalizedField(field), value };
-      }),
-    );
+    const pairs = fieldValues.map(({ fieldId, value }) => {
+      const field = fieldById.get(fieldId);
+      if (!field) {
+        throw new NotFoundError(ErrorCode.FIELD_NOT_FOUND);
+      }
+      return { field: this.normalizedField(field), value };
+    });
 
     // Validate the whole batch with one membership + one version lookup
     // (instead of per-field), then persist values and activities in one write
@@ -245,6 +280,9 @@ export class CustomFieldValuesService {
     const validated = await this.validator.validateMany(pairs, projectId);
     const present = validated.filter((v) => v.validatedValue != null);
     if (present.length === 0) return;
+    const references = await this.loadDisplayReferences(
+      present.map(({ field, validatedValue }) => ({ field, value: validatedValue })),
+    );
 
     await this.valuesRepo.createMany(
       issueId,
@@ -259,7 +297,7 @@ export class CustomFieldValuesService {
           fieldId: field.id,
           fieldName: field.name,
           from: null,
-          to: await this.formatForActivity(field, validatedValue),
+          to: await this.formatForActivity(field, validatedValue, references),
         },
       })),
     );
@@ -287,28 +325,26 @@ export class CustomFieldValuesService {
     return field;
   }
 
-  private async normalizedField(field: CustomField): Promise<CustomField> {
+  private normalizedField(field: CustomField): CustomField {
     if (
       field.type !== CustomFieldType.ENUM &&
       field.type !== CustomFieldType.MULTI_ENUM
     ) {
       return field;
     }
-    const { config, changed } = normalizeEnumConfig(field.config);
+    const { config, changed } = normalizeEnumConfig(field.id, field.config);
     if (!changed) return field;
 
     return { ...field, config };
   }
 
   private async loadDisplayReferences(
-    fields: CustomField[],
-    valueMap: ReadonlyMap<string, unknown>,
+    items: ReadonlyArray<{ field: CustomField; value: unknown }>,
   ): Promise<DisplayReferences> {
     const userIds = new Set<string>();
     const versionIds = new Set<string>();
 
-    for (const field of fields) {
-      const value = valueMap.get(field.id);
+    for (const { field, value } of items) {
       switch (field.type) {
         case CustomFieldType.USER:
         case CustomFieldType.MULTI_USER:
@@ -354,6 +390,10 @@ export class CustomFieldValuesService {
     return value.filter((id): id is string => typeof id === 'string');
   }
 
+  private uniqueReferenceIds(value: unknown): string[] {
+    return [...new Set(this.referenceIds(value))];
+  }
+
   private async recordFieldActivity(
     issueId: string,
     userId: string,
@@ -361,9 +401,14 @@ export class CustomFieldValuesService {
     oldValue: unknown,
     newValue: unknown,
     tx?: Tx,
+    references?: DisplayReferences,
   ): Promise<void> {
-    const fromDisplay = await this.formatForActivity(field, oldValue);
-    const toDisplay = await this.formatForActivity(field, newValue);
+    const resolvedReferences = references ?? await this.loadDisplayReferences([
+      { field, value: oldValue },
+      { field, value: newValue },
+    ]);
+    const fromDisplay = await this.formatForActivity(field, oldValue, resolvedReferences);
+    const toDisplay = await this.formatForActivity(field, newValue, resolvedReferences);
 
     await this.activitiesService.recordOne(
       issueId,
@@ -382,6 +427,7 @@ export class CustomFieldValuesService {
   private async formatForActivity(
     field: CustomField,
     value: unknown,
+    displayReferences?: DisplayReferences,
   ): Promise<string | null> {
     if (value === null || value === undefined) return null;
 
@@ -407,18 +453,36 @@ export class CustomFieldValuesService {
         return ids.map((id) => opts.find((o) => o.id === id)?.name ?? id).join(', ');
       }
       case CustomFieldType.USER: {
+        if (displayReferences) {
+          return displayReferences.usersById.get(value as string)?.name ?? String(value);
+        }
         const [user] = await this.usersRepo.findNameRefsByIds([value as string]);
         return user?.name ?? String(value);
       }
       case CustomFieldType.MULTI_USER: {
+        if (displayReferences) {
+          return this.uniqueReferenceIds(value)
+            .map((id) => displayReferences.usersById.get(id)?.name)
+            .filter((name): name is string => name !== undefined)
+            .join(', ');
+        }
         const users = await this.usersRepo.findNameRefsByIds(value as string[]);
         return users.map((u) => u.name).join(', ');
       }
       case CustomFieldType.VERSION: {
+        if (displayReferences) {
+          return displayReferences.versionsById.get(value as string)?.name ?? String(value);
+        }
         const [ver] = await this.versionsRepo.findManyByIds([value as string]);
         return ver?.name ?? String(value);
       }
       case CustomFieldType.MULTI_VERSION: {
+        if (displayReferences) {
+          return this.uniqueReferenceIds(value)
+            .map((id) => displayReferences.versionsById.get(id)?.name)
+            .filter((name): name is string => name !== undefined)
+            .join(', ');
+        }
         const vers = await this.versionsRepo.findManyByIds(value as string[]);
         return vers.map((v) => v.name).join(', ');
       }
@@ -479,7 +543,7 @@ export class CustomFieldValuesService {
       }
       case CustomFieldType.MULTI_USER: {
         if (displayReferences) {
-          const users = this.referenceIds(value)
+          const users = this.uniqueReferenceIds(value)
             .map((id) => displayReferences.usersById.get(id))
             .filter((user): user is UserDisplayReference => user !== undefined);
           return { type: 'multi_user', users };
@@ -497,7 +561,7 @@ export class CustomFieldValuesService {
       }
       case CustomFieldType.MULTI_VERSION: {
         if (displayReferences) {
-          const versions = this.referenceIds(value)
+          const versions = this.uniqueReferenceIds(value)
             .map((id) => displayReferences.versionsById.get(id))
             .filter((version): version is VersionDisplayReference => version !== undefined);
           return { type: 'multi_version', versions };

@@ -41,7 +41,7 @@ export class CustomFieldsService {
 
   async findAll(projectId: string): Promise<CustomField[]> {
     const fields = await this.fieldsRepo.findManyByProject(projectId);
-    return Promise.all(fields.map((f) => this.normalizedField(f)));
+    return fields.map((field) => this.normalizedField(field));
   }
 
   async findOne(fieldId: string, projectId: string): Promise<CustomField> {
@@ -264,9 +264,9 @@ export class CustomFieldsService {
   // ─── Private ───────────────────────────────────────────────
 
   /** Returns legacy enum config in the current response shape without writing on read. */
-  private async normalizedField(field: CustomField): Promise<CustomField> {
+  private normalizedField(field: CustomField): CustomField {
     if (!isEnumType(field.type)) return field;
-    const { config, changed } = normalizeEnumConfig(field.config);
+    const { config, changed } = normalizeEnumConfig(field.id, field.config);
     if (!changed) return field;
 
     return { ...field, config: config as CustomFieldConfig };
@@ -276,7 +276,8 @@ export class CustomFieldsService {
     fieldId: string,
     projectId: string,
   ): Promise<CustomField> {
-    const field = await this.fieldsRepo.findOneInProject(fieldId, projectId);
+    const found = await this.fieldsRepo.findOneInProject(fieldId, projectId);
+    const field = found ? this.normalizedField(found) : null;
     if (!field) {
       throw new NotFoundError(ErrorCode.FIELD_NOT_FOUND);
     }

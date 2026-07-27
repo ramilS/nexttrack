@@ -155,9 +155,9 @@ describe('CustomFieldValuesService', () => {
       ]);
       valuesRepo.findByIssueAndFields.mockResolvedValue([
         { customFieldId: 'user', value: 'user-2' },
-        { customFieldId: 'multi-user', value: ['user-1', 'user-2'] },
+        { customFieldId: 'multi-user', value: ['user-1', 'user-2', 'user-1'] },
         { customFieldId: 'version', value: 'version-2' },
-        { customFieldId: 'multi-version', value: ['version-1', 'version-2'] },
+        { customFieldId: 'multi-version', value: ['version-1', 'version-2', 'version-1'] },
       ]);
       usersRepo.findPublicRefsByIds.mockResolvedValue([
         { id: 'user-1', name: 'Ada', email: 'ada@example.com', avatarUrl: null },
@@ -227,6 +227,32 @@ describe('CustomFieldValuesService', () => {
         expect.objectContaining({ name: 'Legacy', color: null, ordinal: 0 }),
       ]);
       expect(fieldsRepo.updateConfig).not.toHaveBeenCalled();
+    });
+
+    it('uses the same normalized legacy enum option id for a read and subsequent validation', async () => {
+      const legacyEnumField = {
+        ...textField,
+        id: 'legacy-enum',
+        type: CustomFieldType.ENUM,
+        config: { options: ['Legacy'] },
+      };
+      fieldsRepo.findManyByProject.mockResolvedValue([legacyEnumField]);
+
+      const fields = await service.getFieldsForIssue(issueId, projectId);
+      const optionId = (fields[0].fieldConfig.options as Array<{ id: string }>)[0].id;
+      fieldsRepo.findOneInProject.mockResolvedValue(legacyEnumField);
+      validator.validate.mockImplementation(async (field: CustomField, value: unknown) => {
+        expect((field.config.options as Array<{ id: string }>)[0].id).toBe(optionId);
+        return value;
+      });
+
+      await service.setFieldValue(issueId, legacyEnumField.id, optionId, userId, projectId);
+
+      expect(validator.validate).toHaveBeenCalledWith(
+        expect.objectContaining({ id: legacyEnumField.id }),
+        optionId,
+        projectId,
+      );
     });
   });
 
@@ -369,6 +395,76 @@ describe('CustomFieldValuesService', () => {
         tx,
       );
       expect(issuesRepo.touchUpdatedAt).not.toHaveBeenCalled();
+    });
+
+    it('batches activity reference lookups across initial user and version values', async () => {
+      const userField = { ...textField, id: 'user', type: CustomFieldType.USER };
+      const multiUserField = {
+        ...textField,
+        id: 'multi-user',
+        type: CustomFieldType.MULTI_USER,
+      };
+      const versionField = { ...textField, id: 'version', type: CustomFieldType.VERSION };
+      const multiVersionField = {
+        ...textField,
+        id: 'multi-version',
+        type: CustomFieldType.MULTI_VERSION,
+      };
+      fieldsRepo.findManyByProject.mockResolvedValue([
+        userField,
+        multiUserField,
+        versionField,
+        multiVersionField,
+      ]);
+      validator.validateMany.mockResolvedValue([
+        { field: userField, validatedValue: 'user-2' },
+        { field: multiUserField, validatedValue: ['user-1', 'user-2'] },
+        { field: versionField, validatedValue: 'version-2' },
+        { field: multiVersionField, validatedValue: ['version-1', 'version-2'] },
+      ]);
+      usersRepo.findPublicRefsByIds.mockResolvedValue([
+        { id: 'user-1', name: 'Ada', email: 'ada@example.com', avatarUrl: null },
+        { id: 'user-2', name: 'Linus', email: 'linus@example.com', avatarUrl: null },
+      ]);
+      versionsRepo.findManyByIds.mockResolvedValue([
+        {
+          id: 'version-1', projectId, name: '1.0', description: null,
+          status: 'UNRELEASED', releaseDate: null, ordinal: 0,
+        },
+        {
+          id: 'version-2', projectId, name: '2.0', description: null,
+          status: 'UNRELEASED', releaseDate: null, ordinal: 1,
+        },
+      ]);
+
+      await service.setInitialFieldValues(
+        issueId,
+        projectId,
+        userId,
+        [
+          { fieldId: userField.id, value: 'user-2' },
+          { fieldId: multiUserField.id, value: ['user-1', 'user-2'] },
+          { fieldId: versionField.id, value: 'version-2' },
+          { fieldId: multiVersionField.id, value: ['version-1', 'version-2'] },
+        ],
+        tx,
+      );
+
+      expect(usersRepo.findPublicRefsByIds).toHaveBeenCalledTimes(1);
+      expect(usersRepo.findPublicRefsByIds).toHaveBeenCalledWith(['user-2', 'user-1']);
+      expect(versionsRepo.findManyByIds).toHaveBeenCalledTimes(1);
+      expect(versionsRepo.findManyByIds).toHaveBeenCalledWith(['version-2', 'version-1']);
+      expect(activities.record).toHaveBeenCalledWith(
+        issueId,
+        userId,
+        expect.arrayContaining([
+          expect.objectContaining({ payload: expect.objectContaining({ to: 'Linus' }) }),
+          expect.objectContaining({ payload: expect.objectContaining({ to: 'Ada, Linus' }) }),
+          expect.objectContaining({ payload: expect.objectContaining({ to: '2.0' }) }),
+          expect.objectContaining({ payload: expect.objectContaining({ to: '1.0, 2.0' }) }),
+        ]),
+        tx,
+      );
     });
 
     it('skips null values for optional fields without writing', async () => {
