@@ -9,7 +9,19 @@ import type { BoardIssueCard, TiptapDoc } from '@repo/shared/schemas';
 export const BOARD_ISSUE_INCLUDE = {
   assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
   parent: { select: { id: true, title: true, type: true } },
-  tags: { include: { tag: true } },
+  tags: {
+    include: {
+      tag: {
+        select: {
+          id: true,
+          projectId: true,
+          name: true,
+          color: true,
+          createdAt: true,
+        },
+      },
+    },
+  },
   _count: { select: { comments: true, children: true } },
   children: {
     where: { deletedAt: null, resolvedAt: { not: null } },

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { BoardType, SwimlaneBy } from "@prisma/client";
-import { BoardDataService } from "./board-data.service";
+import { BoardDataService, partitionIssuesByColumn } from "./board-data.service";
 import { BoardsRepository, BoardEntity } from "./boards.repository";
 import { IssuesReader } from "@/modules/issues/issues.reader";
 import { SprintsReader } from "@/modules/sprints/sprints.reader";
@@ -100,6 +100,30 @@ describe("BoardDataService", () => {
     expect(data.columns[1]!.totalCount).toBe(1);
     expect(data.columns[1]!.isOverWip).toBe(false);
     expect(data.swimlanes).toEqual([]);
+  });
+
+  it("groups known statuses once, preserves their order, and omits unknown statuses", () => {
+    const columns = [
+      { id: "c1", name: "To Do", statusIds: ["s1"], ordinal: 0, wipLimit: 1 },
+      { id: "c2", name: "Done", statusIds: ["s2"], ordinal: 1 },
+    ];
+
+    const result = partitionIssuesByColumn(
+      [
+        issueRow({ id: "i1", statusId: "s2" }),
+        issueRow({ id: "i2", statusId: "unknown" }),
+        issueRow({ id: "i3", statusId: "s1" }),
+        issueRow({ id: "i4", statusId: "s1" }),
+      ],
+      columns,
+    );
+
+    expect(result.map((column) => column.issues.map((issue) => issue.id))).toEqual([
+      ["i3", "i4"],
+      ["i1"],
+    ]);
+    expect(result.map((column) => column.totalCount)).toEqual([2, 1]);
+    expect(result.map((column) => column.isOverWip)).toEqual([true, false]);
   });
 
   it("groups assignee swimlanes with an Unassigned bucket", async () => {
