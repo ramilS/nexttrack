@@ -22,6 +22,7 @@
 
 **Files:**
 - Modify: `apps/api/src/valkey/valkey.service.ts`
+- Modify: `apps/api/src/valkey/valkey.service.spec.ts`
 - Modify: `apps/api/src/modules/time-tracking/active-timer.service.ts`
 - Modify: `apps/api/src/modules/time-tracking/active-timer.service.spec.ts`
 
@@ -31,15 +32,15 @@
 - `ActiveTimerService.startTimer` must throw `TIMER_ALREADY_RUNNING` if `setIfAbsent` loses the race.
 - `ActiveTimerService.stopTimer` must validate the issue and permission against a read snapshot, then call `compareAndDelete` for that exact snapshot before creating a time log.
 
-- [ ] **Step 1: Write failing timer tests**
+- [x] **Step 1: Write failing timer tests**
 
-Add a start-race test where `setIfAbsent` returns `false` and assert the existing `TIMER_ALREADY_RUNNING` response. Add a stop test where the first `getAndDelete` returns a timer and a second returns `null`; assert `createFromTimer` is called exactly once and the second stop throws `TIMER_NOT_RUNNING`.
+Add tests for a losing `setIfAbsent` start race, snapshot-preserving rejected stops, and interleaved concurrent stops that allow exactly one time log. Add stop/update and discard/update race tests so a stale description update cannot restore a consumed timer. Test the Valkey Lua compare-and-delete and compare-and-set command arguments directly.
 
-- [ ] **Step 2: Run the focused test before implementation**
+- [x] **Step 2: Run the focused test before implementation**
 
-Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts`
+Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts valkey.service.spec.ts`
 
-Expected: the new tests fail because the methods do not exist and `stopTimer` still calls `get` and `del` separately.
+Expected: the new tests fail before the compare-and-delete and compare-and-set helpers and snapshot-based state transitions are implemented.
 
 - [x] **Step 3: Implement atomic Valkey primitives and adopt them**
 
@@ -47,48 +48,51 @@ Implement `setIfAbsent` with `this.client.set(key, value, 'EX', ttlSeconds, 'NX'
 
 - [x] **Step 4: Run focused verification**
 
-Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts`
+Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts valkey.service.spec.ts`
 
 Expected: all tests pass.
 
 - [x] **Step 5: Commit**
 
-Run: `git add apps/api/src/valkey/valkey.service.ts apps/api/src/modules/time-tracking/active-timer.service.ts apps/api/src/modules/time-tracking/active-timer.service.spec.ts && git commit -m "fix(api): make active timer transitions atomic"`
+Run: `git add apps/api/src/valkey/valkey.service.ts apps/api/src/valkey/valkey.service.spec.ts apps/api/src/modules/time-tracking/active-timer.service.ts apps/api/src/modules/time-tracking/active-timer.service.spec.ts && git commit -m "fix(api): make active timer transitions atomic"`
 
 ### Task 2: Batch Custom-Field Display References and Remove Write-on-Read
 
 **Files:**
 - Modify: `apps/api/src/modules/custom-fields/custom-field-values.service.ts`
 - Modify: `apps/api/src/modules/custom-fields/custom-fields.service.ts`
+- Modify: `apps/api/src/modules/custom-fields/normalize-enum-config.ts`
 - Modify: `apps/api/src/modules/custom-fields/custom-field-values.service.spec.ts`
 - Modify: `apps/api/src/modules/custom-fields/custom-fields.service.spec.ts`
+- Modify: `apps/api/src/modules/custom-fields/normalize-enum-config.spec.ts`
+- Modify: `apps/api/src/modules/custom-fields/custom-field-validator.service.spec.ts`
 
 **Interfaces:**
 - `getFieldsForIssue` performs at most one user-reference lookup and one version-reference lookup regardless of field count.
 - `normalizedField` returns normalized enum config without `updateConfig` from read methods.
 - Display DTO output for `USER`, `MULTI_USER`, `VERSION`, and `MULTI_VERSION` remains unchanged.
 
-- [ ] **Step 1: Write failing batching tests**
+- [x] **Step 1: Write failing batching tests**
 
 Create fields with multiple user and version values. Assert `findPublicRefsByIds` and `findManyByIds` are each called once with the union of IDs. Add tests asserting legacy enum reads return normalized config while `updateConfig` is not called.
 
-- [ ] **Step 2: Run focused tests before implementation**
+- [x] **Step 2: Run focused tests before implementation**
 
-Run: `cd apps/api && pnpm test:unit -- custom-field-values.service.spec.ts custom-fields.service.spec.ts`
+Run: `cd apps/api && pnpm test:unit -- custom-field-values.service.spec.ts custom-fields.service.spec.ts normalize-enum-config.spec.ts custom-field-validator.service.spec.ts`
 
 Expected: new tests fail because lookups happen while mapping individual fields and legacy reads write configuration.
 
-- [ ] **Step 3: Implement pure lookup-aware DTO construction**
+- [x] **Step 3: Implement pure lookup-aware DTO construction**
 
 Collect IDs from stored values by field type, load users and versions with `Promise.all`, create maps keyed by ID, and pass maps to display/activity formatting helpers. Remove repository updates from both read-time `normalizedField` helpers.
 
-- [ ] **Step 4: Run focused verification**
+- [x] **Step 4: Run focused verification**
 
-Run: `cd apps/api && pnpm test:unit -- custom-field-values.service.spec.ts custom-fields.service.spec.ts`
+Run: `cd apps/api && pnpm test:unit -- custom-field-values.service.spec.ts custom-fields.service.spec.ts normalize-enum-config.spec.ts custom-field-validator.service.spec.ts`
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add apps/api/src/modules/custom-fields && git commit -m "fix(api): batch custom field display lookups"`
 
@@ -105,27 +109,27 @@ Run: `git add apps/api/src/modules/custom-fields && git commit -m "fix(api): bat
 - `partitionIssuesByColumn` processes issues once and preserves the existing output order and WIP calculation.
 - Board responses remain complete and schema-compatible.
 
-- [ ] **Step 1: Write failing grouping tests**
+- [x] **Step 1: Write failing grouping tests**
 
 Extend board data tests with multiple columns and issues, including an issue with an unknown status. Assert each known-status issue appears once in its column, unknown statuses are omitted, order is preserved, and WIP values remain correct.
 
-- [ ] **Step 2: Run focused tests before implementation**
+- [x] **Step 2: Run focused tests before implementation**
 
 Run: `cd apps/api && pnpm test:unit -- board-data.service.spec.ts`
 
 Expected: the test may pass functionally but lacks the new one-pass helper; add a direct unit test for the helper’s grouped output before refactoring.
 
-- [ ] **Step 3: Implement the narrow projection and one-pass partition**
+- [x] **Step 3: Implement the narrow projection and one-pass partition**
 
 Replace `tags: { include: { tag: true } }` with a `tag.select` containing `id`, `projectId`, `name`, `color`, and `createdAt`. Build a `Map<statusId, BoardIssueRow[]>` in one issue pass, then map columns from that map without filtering the full issue array again.
 
-- [ ] **Step 4: Run focused verification**
+- [x] **Step 4: Run focused verification**
 
 Run: `cd apps/api && pnpm test:unit -- board-data.service.spec.ts`
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add apps/api/src/modules/boards/board-issue-card.mapper.ts apps/api/src/modules/issues/issues.repository.ts apps/api/src/modules/boards/board-data.service.ts apps/api/src/modules/boards/board-data.service.spec.ts && git commit -m "perf(api): reduce board read amplification"`
 
