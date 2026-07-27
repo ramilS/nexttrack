@@ -58,10 +58,6 @@ export class ValkeyService implements OnModuleDestroy {
     return this.client.get(key);
   }
 
-  async getAndDelete(key: string): Promise<string | null> {
-    return this.client.getdel(key);
-  }
-
   async compareAndDelete(key: string, expectedValue: string): Promise<boolean> {
     const result = await this.client.eval(COMPARE_AND_DELETE_SCRIPT, 1, key, expectedValue);
     return result === 1;
