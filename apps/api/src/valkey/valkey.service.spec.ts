@@ -26,20 +26,29 @@ describe('ValkeyService atomic commands', () => {
   });
 
   it.each([
-    [1, true],
-    [0, false],
-  ])('maps compareAndDelete eval result %p to %p', async (result, expected) => {
+    ['payload', 'payload'],
+    [0, null],
+  ])('maps compareAndDeleteByJsonField eval result %p to %p', async (result, expected) => {
     client.eval.mockResolvedValue(result);
 
-    await expect(service.compareAndDelete('timer:user-1', 'snapshot')).resolves.toBe(expected);
+    await expect(
+      service.compareAndDeleteByJsonField('timer:user-1', 'timerId', 'timer-1'),
+    ).resolves.toBe(expected);
 
     expect(client.eval).toHaveBeenCalledWith(
       expect.stringContaining("redis.call('DEL', KEYS[1])"),
       1,
       'timer:user-1',
-      'snapshot',
+      'timerId',
+      'timer-1',
     );
-    expect(client.eval.mock.calls[0][0]).toContain("redis.call('GET', KEYS[1]) == ARGV[1]");
+
+    const script = client.eval.mock.calls[0][0] as string;
+    expect(script).toContain("local value = redis.call('GET', KEYS[1])");
+    expect(script).toContain('pcall(cjson.decode, value)');
+    expect(script).toContain("type(decoded) ~= 'table'");
+    expect(script).toContain('decoded[ARGV[1]] ~= ARGV[2]');
+    expect(script).toContain('return value');
   });
 
   it.each([

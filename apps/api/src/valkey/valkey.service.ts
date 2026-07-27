@@ -4,11 +4,19 @@ import Redis from 'ioredis';
 import { AppLogger } from '@/common/logging/app-logger';
 import { valkeyConfig } from '@/config';
 
-const COMPARE_AND_DELETE_SCRIPT = `
-  if redis.call('GET', KEYS[1]) == ARGV[1] then
-    return redis.call('DEL', KEYS[1])
+const COMPARE_AND_DELETE_BY_JSON_FIELD_SCRIPT = `
+  local value = redis.call('GET', KEYS[1])
+  if not value then
+    return 0
   end
-  return 0
+
+  local ok, decoded = pcall(cjson.decode, value)
+  if not ok or type(decoded) ~= 'table' or decoded[ARGV[1]] ~= ARGV[2] then
+    return 0
+  end
+
+  redis.call('DEL', KEYS[1])
+  return value
 `;
 
 const COMPARE_AND_SET_SCRIPT = `
@@ -58,9 +66,19 @@ export class ValkeyService implements OnModuleDestroy {
     return this.client.get(key);
   }
 
-  async compareAndDelete(key: string, expectedValue: string): Promise<boolean> {
-    const result = await this.client.eval(COMPARE_AND_DELETE_SCRIPT, 1, key, expectedValue);
-    return result === 1;
+  async compareAndDeleteByJsonField(
+    key: string,
+    field: string,
+    expectedValue: string,
+  ): Promise<string | null> {
+    const result = await this.client.eval(
+      COMPARE_AND_DELETE_BY_JSON_FIELD_SCRIPT,
+      1,
+      key,
+      field,
+      expectedValue,
+    );
+    return typeof result === 'string' ? result : null;
   }
 
   async compareAndSet(

@@ -29,7 +29,7 @@ describe('ActiveTimerService', () => {
     get: jest.Mock;
     set: jest.Mock;
     setIfAbsent: jest.Mock;
-    compareAndDelete: jest.Mock;
+    compareAndDeleteByJsonField: jest.Mock;
     compareAndSet: jest.Mock;
     del: jest.Mock;
   };
@@ -42,6 +42,7 @@ describe('ActiveTimerService', () => {
     issueId: 'issue-1',
     startedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
     description: null,
+    timerId: 'timer-1',
   };
 
   const display = {
@@ -56,7 +57,7 @@ describe('ActiveTimerService', () => {
       get: jest.fn().mockResolvedValue(null),
       set: jest.fn().mockResolvedValue('OK'),
       setIfAbsent: jest.fn().mockResolvedValue(true),
-      compareAndDelete: jest.fn().mockResolvedValue(true),
+      compareAndDeleteByJsonField: jest.fn().mockResolvedValue(JSON.stringify(timerData)),
       compareAndSet: jest.fn().mockResolvedValue(true),
       del: jest.fn().mockResolvedValue(1),
     };
@@ -212,7 +213,11 @@ describe('ActiveTimerService', () => {
 
       await service.stopTimer('user-1', false);
 
-      expect(redis.compareAndDelete).toHaveBeenCalledWith('timer:user-1', rawTimer);
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledWith(
+        'timer:user-1',
+        'timerId',
+        'timer-1',
+      );
       expect(timeLogsService.createFromTimer).toHaveBeenCalledWith(
         'issue-1',
         'user-1',
@@ -243,7 +248,7 @@ describe('ActiveTimerService', () => {
       await expect(service.stopTimer('user-1', false)).rejects.toThrow(
         PermissionDeniedError,
       );
-      expect(redis.compareAndDelete).not.toHaveBeenCalled();
+      expect(redis.compareAndDeleteByJsonField).not.toHaveBeenCalled();
       expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
     });
 
@@ -253,7 +258,7 @@ describe('ActiveTimerService', () => {
 
       await expect(service.stopTimer('user-1', false)).rejects.toThrow(NotFoundError);
 
-      expect(redis.compareAndDelete).not.toHaveBeenCalled();
+      expect(redis.compareAndDeleteByJsonField).not.toHaveBeenCalled();
       expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
     });
 
@@ -271,15 +276,15 @@ describe('ActiveTimerService', () => {
       let compareCall = 0;
 
       redis.get.mockResolvedValue(rawTimer);
-      redis.compareAndDelete.mockImplementation(async () => {
+      redis.compareAndDeleteByJsonField.mockImplementation(async () => {
         compareCall += 1;
         if (compareCall === 1) {
           firstCompareReached.resolve();
           await releaseFirstCompare.promise;
-          return true;
+          return rawTimer;
         }
         secondCompareReached.resolve();
-        return false;
+        return null;
       });
       issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
 
@@ -292,21 +297,25 @@ describe('ActiveTimerService', () => {
       const [, secondStopError] = await Promise.all([firstStop, secondStop]);
 
       expect(secondStopError).toMatchObject({ code: ErrorCode.TIMER_NOT_RUNNING });
-      expect(redis.compareAndDelete).toHaveBeenCalledTimes(2);
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledTimes(2);
       expect(timeLogsService.createFromTimer).toHaveBeenCalledTimes(1);
     });
 
     it('does not delete a replacement timer when the observed value changes', async () => {
       const rawTimer = JSON.stringify(timerData);
       redis.get.mockResolvedValue(rawTimer);
-      redis.compareAndDelete.mockResolvedValue(false);
+      redis.compareAndDeleteByJsonField.mockResolvedValue(null);
       issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
 
       await expect(service.stopTimer('user-1', false)).rejects.toMatchObject({
         code: ErrorCode.TIMER_NOT_RUNNING,
       });
 
-      expect(redis.compareAndDelete).toHaveBeenCalledWith('timer:user-1', rawTimer);
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledWith(
+        'timer:user-1',
+        'timerId',
+        'timer-1',
+      );
       expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
     });
 
@@ -314,12 +323,16 @@ describe('ActiveTimerService', () => {
       const rawTimer = JSON.stringify({ ...timerData, timerId: 'timer-1' });
       const updatedTimer = JSON.stringify({ ...timerData, timerId: 'timer-1', description: 'updated' });
       redis.get.mockResolvedValueOnce(rawTimer).mockResolvedValueOnce(updatedTimer);
-      redis.compareAndDelete.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      redis.compareAndDeleteByJsonField.mockResolvedValue(updatedTimer);
       issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
 
       await service.stopTimer('user-1', false);
 
-      expect(redis.compareAndDelete).toHaveBeenNthCalledWith(2, 'timer:user-1', updatedTimer);
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledWith(
+        'timer:user-1',
+        'timerId',
+        'timer-1',
+      );
       expect(timeLogsService.createFromTimer).toHaveBeenCalledWith(
         'issue-1',
         'user-1',
@@ -328,18 +341,81 @@ describe('ActiveTimerService', () => {
       );
     });
 
+    it('stops a timer when its description returns to the observed value', async () => {
+      const rawTimer = JSON.stringify({ ...timerData, timerId: 'timer-1', description: 'original' });
+      const deleteReached = deferred<void>();
+      const releaseDelete = deferred<void>();
+      let storedTimer: string | null = rawTimer;
+
+      redis.get.mockImplementation(async () => storedTimer);
+      redis.compareAndSet.mockImplementation(async (_key, expectedValue, value) => {
+        if (storedTimer !== expectedValue) return false;
+        storedTimer = value;
+        return true;
+      });
+      redis.compareAndDeleteByJsonField.mockImplementation(async (_key, field, expectedValue) => {
+        deleteReached.resolve();
+        await releaseDelete.promise;
+        if (!storedTimer || JSON.parse(storedTimer)[field] !== expectedValue) return null;
+        const deletedTimer = storedTimer;
+        storedTimer = null;
+        return deletedTimer;
+      });
+      issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
+
+      const stop = service.stopTimer('user-1', false);
+      await deleteReached.promise;
+      await service.updateTimerDescription('user-1', 'changed');
+      await service.updateTimerDescription('user-1', 'original');
+      releaseDelete.resolve();
+      await stop;
+
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledWith(
+        'timer:user-1',
+        'timerId',
+        'timer-1',
+      );
+      expect(timeLogsService.createFromTimer).toHaveBeenCalledWith(
+        'issue-1',
+        'user-1',
+        expect.any(Number),
+        'original',
+      );
+      expect(storedTimer).toBeNull();
+    });
+
     it('does not delete a genuinely new replacement after retrying', async () => {
       const rawTimer = JSON.stringify({ ...timerData, timerId: 'timer-1' });
       const replacement = JSON.stringify({ ...timerData, issueId: 'issue-2', timerId: 'timer-2' });
       redis.get.mockResolvedValueOnce(rawTimer).mockResolvedValueOnce(replacement);
-      redis.compareAndDelete.mockResolvedValue(false);
+      redis.compareAndDeleteByJsonField.mockResolvedValue(null);
       issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
 
       await expect(service.stopTimer('user-1', false)).rejects.toMatchObject({
         code: ErrorCode.TIMER_NOT_RUNNING,
       });
 
-      expect(redis.compareAndDelete).toHaveBeenCalledTimes(1);
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledTimes(1);
+      expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
+    });
+
+    it('does not stop a replacement timer while promoting a legacy timer', async () => {
+      const legacyTimer = JSON.stringify({
+        issueId: 'issue-1',
+        startedAt: timerData.startedAt,
+        description: null,
+      });
+      const replacement = JSON.stringify({ ...timerData, timerId: 'timer-2' });
+      redis.get.mockResolvedValueOnce(legacyTimer).mockResolvedValueOnce(replacement);
+      redis.compareAndSet.mockResolvedValue(false);
+      redis.compareAndDeleteByJsonField.mockResolvedValue(replacement);
+      issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
+
+      await expect(service.stopTimer('user-1', false)).rejects.toMatchObject({
+        code: ErrorCode.TIMER_NOT_RUNNING,
+      });
+
+      expect(redis.compareAndDeleteByJsonField).not.toHaveBeenCalled();
       expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
     });
   });
@@ -391,7 +467,11 @@ describe('ActiveTimerService', () => {
       resolveUpdate!(false);
 
       await expect(update).rejects.toMatchObject({ code: ErrorCode.TIMER_NOT_RUNNING });
-      expect(redis.compareAndDelete).toHaveBeenCalledWith('timer:user-1', rawTimer);
+      expect(redis.compareAndDeleteByJsonField).toHaveBeenCalledWith(
+        'timer:user-1',
+        'timerId',
+        'timer-1',
+      );
       expect(timeLogsService.createFromTimer).toHaveBeenCalledTimes(1);
     });
 
