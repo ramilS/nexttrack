@@ -263,17 +263,12 @@ export class CustomFieldsService {
 
   // ─── Private ───────────────────────────────────────────────
 
-  /**
-   * Lazily migrates legacy enum config shapes (plain strings → objects) on read.
-   * Persists the normalized config via the repository so the field is fixed
-   * permanently after first read.
-   */
+  /** Returns legacy enum config in the current response shape without writing on read. */
   private async normalizedField(field: CustomField): Promise<CustomField> {
     if (!isEnumType(field.type)) return field;
     const { config, changed } = normalizeEnumConfig(field.config);
     if (!changed) return field;
 
-    await this.fieldsRepo.updateConfig(field.id, config);
     return { ...field, config: config as CustomFieldConfig };
   }
 

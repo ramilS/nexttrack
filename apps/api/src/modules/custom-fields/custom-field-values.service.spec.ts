@@ -26,6 +26,8 @@ describe('CustomFieldValuesService', () => {
   let activities: { recordOne: jest.Mock; record: jest.Mock };
   let indexerHooks: { onIssueChanged: jest.Mock };
   let background: { run: jest.Mock };
+  let usersRepo: { findPublicRefsByIds: jest.Mock; findNameRefsByIds: jest.Mock };
+  let versionsRepo: { findManyByIds: jest.Mock };
 
   const projectId = 'proj-1';
   const issueId = 'issue-1';
@@ -72,6 +74,8 @@ describe('CustomFieldValuesService', () => {
       record: jest.fn().mockResolvedValue(undefined),
     };
     indexerHooks = { onIssueChanged: jest.fn().mockResolvedValue(undefined) };
+    usersRepo = { findPublicRefsByIds: jest.fn(), findNameRefsByIds: jest.fn() };
+    versionsRepo = { findManyByIds: jest.fn() };
     // Invoke the task synchronously so the test can assert the re-index call.
     background = { run: jest.fn((task: () => unknown) => void task()) };
 
@@ -81,8 +85,8 @@ describe('CustomFieldValuesService', () => {
         { provide: CustomFieldsRepository, useValue: fieldsRepo },
         { provide: CustomFieldValuesRepository, useValue: valuesRepo },
         { provide: IssuesRepository, useValue: issuesRepo },
-        { provide: UsersReader, useValue: { findPublicRefsByIds: jest.fn(), findNameRefsByIds: jest.fn() } },
-        { provide: VersionsRepository, useValue: { findManyByIds: jest.fn() } },
+        { provide: UsersReader, useValue: usersRepo },
+        { provide: VersionsRepository, useValue: versionsRepo },
         { provide: CustomFieldValidatorService, useValue: validator },
         { provide: ActivitiesService, useValue: activities },
         {
@@ -128,6 +132,101 @@ describe('CustomFieldValuesService', () => {
       fieldsRepo.findManyByProject.mockResolvedValue([]);
       const result = await service.getFieldsForIssue(issueId, projectId);
       expect(result).toEqual([]);
+    });
+
+    it('batches display reference lookups across user and version fields', async () => {
+      const userField = { ...textField, id: 'user', type: CustomFieldType.USER };
+      const multiUserField = {
+        ...textField,
+        id: 'multi-user',
+        type: CustomFieldType.MULTI_USER,
+      };
+      const versionField = { ...textField, id: 'version', type: CustomFieldType.VERSION };
+      const multiVersionField = {
+        ...textField,
+        id: 'multi-version',
+        type: CustomFieldType.MULTI_VERSION,
+      };
+      fieldsRepo.findManyByProject.mockResolvedValue([
+        userField,
+        multiUserField,
+        versionField,
+        multiVersionField,
+      ]);
+      valuesRepo.findByIssueAndFields.mockResolvedValue([
+        { customFieldId: 'user', value: 'user-2' },
+        { customFieldId: 'multi-user', value: ['user-1', 'user-2'] },
+        { customFieldId: 'version', value: 'version-2' },
+        { customFieldId: 'multi-version', value: ['version-1', 'version-2'] },
+      ]);
+      usersRepo.findPublicRefsByIds.mockResolvedValue([
+        { id: 'user-1', name: 'Ada', email: 'ada@example.com', avatarUrl: null },
+        { id: 'user-2', name: 'Linus', email: 'linus@example.com', avatarUrl: null },
+      ]);
+      versionsRepo.findManyByIds.mockResolvedValue([
+        {
+          id: 'version-1',
+          projectId,
+          name: '1.0',
+          description: null,
+          status: 'UNRELEASED',
+          releaseDate: null,
+          ordinal: 0,
+        },
+        {
+          id: 'version-2',
+          projectId,
+          name: '2.0',
+          description: null,
+          status: 'UNRELEASED',
+          releaseDate: null,
+          ordinal: 1,
+        },
+      ]);
+
+      const result = await service.getFieldsForIssue(issueId, projectId);
+
+      expect(usersRepo.findPublicRefsByIds).toHaveBeenCalledTimes(1);
+      expect(usersRepo.findPublicRefsByIds).toHaveBeenCalledWith(['user-2', 'user-1']);
+      expect(versionsRepo.findManyByIds).toHaveBeenCalledTimes(1);
+      expect(versionsRepo.findManyByIds).toHaveBeenCalledWith(['version-2', 'version-1']);
+      expect(result.map((field) => field.displayValue)).toEqual([
+        {
+          type: 'user',
+          user: { id: 'user-2', name: 'Linus', email: 'linus@example.com', avatarUrl: null },
+        },
+        {
+          type: 'multi_user',
+          users: [
+            { id: 'user-1', name: 'Ada', email: 'ada@example.com', avatarUrl: null },
+            { id: 'user-2', name: 'Linus', email: 'linus@example.com', avatarUrl: null },
+          ],
+        },
+        {
+          type: 'version',
+          version: expect.objectContaining({ id: 'version-2', name: '2.0' }),
+        },
+        {
+          type: 'multi_version',
+          versions: [
+            expect.objectContaining({ id: 'version-1', name: '1.0' }),
+            expect.objectContaining({ id: 'version-2', name: '2.0' }),
+          ],
+        },
+      ]);
+    });
+
+    it('normalizes legacy enum config without persisting it during a read', async () => {
+      fieldsRepo.findManyByProject.mockResolvedValue([
+        { ...textField, type: CustomFieldType.ENUM, config: { options: ['Legacy'] } },
+      ]);
+
+      const result = await service.getFieldsForIssue(issueId, projectId);
+
+      expect(result[0].fieldConfig.options).toEqual([
+        expect.objectContaining({ name: 'Legacy', color: null, ordinal: 0 }),
+      ]);
+      expect(fieldsRepo.updateConfig).not.toHaveBeenCalled();
     });
   });
 

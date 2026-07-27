@@ -31,6 +31,18 @@ interface FieldValueInput {
   value: unknown;
 }
 
+type UserDisplayReference = Awaited<
+  ReturnType<UsersReader['findPublicRefsByIds']>
+>[number];
+type VersionDisplayReference = Awaited<
+  ReturnType<VersionsRepository['findManyByIds']>
+>[number];
+
+interface DisplayReferences {
+  usersById: ReadonlyMap<string, UserDisplayReference>;
+  versionsById: ReadonlyMap<string, VersionDisplayReference>;
+}
+
 @Injectable()
 export class CustomFieldValuesService {
   private readonly logger = new AppLogger(CustomFieldValuesService.name);
@@ -78,11 +90,12 @@ export class CustomFieldValuesService {
       normalized.map((f) => f.id),
     );
     const valueMap = new Map(values.map((v) => [v.customFieldId, v.value]));
+    const displayReferences = await this.loadDisplayReferences(normalized, valueMap);
 
     const result: CustomFieldValue[] = [];
     for (const field of normalized) {
       const rawValue = valueMap.has(field.id) ? valueMap.get(field.id) ?? null : null;
-      result.push(await this.buildFieldValueDto(field, rawValue));
+      result.push(await this.buildFieldValueDto(field, rawValue, displayReferences));
     }
     return result;
   }
@@ -284,8 +297,61 @@ export class CustomFieldValuesService {
     const { config, changed } = normalizeEnumConfig(field.config);
     if (!changed) return field;
 
-    await this.fieldsRepo.updateConfig(field.id, config);
     return { ...field, config };
+  }
+
+  private async loadDisplayReferences(
+    fields: CustomField[],
+    valueMap: ReadonlyMap<string, unknown>,
+  ): Promise<DisplayReferences> {
+    const userIds = new Set<string>();
+    const versionIds = new Set<string>();
+
+    for (const field of fields) {
+      const value = valueMap.get(field.id);
+      switch (field.type) {
+        case CustomFieldType.USER:
+        case CustomFieldType.MULTI_USER:
+          this.collectReferenceIds(value, userIds);
+          break;
+        case CustomFieldType.VERSION:
+        case CustomFieldType.MULTI_VERSION:
+          this.collectReferenceIds(value, versionIds);
+          break;
+      }
+    }
+
+    const [users, versions] = await Promise.all([
+      userIds.size > 0
+        ? this.usersRepo.findPublicRefsByIds([...userIds])
+        : Promise.resolve([] as UserDisplayReference[]),
+      versionIds.size > 0
+        ? this.versionsRepo.findManyByIds([...versionIds])
+        : Promise.resolve([] as VersionDisplayReference[]),
+    ]);
+
+    return {
+      usersById: new Map(users.map((user) => [user.id, user])),
+      versionsById: new Map(versions.map((version) => [version.id, version])),
+    };
+  }
+
+  private collectReferenceIds(value: unknown, target: Set<string>): void {
+    if (typeof value === 'string') {
+      target.add(value);
+      return;
+    }
+    if (!Array.isArray(value)) return;
+
+    for (const id of value) {
+      if (typeof id === 'string') target.add(id);
+    }
+  }
+
+  private referenceIds(value: unknown): string[] {
+    if (typeof value === 'string') return [value];
+    if (!Array.isArray(value)) return [];
+    return value.filter((id): id is string => typeof id === 'string');
   }
 
   private async recordFieldActivity(
@@ -368,6 +434,7 @@ export class CustomFieldValuesService {
   private async buildDisplayValue(
     field: CustomField,
     value: unknown,
+    displayReferences?: DisplayReferences,
   ): Promise<DisplayValue | null> {
     if (value === null || value === undefined) return null;
 
@@ -403,18 +470,38 @@ export class CustomFieldValuesService {
         return { type: 'multi_enum', options: matched };
       }
       case CustomFieldType.USER: {
+        if (displayReferences) {
+          const user = displayReferences.usersById.get(value as string);
+          return user ? { type: 'user', user } : null;
+        }
         const [user] = await this.usersRepo.findPublicRefsByIds([value as string]);
         return user ? { type: 'user', user } : null;
       }
       case CustomFieldType.MULTI_USER: {
+        if (displayReferences) {
+          const users = this.referenceIds(value)
+            .map((id) => displayReferences.usersById.get(id))
+            .filter((user): user is UserDisplayReference => user !== undefined);
+          return { type: 'multi_user', users };
+        }
         const users = await this.usersRepo.findPublicRefsByIds(value as string[]);
         return { type: 'multi_user', users };
       }
       case CustomFieldType.VERSION: {
+        if (displayReferences) {
+          const version = displayReferences.versionsById.get(value as string);
+          return version ? { type: 'version', version } : null;
+        }
         const [ver] = await this.versionsRepo.findManyByIds([value as string]);
         return ver ? { type: 'version', version: ver } : null;
       }
       case CustomFieldType.MULTI_VERSION: {
+        if (displayReferences) {
+          const versions = this.referenceIds(value)
+            .map((id) => displayReferences.versionsById.get(id))
+            .filter((version): version is VersionDisplayReference => version !== undefined);
+          return { type: 'multi_version', versions };
+        }
         const vers = await this.versionsRepo.findManyByIds(value as string[]);
         return { type: 'multi_version', versions: vers };
       }
@@ -432,8 +519,9 @@ export class CustomFieldValuesService {
   private async buildFieldValueDto(
     field: CustomField,
     value: unknown,
+    displayReferences?: DisplayReferences,
   ): Promise<CustomFieldValue> {
-    const displayValue = await this.buildDisplayValue(field, value);
+    const displayValue = await this.buildDisplayValue(field, value, displayReferences);
     return {
       fieldId: field.id,
       fieldName: field.name,

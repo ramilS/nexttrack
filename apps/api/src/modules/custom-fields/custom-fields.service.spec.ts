@@ -92,19 +92,16 @@ describe('CustomFieldsService', () => {
       expect(result[0].name).toBe('Priority Score');
     });
 
-    it('persists normalized enum config on read when legacy', async () => {
+    it('returns normalized enum config without persisting it on read when legacy', async () => {
       fieldsRepo.findManyByProject.mockResolvedValue([
         buildEnumField({ config: { options: ['Legacy'] } }),
       ]);
 
       const result = await service.findAll(projectId);
 
-      expect(fieldsRepo.updateConfig).toHaveBeenCalledWith(
-        fieldId,
-        expect.objectContaining({ options: expect.any(Array) }),
-      );
       const opts = result[0].config.options as Array<{ name: string }>;
       expect(opts[0].name).toBe('Legacy');
+      expect(fieldsRepo.updateConfig).not.toHaveBeenCalled();
     });
 
     it('does not persist when enum config is already normalized', async () => {
