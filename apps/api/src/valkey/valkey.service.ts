@@ -4,6 +4,21 @@ import Redis from 'ioredis';
 import { AppLogger } from '@/common/logging/app-logger';
 import { valkeyConfig } from '@/config';
 
+const COMPARE_AND_DELETE_SCRIPT = `
+  if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+  end
+  return 0
+`;
+
+const COMPARE_AND_SET_SCRIPT = `
+  if redis.call('GET', KEYS[1]) == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return 1
+  end
+  return 0
+`;
+
 @Injectable()
 export class ValkeyService implements OnModuleDestroy {
   private readonly logger = new AppLogger(ValkeyService.name);
@@ -45,6 +60,28 @@ export class ValkeyService implements OnModuleDestroy {
 
   async getAndDelete(key: string): Promise<string | null> {
     return this.client.getdel(key);
+  }
+
+  async compareAndDelete(key: string, expectedValue: string): Promise<boolean> {
+    const result = await this.client.eval(COMPARE_AND_DELETE_SCRIPT, 1, key, expectedValue);
+    return result === 1;
+  }
+
+  async compareAndSet(
+    key: string,
+    expectedValue: string,
+    value: string,
+    ttlSeconds: number,
+  ): Promise<boolean> {
+    const result = await this.client.eval(
+      COMPARE_AND_SET_SCRIPT,
+      1,
+      key,
+      expectedValue,
+      value,
+      ttlSeconds,
+    );
+    return result === 1;
   }
 
   async del(key: string): Promise<void> {
