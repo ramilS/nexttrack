@@ -400,15 +400,11 @@ export class CustomFieldValuesService {
     field: CustomField,
     oldValue: unknown,
     newValue: unknown,
-    tx?: Tx,
-    references?: DisplayReferences,
+    tx: Tx | undefined,
+    references: DisplayReferences,
   ): Promise<void> {
-    const resolvedReferences = references ?? await this.loadDisplayReferences([
-      { field, value: oldValue },
-      { field, value: newValue },
-    ]);
-    const fromDisplay = await this.formatForActivity(field, oldValue, resolvedReferences);
-    const toDisplay = await this.formatForActivity(field, newValue, resolvedReferences);
+    const fromDisplay = await this.formatForActivity(field, oldValue, references);
+    const toDisplay = await this.formatForActivity(field, newValue, references);
 
     await this.activitiesService.recordOne(
       issueId,
@@ -427,7 +423,7 @@ export class CustomFieldValuesService {
   private async formatForActivity(
     field: CustomField,
     value: unknown,
-    displayReferences?: DisplayReferences,
+    displayReferences: DisplayReferences,
   ): Promise<string | null> {
     if (value === null || value === undefined) return null;
 
@@ -453,38 +449,22 @@ export class CustomFieldValuesService {
         return ids.map((id) => opts.find((o) => o.id === id)?.name ?? id).join(', ');
       }
       case CustomFieldType.USER: {
-        if (displayReferences) {
-          return displayReferences.usersById.get(value as string)?.name ?? String(value);
-        }
-        const [user] = await this.usersRepo.findNameRefsByIds([value as string]);
-        return user?.name ?? String(value);
+        return displayReferences.usersById.get(value as string)?.name ?? String(value);
       }
       case CustomFieldType.MULTI_USER: {
-        if (displayReferences) {
-          return this.uniqueReferenceIds(value)
-            .map((id) => displayReferences.usersById.get(id)?.name)
-            .filter((name): name is string => name !== undefined)
-            .join(', ');
-        }
-        const users = await this.usersRepo.findNameRefsByIds(value as string[]);
-        return users.map((u) => u.name).join(', ');
+        return this.uniqueReferenceIds(value)
+          .map((id) => displayReferences.usersById.get(id)?.name)
+          .filter((name): name is string => name !== undefined)
+          .join(', ');
       }
       case CustomFieldType.VERSION: {
-        if (displayReferences) {
-          return displayReferences.versionsById.get(value as string)?.name ?? String(value);
-        }
-        const [ver] = await this.versionsRepo.findManyByIds([value as string]);
-        return ver?.name ?? String(value);
+        return displayReferences.versionsById.get(value as string)?.name ?? String(value);
       }
       case CustomFieldType.MULTI_VERSION: {
-        if (displayReferences) {
-          return this.uniqueReferenceIds(value)
-            .map((id) => displayReferences.versionsById.get(id)?.name)
-            .filter((name): name is string => name !== undefined)
-            .join(', ');
-        }
-        const vers = await this.versionsRepo.findManyByIds(value as string[]);
-        return vers.map((v) => v.name).join(', ');
+        return this.uniqueReferenceIds(value)
+          .map((id) => displayReferences.versionsById.get(id)?.name)
+          .filter((name): name is string => name !== undefined)
+          .join(', ');
       }
       case CustomFieldType.PERIOD:
         return formatPeriod(value as number);
@@ -498,7 +478,7 @@ export class CustomFieldValuesService {
   private async buildDisplayValue(
     field: CustomField,
     value: unknown,
-    displayReferences?: DisplayReferences,
+    displayReferences: DisplayReferences,
   ): Promise<DisplayValue | null> {
     if (value === null || value === undefined) return null;
 
@@ -534,40 +514,24 @@ export class CustomFieldValuesService {
         return { type: 'multi_enum', options: matched };
       }
       case CustomFieldType.USER: {
-        if (displayReferences) {
-          const user = displayReferences.usersById.get(value as string);
-          return user ? { type: 'user', user } : null;
-        }
-        const [user] = await this.usersRepo.findPublicRefsByIds([value as string]);
+        const user = displayReferences.usersById.get(value as string);
         return user ? { type: 'user', user } : null;
       }
       case CustomFieldType.MULTI_USER: {
-        if (displayReferences) {
-          const users = this.uniqueReferenceIds(value)
-            .map((id) => displayReferences.usersById.get(id))
-            .filter((user): user is UserDisplayReference => user !== undefined);
-          return { type: 'multi_user', users };
-        }
-        const users = await this.usersRepo.findPublicRefsByIds(value as string[]);
+        const users = this.uniqueReferenceIds(value)
+          .map((id) => displayReferences.usersById.get(id))
+          .filter((user): user is UserDisplayReference => user !== undefined);
         return { type: 'multi_user', users };
       }
       case CustomFieldType.VERSION: {
-        if (displayReferences) {
-          const version = displayReferences.versionsById.get(value as string);
-          return version ? { type: 'version', version } : null;
-        }
-        const [ver] = await this.versionsRepo.findManyByIds([value as string]);
-        return ver ? { type: 'version', version: ver } : null;
+        const version = displayReferences.versionsById.get(value as string);
+        return version ? { type: 'version', version } : null;
       }
       case CustomFieldType.MULTI_VERSION: {
-        if (displayReferences) {
-          const versions = this.uniqueReferenceIds(value)
-            .map((id) => displayReferences.versionsById.get(id))
-            .filter((version): version is VersionDisplayReference => version !== undefined);
-          return { type: 'multi_version', versions };
-        }
-        const vers = await this.versionsRepo.findManyByIds(value as string[]);
-        return { type: 'multi_version', versions: vers };
+        const versions = this.uniqueReferenceIds(value)
+          .map((id) => displayReferences.versionsById.get(id))
+          .filter((version): version is VersionDisplayReference => version !== undefined);
+        return { type: 'multi_version', versions };
       }
       case CustomFieldType.PERIOD: {
         const minutes = value as number;
@@ -583,7 +547,7 @@ export class CustomFieldValuesService {
   private async buildFieldValueDto(
     field: CustomField,
     value: unknown,
-    displayReferences?: DisplayReferences,
+    displayReferences: DisplayReferences,
   ): Promise<CustomFieldValue> {
     const displayValue = await this.buildDisplayValue(field, value, displayReferences);
     return {

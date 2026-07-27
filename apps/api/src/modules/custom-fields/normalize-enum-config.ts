@@ -20,30 +20,65 @@ export function normalizeEnumConfig(
   fieldId: string,
   config: unknown,
 ): { config: Record<string, unknown>; changed: boolean } {
-  const cfg = (config ?? {}) as Record<string, unknown>;
+  if (!isRecord(config)) {
+    return { config: {}, changed: config !== null && config !== undefined };
+  }
+  const cfg = config;
   if (!Array.isArray(cfg.options)) {
     return { config: cfg, changed: false };
   }
 
   const options = cfg.options as unknown[];
-  const needsFix = options.some((option) => !hasOptionId(option));
-  if (!needsFix) return { config: cfg, changed: false };
-
-  const normalized: EnumOption[] = options.map((o, i): EnumOption => {
-    if (typeof o === 'string') {
-      return { id: legacyOptionId(fieldId, o, i), name: o, color: null, ordinal: i };
+  const normalized: EnumOption[] = [];
+  let changed = false;
+  options.forEach((option, ordinal) => {
+    if (isValidModernOption(option)) {
+      normalized.push(option);
+      return;
     }
-    const obj = o as Record<string, unknown>;
-    const name = (obj.name as string) ?? String(o);
-    return {
-      id: hasOptionId(o) ? o.id : legacyOptionId(fieldId, name, i),
+    const name = typeof option === 'string'
+      ? option
+      : isRecord(option) && typeof option.name === 'string'
+        ? option.name
+        : null;
+    if (!name) {
+      changed = true;
+      return;
+    }
+    const object = isRecord(option) ? option : undefined;
+    const color = object && (typeof object.color === 'string' || object.color === null)
+      ? object.color
+      : null;
+    const optionOrdinal = object && typeof object.ordinal === 'number' && Number.isFinite(object.ordinal)
+      ? object.ordinal
+      : ordinal;
+    normalized.push({
+      id: hasOptionId(option) ? option.id : legacyOptionId(fieldId, name, ordinal),
       name,
-      color: (obj.color as string | null) ?? null,
-      ordinal: (obj.ordinal as number) ?? i,
-    };
+      color,
+      ordinal: optionOrdinal,
+    });
+    changed = true;
   });
+  if (!changed) return { config: cfg, changed: false };
 
   return { config: { ...cfg, options: normalized }, changed: true };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isValidModernOption(option: unknown): option is EnumOption {
+  if (!isRecord(option) || !hasOptionId(option)) return false;
+  const record = option as Record<string, unknown>;
+  return (
+    typeof record.name === 'string' &&
+    record.name.length > 0 &&
+    (typeof record.color === 'string' || record.color === null) &&
+    typeof record.ordinal === 'number' &&
+    Number.isFinite(record.ordinal)
+  );
 }
 
 function hasOptionId(option: unknown): option is { id: string } {

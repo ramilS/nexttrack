@@ -122,6 +122,8 @@ describe('ActiveTimerService', () => {
         expect.any(String),
         24 * 60 * 60,
       );
+      const stored = JSON.parse(redis.setIfAbsent.mock.calls[0][1]);
+      expect(stored.timerId).toEqual(expect.any(String));
     });
 
     it('throws ConflictError when a timer is already running', async () => {
@@ -305,6 +307,39 @@ describe('ActiveTimerService', () => {
       });
 
       expect(redis.compareAndDelete).toHaveBeenCalledWith('timer:user-1', rawTimer);
+      expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
+    });
+
+    it('retries an updated description as the same logical timer', async () => {
+      const rawTimer = JSON.stringify({ ...timerData, timerId: 'timer-1' });
+      const updatedTimer = JSON.stringify({ ...timerData, timerId: 'timer-1', description: 'updated' });
+      redis.get.mockResolvedValueOnce(rawTimer).mockResolvedValueOnce(updatedTimer);
+      redis.compareAndDelete.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+      issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
+
+      await service.stopTimer('user-1', false);
+
+      expect(redis.compareAndDelete).toHaveBeenNthCalledWith(2, 'timer:user-1', updatedTimer);
+      expect(timeLogsService.createFromTimer).toHaveBeenCalledWith(
+        'issue-1',
+        'user-1',
+        expect.any(Number),
+        'updated',
+      );
+    });
+
+    it('does not delete a genuinely new replacement after retrying', async () => {
+      const rawTimer = JSON.stringify({ ...timerData, timerId: 'timer-1' });
+      const replacement = JSON.stringify({ ...timerData, issueId: 'issue-2', timerId: 'timer-2' });
+      redis.get.mockResolvedValueOnce(rawTimer).mockResolvedValueOnce(replacement);
+      redis.compareAndDelete.mockResolvedValue(false);
+      issuesRepo.findStartTimerContext.mockResolvedValue({ id: 'issue-1', projectId: 'proj-1' });
+
+      await expect(service.stopTimer('user-1', false)).rejects.toMatchObject({
+        code: ErrorCode.TIMER_NOT_RUNNING,
+      });
+
+      expect(redis.compareAndDelete).toHaveBeenCalledTimes(1);
       expect(timeLogsService.createFromTimer).not.toHaveBeenCalled();
     });
   });

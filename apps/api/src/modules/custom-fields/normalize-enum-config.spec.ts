@@ -88,4 +88,41 @@ describe('normalizeEnumConfig', () => {
     expect((second.config.options as Array<{ id: string }>)[0].id).toBe(firstId);
     expect((otherField.config.options as Array<{ id: string }>)[0].id).not.toBe(firstId);
   });
+
+  it('normalizes malformed options without throwing, omits unusable entries, and preserves input', () => {
+    const original = {
+      label: 'Statuses',
+      options: [
+        { id: 'modern', name: 'Modern', color: null, ordinal: 0 },
+        'Legacy',
+        null,
+        42,
+        true,
+        ['nested'],
+        {},
+        { name: 'Named', color: 123, ordinal: 'bad' },
+      ],
+    };
+    const snapshot = structuredClone(original);
+
+    const result = normalizeEnumConfig('field-1', original);
+
+    expect(result.changed).toBe(true);
+    expect(result.config.options).toEqual([
+      original.options[0],
+      expect.objectContaining({ name: 'Legacy', ordinal: 1 }),
+      expect.objectContaining({ name: 'Named', ordinal: 7, color: null }),
+    ]);
+    expect(result.config.options).toEqual(
+      normalizeEnumConfig('field-1', original).config.options,
+    );
+    expect(original).toEqual(snapshot);
+  });
+
+  it.each([null, undefined, 1, false, [], {}])(
+    'is total for malformed config/options: %p',
+    (options) => {
+      expect(() => normalizeEnumConfig('field-1', { options })).not.toThrow();
+    },
+  );
 });

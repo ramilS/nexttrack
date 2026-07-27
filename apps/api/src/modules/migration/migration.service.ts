@@ -16,7 +16,6 @@ import { SetDatesDto } from './dto/set-dates.dto';
 import { IssuesRepository } from '@/modules/issues/issues.repository';
 import {
   CustomFieldsRepository,
-  getFieldConfig,
 } from '@/modules/custom-fields/custom-fields.repository';
 import { CustomFieldsService } from '@/modules/custom-fields/custom-fields.service';
 import type { CreateCustomFieldParsed } from '@repo/shared/schemas';
@@ -44,6 +43,7 @@ import type {
 } from '@repo/shared/schemas';
 import type { CreateTagInput, CreateIssueLinkInput } from '@repo/shared/schemas';
 import { IssueLinksService } from '@/modules/issue-links/issue-links.service';
+import { normalizeEnumConfig } from '@/modules/custom-fields/normalize-enum-config';
 
 // Seeded system role "Developer" — the default project role for migrated users
 // (full contributor: issues/comments/tags/boards/sprints/time). Mirrors the
@@ -696,7 +696,7 @@ export class MigrationService {
       id: field.id,
       name: field.name,
       type: String(field.type),
-      options: (getFieldConfig(field).options ?? []).map((option) => ({
+      options: ((normalizeEnumConfig(field.id, field.config).config.options ?? []) as Array<{ id: string; name: string }>).map((option) => ({
         id: option.id,
         name: option.name,
       })),

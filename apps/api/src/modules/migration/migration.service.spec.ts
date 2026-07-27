@@ -869,6 +869,27 @@ describe('MigrationService', () => {
         ],
       });
     });
+
+    it('maps legacy enum string options to deterministic ids and names', async () => {
+      repo.findProjectByKey.mockResolvedValue({ id: 'proj-1', key: 'TEST' });
+      customFieldsRepo.findManyByProject.mockResolvedValue([
+        {
+          id: 'field-legacy',
+          name: 'State',
+          type: 'ENUM',
+          config: { options: ['Open', 'Closed'] },
+        },
+      ]);
+
+      const first = await service.getCustomFieldMap('TEST');
+      const second = await service.getCustomFieldMap('TEST');
+
+      expect(first.data[0].options).toEqual([
+        { id: expect.any(String), name: 'Open' },
+        { id: expect.any(String), name: 'Closed' },
+      ]);
+      expect(second.data[0].options).toEqual(first.data[0].options);
+    });
   });
 
   describe('createCustomField', () => {

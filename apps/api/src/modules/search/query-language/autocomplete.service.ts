@@ -10,6 +10,7 @@ import { TagsReader } from '@/modules/tags/tags.reader';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { VersionsRepository } from '@/modules/versions/versions.repository';
 import type { AutocompleteSuggestion } from '@repo/shared/schemas';
+import { normalizeEnumConfig } from '@/modules/custom-fields/normalize-enum-config';
 
 interface FieldEnumOption {
   name: string;
@@ -305,7 +306,8 @@ export class AutocompleteService {
       field.type === CustomFieldType.ENUM ||
       field.type === CustomFieldType.MULTI_ENUM
     ) {
-      const options = (field.config.options ?? []) as FieldEnumOption[];
+      const { config } = normalizeEnumConfig(field.id, field.config);
+      const options = (config.options ?? []) as FieldEnumOption[];
       return options
         .filter((o) =>
           o.name.toLowerCase().startsWith(partial.toLowerCase()),
