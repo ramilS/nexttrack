@@ -14,7 +14,7 @@ The change has three independent deliverables:
 
 ## Timer Design
 
-`ValkeyService` gains narrowly typed primitives for `SET NX EX` and `GETDEL`. `startTimer` uses `SET NX EX`; losing the race returns the existing timer in the existing conflict response. `stopTimer` claims and removes the timer with `GETDEL` before calculating and writing the time log, so later concurrent stops see no timer. A failed log write does not recreate the timer; this is deliberate because the timer was consumed and retries must not duplicate a log.
+`ValkeyService` gains narrowly typed primitives for `SET NX EX`, compare-and-delete, and compare-and-set. `startTimer` uses `SET NX EX`; losing the race returns the existing timer in the existing conflict response. `stopTimer` first reads a timer snapshot and validates the issue and current permission, then removes that exact snapshot with an atomic Lua compare-and-delete. This preserves a timer when the stop is rejected while still allowing only one concurrent stop to create a time log. `updateTimerDescription` uses compare-and-set against the same snapshot, so a stale update cannot recreate a timer after stop or discard. A failed log write does not recreate a successfully consumed timer; retries must not duplicate a log.
 
 ## Custom Fields Design
 
@@ -30,4 +30,20 @@ Hard pagination for board, Gantt and comment replies is intentionally deferred. 
 
 ## Error Handling and Tests
 
-The timer preserves current domain error codes. Unit tests cover concurrent-start loss, exactly-once stop, batch lookup behaviour for custom fields, and unchanged board grouping semantics. API checks run with the focused Jest suites, lint, and type checking before handoff.
+The timer preserves current domain error codes. Unit tests cover concurrent-start loss, exactly-once stop, rejected-stop state preservation, stop/update and discard/update races, batch lookup behaviour for custom fields, and unchanged board grouping semantics. API checks run with the focused Jest suites, lint, and type checking before handoff.
+
+## Verification
+
+Completed on 2026-07-27:
+
+```sh
+cd apps/api && pnpm check-types && pnpm lint
+```
+
+Both commands exited with code 0.
+
+```sh
+cd apps/api && pnpm test:unit -- active-timer.service.spec.ts valkey.service.spec.ts normalize-enum-config.spec.ts custom-field-values.service.spec.ts custom-fields.service.spec.ts custom-field-validator.service.spec.ts board-data.service.spec.ts
+```
+
+All selected suites passed: 7 suites and 151 tests. The unit-test run emitted existing `ts-jest` TS151002 configuration warnings. Integration tests were not run.

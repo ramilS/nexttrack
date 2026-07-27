@@ -4,7 +4,7 @@
 
 **Goal:** Eliminate the confirmed timer race and custom-field N+1 while reducing board read amplification without changing existing API response contracts.
 
-**Architecture:** Add atomic Valkey operations behind the existing infrastructure service, keep timer state transitions in `ActiveTimerService`, and convert custom-field display construction into a pure mapper supplied with batched reference maps. Board reads retain show-all behaviour but use a card-specific Prisma projection and one-pass grouping.
+**Architecture:** Add atomic Valkey operations behind the existing infrastructure service, keep timer state transitions in `ActiveTimerService`, and convert custom-field display construction into a pure mapper supplied with batched reference maps. Board reads retain show-all behaviour but use a card-specific Prisma projection and one-pass grouping. Timer stop validates a read snapshot before atomically removing that exact snapshot; description updates use compare-and-set so they cannot restore a stopped timer.
 
 **Tech Stack:** NestJS 11, TypeScript, Prisma 7, ioredis/Valkey, Jest.
 
@@ -27,9 +27,9 @@
 
 **Interfaces:**
 - Produces `ValkeyService.setIfAbsent(key, value, ttlSeconds): Promise<boolean>` using `SET key value NX EX ttlSeconds`.
-- Produces `ValkeyService.getAndDelete(key): Promise<string | null>` using Redis `GETDEL`.
+- Produces `ValkeyService.compareAndDelete(key, expectedValue): Promise<boolean>` and `ValkeyService.compareAndSet(key, expectedValue, nextValue, ttlSeconds): Promise<boolean>` using Lua compare operations.
 - `ActiveTimerService.startTimer` must throw `TIMER_ALREADY_RUNNING` if `setIfAbsent` loses the race.
-- `ActiveTimerService.stopTimer` must call `getAndDelete` exactly once before creating a time log.
+- `ActiveTimerService.stopTimer` must validate the issue and permission against a read snapshot, then call `compareAndDelete` for that exact snapshot before creating a time log.
 
 - [ ] **Step 1: Write failing timer tests**
 
@@ -41,17 +41,17 @@ Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts`
 
 Expected: the new tests fail because the methods do not exist and `stopTimer` still calls `get` and `del` separately.
 
-- [ ] **Step 3: Implement atomic Valkey primitives and adopt them**
+- [x] **Step 3: Implement atomic Valkey primitives and adopt them**
 
-Implement `setIfAbsent` with `this.client.set(key, value, 'EX', ttlSeconds, 'NX')` and return whether the command returned `'OK'`. Implement `getAndDelete` with `this.client.getdel(key)`. Replace the get-then-set start flow with `setIfAbsent`; replace stop’s get-then-del flow with `getAndDelete`.
+Implement `setIfAbsent` with `this.client.set(key, value, 'EX', ttlSeconds, 'NX')` and return whether the command returned `'OK'`. Implement Lua compare-and-delete and compare-and-set helpers. Replace the get-then-set start flow with `setIfAbsent`; stop validates a read snapshot and consumes it only through compare-and-delete. Update description uses compare-and-set so stale writes cannot recreate a consumed timer.
 
-- [ ] **Step 4: Run focused verification**
+- [x] **Step 4: Run focused verification**
 
 Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts`
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run: `git add apps/api/src/valkey/valkey.service.ts apps/api/src/modules/time-tracking/active-timer.service.ts apps/api/src/modules/time-tracking/active-timer.service.spec.ts && git commit -m "fix(api): make active timer transitions atomic"`
 
@@ -135,22 +135,22 @@ Run: `git add apps/api/src/modules/boards/board-issue-card.mapper.ts apps/api/sr
 - Modify: `docs/superpowers/specs/2026-07-27-api-hardening-design.md`
 - Modify: `docs/superpowers/plans/2026-07-27-api-hardening.md`
 
-- [ ] **Step 1: Run API static checks**
+- [x] **Step 1: Run API static checks**
 
 Run: `cd apps/api && pnpm check-types && pnpm lint`
 
 Expected: both commands exit with code 0.
 
-- [ ] **Step 2: Run all changed unit suites**
+- [x] **Step 2: Run all changed unit suites**
 
-Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts custom-field-values.service.spec.ts custom-fields.service.spec.ts board-data.service.spec.ts`
+Run: `cd apps/api && pnpm test:unit -- active-timer.service.spec.ts valkey.service.spec.ts normalize-enum-config.spec.ts custom-field-values.service.spec.ts custom-fields.service.spec.ts custom-field-validator.service.spec.ts board-data.service.spec.ts`
 
 Expected: all selected suites pass.
 
-- [ ] **Step 3: Record final verification in the design**
+- [x] **Step 3: Record final verification and corrected timer design**
 
-Append the exact commands and outcomes under a `## Verification` section. Do not claim integration coverage that was not run.
+Record the compare-and-delete/compare-and-set timer design and append the exact commands and outcomes under a `## Verification` section. Do not claim integration coverage that was not run.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run: `git add docs/superpowers/specs/2026-07-27-api-hardening-design.md docs/superpowers/plans/2026-07-27-api-hardening.md && git commit -m "docs: record api hardening verification"`
