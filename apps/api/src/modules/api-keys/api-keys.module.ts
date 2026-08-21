@@ -6,6 +6,7 @@ import { ApiKeysRepository } from './api-keys.repository';
 import { ApiKeysReader } from './api-keys.reader';
 import { ApiKeysService } from './api-keys.service';
 import { ApiKeyAuthService } from './api-key-auth.service';
+import { ApiKeysController } from './api-keys.controller';
 
 /**
  * Global because JwtAuthGuard — used by every module through @ProjectAuth() —
@@ -21,6 +22,7 @@ import { ApiKeyAuthService } from './api-key-auth.service';
 @Global()
 @Module({
   imports: [PrismaModule, UsersModule, ProjectsModule],
+  controllers: [ApiKeysController],
   providers: [ApiKeysRepository, ApiKeysReader, ApiKeysService, ApiKeyAuthService],
   exports: [ApiKeyAuthService, ApiKeysService, ApiKeysReader],
 })

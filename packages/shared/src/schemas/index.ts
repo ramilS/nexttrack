@@ -28,3 +28,4 @@ export * from './search.schema';
 export * from './time-tracking.schema';
 export * from './telegram.schema';
 export * from './ai-docs.schema';
+export * from './api-key.schema';

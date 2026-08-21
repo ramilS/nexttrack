@@ -22,10 +22,26 @@ import {
  * key is minted directly through `ApiKeysService`, exactly as that endpoint
  * will eventually do.
  */
+const DEVELOPER_ROLE_ID = '00000000-0000-0000-0000-000000000002';
+
+/**
+ * Pulls the `access_token=...` segment out of a Set-Cookie header, for tests
+ * that authenticate via `.set('Cookie', ...)` instead of an Authorization
+ * header.
+ */
+function accessTokenCookie(setCookieHeader: unknown): string {
+  const cookies = (Array.isArray(setCookieHeader) ? setCookieHeader : []) as string[];
+  const match = cookies.find((c) => c.startsWith('access_token='));
+  if (!match) throw new Error('access_token cookie missing');
+  return match.split(';')[0];
+}
+
 describe('API-key issue creation — dedupKey (full AppModule)', () => {
   let ctx: E2eContext;
   let projectKey: string;
   let rawKey: string;
+  let adminCookie: string;
+  let developerCookie: string;
 
   beforeAll(async () => {
     ctx = await createE2eApp();
@@ -68,6 +84,7 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
       .send({ email: 'admin@test.local', password: 'adminpass1' })
       .expect(200);
     const adminToken = extractAccessTokenFromCookies(loginRes.headers['set-cookie']);
+    adminCookie = accessTokenCookie(loginRes.headers['set-cookie']);
 
     projectKey = 'DDK';
     const projectRes = await request(ctx.app.getHttpServer())
@@ -84,6 +101,27 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
       admin.id,
     );
     rawKey = issued.raw;
+
+    // Developer role (seeded above by seedSystemRoles) holds neither
+    // PROJECT_SETTINGS_UPDATE nor ISSUE_UPDATE — a real project member used
+    // to isolate the permission checks in "key management endpoints" below.
+    const developer = await ctx.prisma.user.create({
+      data: {
+        email: 'developer@test.local',
+        name: 'Developer User',
+        passwordHash: hash,
+        hasPassword: true,
+        role: 'USER',
+      },
+    });
+    await ctx.prisma.projectMember.create({
+      data: { userId: developer.id, projectId, roleId: DEVELOPER_ROLE_ID },
+    });
+    const developerLoginRes = await request(ctx.app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: 'developer@test.local', password: 'adminpass1' })
+      .expect(200);
+    developerCookie = accessTokenCookie(developerLoginRes.headers['set-cookie']);
   });
 
   it('creates once, then returns the same issue for a repeated dedupKey', async () => {
@@ -140,5 +178,78 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
 
     expect(again.status).toBe(201);
     expect(again.body.data.id).not.toBe(created.body.data.id);
+  });
+
+  describe('key management endpoints', () => {
+    it('returns the raw secret only on creation', async () => {
+      const created = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/api-keys`)
+        .set('Cookie', adminCookie)
+        .send({ name: 'MyTracker' });
+
+      expect(created.status).toBe(201);
+      expect(created.body.data.raw).toMatch(/^nt_/);
+
+      const listed = await request(ctx.app.getHttpServer())
+        .get(`/projects/${projectKey}/api-keys`)
+        .set('Cookie', adminCookie);
+
+      expect(listed.status).toBe(200);
+      expect(listed.body.data[0].prefix).toMatch(/^nt_/);
+      expect(listed.body.data[0]).not.toHaveProperty('raw');
+      expect(listed.body.data[0]).not.toHaveProperty('tokenHash');
+      expect(listed.body.data[0]).not.toHaveProperty('userId');
+    });
+
+    it('rejects key management for a member without PROJECT_SETTINGS_UPDATE', async () => {
+      const res = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/api-keys`)
+        .set('Cookie', developerCookie)
+        .send({ name: 'Sneaky' });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('a revoked key stops working immediately', async () => {
+      const created = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/api-keys`)
+        .set('Cookie', adminCookie)
+        .send({ name: 'Temp' });
+
+      expect(created.status).toBe(201);
+
+      await request(ctx.app.getHttpServer())
+        .delete(`/projects/${projectKey}/api-keys/${created.body.data.id}`)
+        .set('Cookie', adminCookie)
+        .expect(204);
+
+      const res = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/issues`)
+        .set('X-Api-Key', created.body.data.raw)
+        .send({ title: 'after revoke' });
+
+      expect(res.status).toBe(401);
+      expect(res.body.error.code).toBe('API_KEY_INVALID');
+    });
+
+    // The route under test is `PATCH /projects/:key/issues/:number` (issue
+    // number, not id) — verified against IssuesController, which requires
+    // Permission.ISSUE_UPDATE. INTEGRATION_ROLE (integration-role.ts)
+    // deliberately excludes it.
+    it('the Integration role cannot update an issue', async () => {
+      const created = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/issues`)
+        .set('X-Api-Key', rawKey)
+        .send({ title: 'read only' });
+
+      expect(created.status).toBe(201);
+
+      const res = await request(ctx.app.getHttpServer())
+        .patch(`/projects/${projectKey}/issues/${created.body.data.number}`)
+        .set('X-Api-Key', rawKey)
+        .send({ title: 'changed' });
+
+      expect(res.status).toBe(403);
+    });
   });
 });
