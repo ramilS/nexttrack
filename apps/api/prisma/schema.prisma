@@ -64,6 +64,8 @@ model User {
   createdWorkflowRules    WorkflowRule[]           @relation("workflowRuleCreator")
   autoAssignRules         AutoAssignRule[]         @relation("AutoAssignRuleAssignee")
   createdSsoProviders     SsoProvider[]            @relation("SsoProviderCreator")
+  apiKeys                 ProjectApiKey[]          @relation("ApiKeyPrincipal")
+  createdApiKeys          ProjectApiKey[]          @relation("ApiKeyCreator")
 
   @@index([email])
   @@index([deletedAt])
@@ -239,6 +241,7 @@ model Project {
   workflowRules      WorkflowRule[]
   docUpdateProposals DocUpdateProposal[]
   aiDocsSettings     ProjectAiDocsSettings?
+  apiKeys            ProjectApiKey[]
 
   @@index([key])
   @@index([deletedAt])
@@ -1390,4 +1393,28 @@ enum MigrationEntityStatus {
   EXCLUDED_APPROVED
 
   @@map("migration_entity_status")
+}
+
+// ─── Integration API keys ────────────────────────────
+
+model ProjectApiKey {
+  id          String    @id @default(uuid())
+  projectId   String    @map("project_id")
+  userId      String    @map("user_id")
+  name        String    @db.VarChar(100)
+  prefix      String    @db.VarChar(16)
+  tokenHash   String    @unique @map("token_hash")
+  expiresAt   DateTime? @map("expires_at")   @db.Timestamptz(3)
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(3)
+  revokedAt   DateTime? @map("revoked_at")   @db.Timestamptz(3)
+  createdById String    @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user      User    @relation("ApiKeyPrincipal", fields: [userId], references: [id])
+  createdBy User    @relation("ApiKeyCreator", fields: [createdById], references: [id])
+
+  @@unique([projectId, name])
+  @@index([projectId])
+  @@map("project_api_keys")
 }
