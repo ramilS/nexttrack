@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { GlobalRole, Prisma, UserKind } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
+import type { Tx } from '@/common/repository/tx.types';
 import type {
   User,
   UserMembership,
@@ -408,6 +409,25 @@ export class UsersRepository {
     await this.prisma.refreshToken.updateMany({
       where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
+    });
+  }
+
+  // ─── Service principals (API keys) ──────────────────────────
+
+  /** Creates the SERVICE-kind user an API key authenticates as. No password: login is refused for SERVICE principals regardless. */
+  createServicePrincipal(
+    input: { name: string; email: string },
+    tx?: Tx,
+  ): Promise<{ id: string }> {
+    return (tx ?? this.prisma).user.create({
+      data: {
+        name: input.name,
+        email: input.email,
+        kind: UserKind.SERVICE,
+        passwordHash: null,
+        hasPassword: false,
+      },
+      select: { id: true },
     });
   }
 }

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { TransactionService } from '@/common/repository/transaction.service';
+import type { Tx } from '@/common/repository/tx.types';
 import type { ProjectMember, UserSummary, MemberRole } from '@repo/shared/schemas';
 
 interface RawMemberRow {
@@ -189,8 +190,8 @@ export class ProjectMembersRepository {
     });
   }
 
-  async create(input: MemberAddInput): Promise<ProjectMember> {
-    const row = await this.prisma.projectMember.create({
+  async create(input: MemberAddInput, tx?: Tx): Promise<ProjectMember> {
+    const row = await (tx ?? this.prisma).projectMember.create({
       data: {
         userId: input.userId,
         projectId: input.projectId,
@@ -244,17 +245,32 @@ export class ProjectMembersRepository {
    * removes their watcher rows) in a single transaction.
    */
   async removeWithCleanup(userId: string, projectId: string): Promise<void> {
-    await this.txService.run(async (tx) => {
-      await tx.issue.updateMany({
-        where: { projectId, assigneeId: userId, deletedAt: null },
-        data: { assigneeId: null },
-      });
-      await tx.issueWatcher.deleteMany({
-        where: { userId, issue: { projectId } },
-      });
-      await tx.projectMember.delete({
-        where: { userId_projectId: { userId, projectId } },
-      });
+    await this.txService.run((tx) => this.removeAndCleanup(userId, projectId, tx));
+  }
+
+  /**
+   * Same cleanup as `removeWithCleanup`, but joins a transaction the caller
+   * already started (e.g. alongside revoking the member's API key) instead
+   * of opening its own — so both writes commit or roll back together.
+   */
+  async remove(userId: string, projectId: string, tx: Tx): Promise<void> {
+    await this.removeAndCleanup(userId, projectId, tx);
+  }
+
+  private async removeAndCleanup(
+    userId: string,
+    projectId: string,
+    tx: Tx,
+  ): Promise<void> {
+    await tx.issue.updateMany({
+      where: { projectId, assigneeId: userId, deletedAt: null },
+      data: { assigneeId: null },
+    });
+    await tx.issueWatcher.deleteMany({
+      where: { userId, issue: { projectId } },
+    });
+    await tx.projectMember.delete({
+      where: { userId_projectId: { userId, projectId } },
     });
   }
 
