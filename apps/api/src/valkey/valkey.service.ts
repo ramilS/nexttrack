@@ -21,7 +21,7 @@ const COMPARE_AND_DELETE_BY_JSON_FIELD_SCRIPT = `
 
 const INCREMENT_WITH_EXPIRY_SCRIPT = `
   local count = redis.call('INCR', KEYS[1])
-  if count == 1 then
+  if count == 1 or redis.call('TTL', KEYS[1]) < 0 then
     redis.call('EXPIRE', KEYS[1], ARGV[1])
   end
   return count
@@ -107,12 +107,17 @@ export class ValkeyService implements OnModuleDestroy {
   }
 
   /**
-   * Atomically increments `key` and, only on the increment that creates it
-   * (count reaches 1), arms its TTL — one Lua script, one round trip. A
-   * separate `incr()` + `expire()` pair leaves a window where the key exists
-   * with no expiry if the process dies or the connection drops between the
-   * two calls: the counter then never expires and permanently locks out
-   * whatever it's keyed on. Returns the new count.
+   * Atomically increments `key` and arms its TTL — one Lua script, one round
+   * trip. A separate `incr()` + `expire()` pair leaves a window where the
+   * key exists with no expiry if the process dies or the connection drops
+   * between the two calls; self-healing: the script re-arms the TTL not
+   * only on the increment that creates the key (count reaches 1) but on ANY
+   * increment where TTL comes back negative (-1 no expiry, -2 missing), so
+   * a key that somehow ends up persisted with no TTL — a restored dump, a
+   * manual SET, a future bug — recovers on its very next increment instead
+   * of staying stuck until someone runs a manual DEL. A key that already
+   * carries a TTL is left alone, so the fixed window is never silently
+   * extended into a sliding one. Returns the new count.
    */
   async incrementWithExpiry(key: string, ttlSeconds: number): Promise<number> {
     const result = await this.client.eval(

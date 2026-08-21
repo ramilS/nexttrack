@@ -1,6 +1,61 @@
 import type Redis from 'ioredis';
 import { ValkeyService } from './valkey.service';
 
+interface FakeRedisEntry {
+  value: string;
+  ttlSeconds: number | null;
+}
+
+/**
+ * Runs the *actual* script string `ValkeyService.incrementWithExpiry` sends
+ * to `eval` against a seeded in-memory key — not a check on the script's
+ * source text. Implements real Redis INCR/TTL/EXPIRE semantics from scratch
+ * (TTL: -2 missing key, -1 no expiry, else seconds remaining) so the test
+ * exercises the script's actual branching: whether the captured `if` line
+ * checks TTL at all determines whether a stuck key (count > 1, no TTL)
+ * ever gets its expiry armed.
+ */
+function runIncrementWithExpiryScript(
+  script: string,
+  store: Map<string, FakeRedisEntry>,
+  key: string,
+  ttlArg: number,
+): number {
+  const call = (command: string): number => {
+    const entry = store.get(key);
+    switch (command) {
+      case 'INCR': {
+        const next = (entry ? Number(entry.value) : 0) + 1;
+        store.set(key, { value: String(next), ttlSeconds: entry?.ttlSeconds ?? null });
+        return next;
+      }
+      case 'TTL':
+        return entry ? entry.ttlSeconds ?? -1 : -2;
+      case 'EXPIRE': {
+        if (entry) entry.ttlSeconds = ttlArg;
+        return entry ? 1 : 0;
+      }
+      default:
+        throw new Error(`fake redis: unsupported command ${command}`);
+    }
+  };
+
+  let count = 0;
+  let armExpiry = false;
+  for (const line of script.split('\n').map((l) => l.trim()).filter(Boolean)) {
+    if (line.startsWith('local count = redis.call(\'INCR\'')) {
+      count = call('INCR');
+    } else if (line.startsWith('if ')) {
+      const checksTtl = line.includes("redis.call('TTL', KEYS[1])");
+      armExpiry = count === 1 || (checksTtl && call('TTL') < 0);
+    } else if (line.startsWith("redis.call('EXPIRE'")) {
+      if (armExpiry) call('EXPIRE');
+    }
+    // 'end' / 'return count' — no store effect
+  }
+  return count;
+}
+
 describe('ValkeyService atomic commands', () => {
   let service: ValkeyService;
   let client: { set: jest.Mock; eval: jest.Mock };
@@ -104,5 +159,45 @@ describe('ValkeyService atomic commands', () => {
     expect(script).toContain("local count = redis.call('INCR', KEYS[1])");
     expect(script).toContain("redis.call('EXPIRE', KEYS[1], ARGV[1])");
     expect(client.eval).toHaveBeenCalledTimes(1);
+  });
+
+  describe('self-healing TTL', () => {
+    let store: Map<string, FakeRedisEntry>;
+
+    beforeEach(() => {
+      store = new Map();
+      client.eval.mockImplementation((async (
+        script: string,
+        _numKeys: number,
+        key: string,
+        ttlArg: number,
+      ) => runIncrementWithExpiryScript(script, store, key, Number(ttlArg))) as never);
+    });
+
+    it('arms the expiry for a key stuck with count > 1 and no TTL (restored dump, stray SET, past bug)', async () => {
+      const key = 'apikeyauth:fail:203.0.113.7';
+      store.set(key, { value: '5', ttlSeconds: null });
+
+      await service.incrementWithExpiry(key, 60);
+
+      expect(store.get(key)?.ttlSeconds).toBe(60);
+    });
+
+    it('does not extend the TTL of a key that already has one (fixed window, not sliding)', async () => {
+      const key = 'apikeyauth:fail:203.0.113.7';
+      store.set(key, { value: '5', ttlSeconds: 30 });
+
+      await service.incrementWithExpiry(key, 60);
+
+      expect(store.get(key)?.ttlSeconds).toBe(30);
+    });
+
+    it('arms the expiry on the very first increment of a brand-new key', async () => {
+      const key = 'apikeyauth:fail:203.0.113.7';
+
+      await service.incrementWithExpiry(key, 60);
+
+      expect(store.get(key)?.ttlSeconds).toBe(60);
+    });
   });
 });
