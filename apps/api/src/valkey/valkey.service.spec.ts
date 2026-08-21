@@ -71,4 +71,38 @@ describe('ValkeyService atomic commands', () => {
     );
     expect(client.eval.mock.calls[0][0]).toContain("redis.call('GET', KEYS[1]) == ARGV[1]");
   });
+
+  it.each([
+    ['3', 3],
+    [3, 3],
+  ])('maps incrementWithExpiry eval result %p to %p', async (result, expected) => {
+    client.eval.mockResolvedValue(result);
+
+    await expect(service.incrementWithExpiry('apikeyauth:fail:203.0.113.7', 60)).resolves.toBe(
+      expected,
+    );
+
+    expect(client.eval).toHaveBeenCalledWith(
+      expect.stringContaining("redis.call('INCR', KEYS[1])"),
+      1,
+      'apikeyauth:fail:203.0.113.7',
+      60,
+    );
+  });
+
+  it('arms the expiry inside the same script as the increment, not as a separate call', async () => {
+    client.eval.mockResolvedValue(1);
+
+    await service.incrementWithExpiry('apikeyauth:fail:203.0.113.7', 60);
+
+    // The bug this guards against: incr() succeeding and a *separate*
+    // expire() call failing/never running leaves the key with no TTL —
+    // a permanent lockout. Asserting both redis.call lines live inside the
+    // one script proves the increment and the expiry commit atomically
+    // together, not as two independently-failable round trips.
+    const script = client.eval.mock.calls[0][0] as string;
+    expect(script).toContain("local count = redis.call('INCR', KEYS[1])");
+    expect(script).toContain("redis.call('EXPIRE', KEYS[1], ARGV[1])");
+    expect(client.eval).toHaveBeenCalledTimes(1);
+  });
 });

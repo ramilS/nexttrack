@@ -122,12 +122,15 @@ export class ApiKeyAuthService {
   }
 
   private async recordFailedAttempt(ip: string): Promise<void> {
-    const key = this.failedAttemptsKey(ip);
     try {
-      const count = await this.valkey.incr(key);
-      if (count === 1) {
-        await this.valkey.expire(key, this.rateLimit.failedAttemptsWindowSeconds);
-      }
+      // One atomic Lua script (ValkeyService.incrementWithExpiry), not a
+      // separate incr()+expire() pair: two round trips leave a window where
+      // the counter exists with no TTL if the process dies or the
+      // connection drops between them — a permanent lockout for that IP.
+      await this.valkey.incrementWithExpiry(
+        this.failedAttemptsKey(ip),
+        this.rateLimit.failedAttemptsWindowSeconds,
+      );
     } catch (err) {
       this.logger.warn('Failed to record API key failure for rate limiting', {
         ip,

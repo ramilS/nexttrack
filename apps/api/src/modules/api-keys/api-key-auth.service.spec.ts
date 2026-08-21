@@ -40,8 +40,7 @@ function principal(overrides: Partial<ApiKeyPrincipalRow> = {}): ApiKeyPrincipal
 function buildValkeyMock() {
   return {
     get: jest.fn().mockResolvedValue(null),
-    incr: jest.fn().mockResolvedValue(1),
-    expire: jest.fn().mockResolvedValue(1),
+    incrementWithExpiry: jest.fn().mockResolvedValue(1),
     del: jest.fn().mockResolvedValue(undefined),
   } as unknown as jest.Mocked<ValkeyService>;
 }
@@ -177,33 +176,23 @@ describe('ApiKeyAuthService — failed-attempt rate limiting', () => {
     expect(repo.findActiveByHash).not.toHaveBeenCalled();
   });
 
-  it('increments the counter and arms the window TTL on the first failure', async () => {
+  it('records a failure through one atomic increment-with-expiry call, not a separate incr+expire pair', async () => {
     const { service, repo, valkey, req } = await buildService({
       failedAttemptsLimit: LIMIT,
       failedAttemptsWindowSeconds: WINDOW,
     });
     repo.findActiveByHash.mockResolvedValue(null);
     valkey.get.mockResolvedValue(null);
-    valkey.incr.mockResolvedValue(1);
 
     await service.authenticate(req, RAW).catch(() => undefined);
 
-    expect(valkey.incr).toHaveBeenCalledWith(`apikeyauth:fail:${IP}`);
-    expect(valkey.expire).toHaveBeenCalledWith(`apikeyauth:fail:${IP}`, WINDOW);
-  });
-
-  it('does not re-arm the TTL on a later failure within the same window', async () => {
-    const { service, repo, valkey, req } = await buildService({
-      failedAttemptsLimit: LIMIT,
-      failedAttemptsWindowSeconds: WINDOW,
-    });
-    repo.findActiveByHash.mockResolvedValue(null);
-    valkey.get.mockResolvedValue(String(LIMIT - 5));
-    valkey.incr.mockResolvedValue(LIMIT - 4);
-
-    await service.authenticate(req, RAW).catch(() => undefined);
-
-    expect(valkey.expire).not.toHaveBeenCalled();
+    // A separate incr() + expire() pair leaves a window where the counter
+    // exists with no TTL if the second call fails or never runs — a
+    // permanent lockout for that IP. Calling the atomic
+    // ValkeyService.incrementWithExpiry exactly once, with the window baked
+    // into the same call, is what rules that out.
+    expect(valkey.incrementWithExpiry).toHaveBeenCalledTimes(1);
+    expect(valkey.incrementWithExpiry).toHaveBeenCalledWith(`apikeyauth:fail:${IP}`, WINDOW);
   });
 
   it('does not increment the counter on a successful authentication', async () => {
@@ -211,7 +200,7 @@ describe('ApiKeyAuthService — failed-attempt rate limiting', () => {
 
     await expect(service.authenticate(req, RAW)).resolves.toBe(true);
 
-    expect(valkey.incr).not.toHaveBeenCalled();
+    expect(valkey.incrementWithExpiry).not.toHaveBeenCalled();
   });
 
   it('does not reset the counter on a successful authentication', async () => {
@@ -222,7 +211,7 @@ describe('ApiKeyAuthService — failed-attempt rate limiting', () => {
     await service.authenticate(req, RAW);
 
     // "keep it simple": success neither increments nor clears the bucket.
-    expect(valkey.incr).not.toHaveBeenCalled();
+    expect(valkey.incrementWithExpiry).not.toHaveBeenCalled();
     expect(valkey.del).not.toHaveBeenCalled();
   });
 
@@ -247,7 +236,7 @@ describe('ApiKeyAuthService — failed-attempt rate limiting', () => {
   it('swallows a counter-increment failure without masking the underlying auth rejection', async () => {
     const { service, repo, valkey, req } = await buildService();
     repo.findActiveByHash.mockResolvedValue(null);
-    valkey.incr.mockRejectedValue(new Error('ECONNREFUSED'));
+    valkey.incrementWithExpiry.mockRejectedValue(new Error('ECONNREFUSED'));
 
     await expect(service.authenticate(req, RAW)).rejects.toMatchObject({
       message: ErrorCode.API_KEY_INVALID,
@@ -262,6 +251,6 @@ describe('ApiKeyAuthService — failed-attempt rate limiting', () => {
     await service.authenticate(req, RAW).catch(() => undefined);
 
     expect(valkey.get).toHaveBeenCalledWith('apikeyauth:fail:198.51.100.9');
-    expect(valkey.incr).toHaveBeenCalledWith('apikeyauth:fail:198.51.100.9');
+    expect(valkey.incrementWithExpiry).toHaveBeenCalledWith('apikeyauth:fail:198.51.100.9', WINDOW);
   });
 });
