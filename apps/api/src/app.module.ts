@@ -21,6 +21,7 @@ import { SharedRepositoriesModule } from './common/repository/shared-repositorie
 import { ValkeyModule } from './valkey/valkey.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
+import { ApiKeysModule } from './modules/api-keys/api-keys.module';
 import { HealthModule } from './modules/health/health.module';
 import { MetricsModule } from './modules/metrics/metrics.module';
 import { MailModule } from './modules/mail/mail.module';
@@ -138,6 +139,7 @@ import {
     MailModule,
     SsoModule,
     ProjectsModule,
+    ApiKeysModule,
     WorkflowsModule,
     TagsModule,
     IssuesModule,

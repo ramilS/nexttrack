@@ -4,6 +4,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { AuthCookieService } from '@/common/services/auth-cookie.service';
 import { SsoProvidersService } from '@/modules/sso/sso-providers.service';
+import { ApiKeyAuthService } from '@/modules/api-keys/api-key-auth.service';
 import { authConfig } from '@/config';
 import { mockAuthConfig } from '@test/helpers';
 
@@ -58,6 +59,10 @@ describe('AuthController', () => {
         { provide: AuthCookieService, useValue: authCookie },
         { provide: SsoProvidersService, useValue: { findPublicEnabled: jest.fn().mockResolvedValue([]) } },
         { provide: authConfig.KEY, useValue: mockAuthConfig },
+        // JwtAuthGuard (applied via @UseGuards on other handlers in this
+        // controller) now depends on ApiKeyAuthService; this controller's own
+        // tests never exercise the guard, so a stub is enough.
+        { provide: ApiKeyAuthService, useValue: { authenticate: jest.fn() } },
       ],
     }).compile();
 

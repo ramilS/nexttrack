@@ -7,6 +7,7 @@ import { IssuesReader } from '@/modules/issues/issues.reader';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
+import { ApiKeyAuthService } from '@/modules/api-keys/api-key-auth.service';
 
 describe('IssueTagsController', () => {
   let controller: IssueTagsController;
@@ -33,6 +34,10 @@ describe('IssueTagsController', () => {
         { provide: ProjectsRepository, useValue: {} },
         { provide: ProjectMembersRepository, useValue: {} },
         { provide: PermissionsCacheService, useValue: {} },
+        // JwtAuthGuard (applied via @IssueAuth()) now depends on
+        // ApiKeyAuthService; this controller's own tests never exercise the
+        // guard, so a stub is enough.
+        { provide: ApiKeyAuthService, useValue: {} },
         Reflector,
       ],
     }).compile();
