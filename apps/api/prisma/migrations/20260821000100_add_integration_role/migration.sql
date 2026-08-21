@@ -8,4 +8,4 @@ VALUES (
   now(),
   now()
 )
-ON CONFLICT (id) DO NOTHING;
+ON CONFLICT DO NOTHING;

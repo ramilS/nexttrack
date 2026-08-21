@@ -209,6 +209,16 @@ export class UsersRepository {
     return row ? toUser(row) : null;
   }
 
+  async findByEmailWithKind(
+    email: string,
+  ): Promise<(User & { kind: UserKind }) | null> {
+    const row = await this.prisma.user.findFirst({
+      where: { email },
+      select: { ...USER_SELECT, kind: true },
+    });
+    return row ? { ...toUser(row), kind: row.kind } : null;
+  }
+
   async findActiveForJwt(userId: string): Promise<{
     id: string;
     email: string;
@@ -217,8 +227,11 @@ export class UsersRepository {
     avatarUrl: string | null;
     isBlocked: boolean;
   } | null> {
+    // kind: HUMAN excludes SERVICE principals — they authenticate with an
+    // API key, never a session, on every path that loads a user by JWT
+    // (JwtStrategy and the WS gateway both call this).
     return this.prisma.user.findFirst({
-      where: { id: userId, deletedAt: null },
+      where: { id: userId, deletedAt: null, kind: UserKind.HUMAN },
       select: {
         id: true,
         email: true,

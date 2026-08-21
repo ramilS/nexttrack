@@ -5,7 +5,7 @@ import {
   ValidationError,
 } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
-import { InviteStatus, GlobalRole } from '@prisma/client';
+import { InviteStatus, GlobalRole, UserKind } from '@prisma/client';
 import { OidcUserInfo } from './providers/base-oidc.provider';
 import { SsoRepository, SsoProviderRaw } from './sso.repository';
 import { TokenIssuerService } from '@/modules/auth/token-issuer.service';
@@ -111,11 +111,26 @@ export class SsoProvisioningService {
     }
 
     // Path B1: User exists by email, no connection yet
-    const existingUser = await this.usersRepo.findByEmail(
+    const existingUser = await this.usersRepo.findByEmailWithKind(
       userInfo.email.toLowerCase(),
     );
 
     if (existingUser) {
+      if (existingUser.kind === UserKind.SERVICE) {
+        // Service principals authenticate with an API key, never SSO. An IdP
+        // asserting a verified email that happens to match a service
+        // principal's synthetic address must not link an SSO connection to it.
+        this.logger.warn('SSO link blocked: service principal', {
+          userId: existingUser.id,
+          providerId: provider.id,
+          ip: ipAddress,
+        });
+        throw new PermissionDeniedError(
+          ErrorCode.SSO_USER_BLOCKED,
+          'Account has been blocked',
+        );
+      }
+
       if (existingUser.isBlocked) {
         this.logger.warn('SSO link blocked: blocked account', {
           userId: existingUser.id,

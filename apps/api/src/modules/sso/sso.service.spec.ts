@@ -51,7 +51,7 @@ describe('SsoService', () => {
     usersRepo = {
       update: jest.fn(),
       findById: jest.fn().mockResolvedValue(null),
-      findByEmail: jest.fn().mockResolvedValue(null),
+      findByEmailWithKind: jest.fn().mockResolvedValue(null),
     };
 
     invitesRepo = {
@@ -236,7 +236,7 @@ describe('SsoService', () => {
 
     it('should reject auto-link to existing account when provider email is unverified', async () => {
       setupCallback(false);
-      usersRepo.findByEmail.mockResolvedValue(buildUser({ email: 'victim@example.com' }));
+      usersRepo.findByEmailWithKind.mockResolvedValue(buildUser({ email: 'victim@example.com' }));
 
       const result = await service.handleCallback('code', 'state');
 
@@ -247,7 +247,7 @@ describe('SsoService', () => {
 
     it('should auto-link existing account when provider email is verified', async () => {
       setupCallback(true);
-      usersRepo.findByEmail.mockResolvedValue(buildUser({ email: 'victim@example.com' }));
+      usersRepo.findByEmailWithKind.mockResolvedValue(buildUser({ email: 'victim@example.com' }));
 
       const result = await service.handleCallback('code', 'state');
 
