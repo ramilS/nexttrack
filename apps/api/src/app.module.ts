@@ -79,6 +79,7 @@ import {
   aiDocsConfig,
   timeTrackingConfig,
   throttleConfig,
+  apiKeyAuthConfig,
 } from './config';
 
 @Module({
@@ -105,6 +106,7 @@ import {
         aiDocsConfig,
         timeTrackingConfig,
         throttleConfig,
+        apiKeyAuthConfig,
       ],
     }),
     LoggerModule.forRootAsync({
