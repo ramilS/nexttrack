@@ -125,7 +125,7 @@ Add `UserKind` to the `@prisma/client` import at the top of the spec.
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=auth.service.spec -t "service principal"`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=auth.service.spec -t "service principal"`
 Expected: FAIL — `UserKind` is not exported from `@prisma/client` (the enum does not exist yet).
 
 - [ ] **Step 3: Add the enum and column to the schema**
@@ -181,7 +181,7 @@ Import `UserKind` from `@prisma/client`.
 
 - [ ] **Step 6: Run the test to verify it passes**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=auth.service.spec`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=auth.service.spec`
 Expected: PASS, including all pre-existing login tests.
 
 - [ ] **Step 7: Typecheck**
@@ -238,7 +238,7 @@ describe('INTEGRATION_ROLE', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=integration-role`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=integration-role`
 Expected: FAIL — cannot find module `./integration-role`.
 
 - [ ] **Step 3: Write the role definition**
@@ -267,7 +267,7 @@ export const INTEGRATION_ROLE = {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=integration-role`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=integration-role`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Add the role to both seeds**
@@ -377,7 +377,7 @@ describe('api key token', () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-key-token`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-key-token`
 Expected: FAIL — cannot find module `./api-key-token`.
 
 - [ ] **Step 3: Write the helpers**
@@ -413,7 +413,7 @@ export function generateApiKey(): { raw: string; prefix: string; hash: string } 
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-key-token`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-key-token`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Add the model to the schema**
@@ -782,7 +782,7 @@ describe('ApiKeysService', () => {
 
 - [ ] **Step 3: Run tests to verify they fail**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-keys.service`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-keys.service`
 Expected: FAIL — cannot find module `./api-keys.service`.
 
 - [ ] **Step 4: Add the repository methods the service needs**
@@ -941,7 +941,7 @@ Read `apps/api/src/modules/projects/projects-members.repository.ts` first and ma
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-keys.service`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-keys.service`
 Expected: PASS (4 tests).
 
 - [ ] **Step 7: Typecheck**
@@ -1082,7 +1082,7 @@ describe('ApiKeyAuthService', () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-key-auth.service`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-key-auth.service`
 Expected: FAIL — cannot find module `./api-key-auth.service`.
 
 - [ ] **Step 3: Define the request shape**
@@ -1181,7 +1181,7 @@ export class ApiKeyAuthService {
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-key-auth.service`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-key-auth.service`
 Expected: PASS (11 assertions across 6 test cases, including all six rejection rows).
 
 - [ ] **Step 6: Write the failing guard test**
@@ -1236,7 +1236,7 @@ describe('JwtAuthGuard', () => {
 
 - [ ] **Step 7: Run the guard test to verify it fails**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=jwt-auth.guard`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=jwt-auth.guard`
 Expected: FAIL — the constructor takes one argument, so `ApiKeyAuthService` is not injected.
 
 - [ ] **Step 8: Wire the guard**
@@ -1314,7 +1314,7 @@ Register `ApiKeysModule` in the `imports` array of `apps/api/src/app.module.ts`.
 
 - [ ] **Step 10: Run both suites and typecheck**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern="jwt-auth.guard|api-key"`
+Run: `cd apps/api && pnpm test:unit --testPathPattern="jwt-auth.guard|api-key"`
 Expected: PASS.
 
 Run: `cd apps/api && pnpm check-types`
@@ -1385,7 +1385,7 @@ Add `apiKeysRepo` and `usersReader` mocks to the existing `beforeEach` provider 
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=projects-members.service -t "service principals"`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=projects-members.service -t "service principals"`
 Expected: FAIL — `usersReader.findKind` is not a function / the guard does not exist.
 
 - [ ] **Step 3: Add the reader method**
@@ -1430,7 +1430,7 @@ Add `UsersReader` and `ApiKeysRepository` to the constructor, and `UserKind` plu
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=projects-members.service`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=projects-members.service`
 Expected: PASS, including pre-existing member tests.
 
 - [ ] **Step 6: Commit**
@@ -1602,7 +1602,7 @@ Add `findByDedupKey: jest.fn().mockResolvedValue(null)` and `findDetailById` to 
 
 - [ ] **Step 8: Run them to verify they fail**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=issues.service -t "dedupKey"`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=issues.service -t "dedupKey"`
 Expected: FAIL — `issuesRepo.findByDedupKey` is not a function.
 
 - [ ] **Step 9: Add the repository lookup**
@@ -1688,7 +1688,7 @@ If `findDetailById` does not already exist on `IssuesRepository`, add it with th
 
 - [ ] **Step 11: Run the service tests to verify they pass**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=issues.service`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=issues.service`
 Expected: PASS. Pre-existing `create` tests now read `result.issue`; update their assertions accordingly in the same step.
 
 - [ ] **Step 12: Surface the flag in the controller**
@@ -1780,7 +1780,7 @@ it('frees the key when the issue is soft-deleted', async () => {
 
 Start the stack if it is not already running (`cd infra && docker compose up -d postgres valkey minio elasticsearch`), then:
 
-Run: `cd apps/api && pnpm test:integration -- --testPathPattern=api-keys`
+Run: `cd apps/api && pnpm test:integration --testPathPattern=api-keys`
 Expected: PASS. If the concurrency test reports a count of 2, the partial index is missing — re-check Step 6.
 
 - [ ] **Step 15: Commit**
@@ -1853,7 +1853,7 @@ describe('ApiKeyAwareThrottlerGuard', () => {
 
 - [ ] **Step 2: Run it to verify it fails**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-key-aware-throttler`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-key-aware-throttler`
 Expected: FAIL — cannot find module `./api-key-aware-throttler.guard`.
 
 - [ ] **Step 3: Write the guard**
@@ -1902,7 +1902,7 @@ export class ApiKeyAwareThrottlerGuard extends ThrottlerGuard {
 
 - [ ] **Step 4: Run the test to verify it passes**
 
-Run: `cd apps/api && pnpm test:unit -- --testPathPattern=api-key-aware-throttler`
+Run: `cd apps/api && pnpm test:unit --testPathPattern=api-key-aware-throttler`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Populate the cache from the auth path**
@@ -2081,7 +2081,7 @@ describe('key management endpoints', () => {
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `cd apps/api && pnpm test:integration -- --testPathPattern=api-keys`
+Run: `cd apps/api && pnpm test:integration --testPathPattern=api-keys`
 Expected: FAIL with 404 on `/api-keys` — the routes do not exist.
 
 - [ ] **Step 3: Add the shared schema**
@@ -2203,7 +2203,7 @@ Add `controllers: [ApiKeysController]` and its import to `apps/api/src/modules/a
 
 - [ ] **Step 7: Run the integration tests to verify they pass**
 
-Run: `cd apps/api && pnpm test:integration -- --testPathPattern=api-keys`
+Run: `cd apps/api && pnpm test:integration --testPathPattern=api-keys`
 Expected: PASS.
 
 - [ ] **Step 8: Commit**
@@ -2273,7 +2273,7 @@ Before writing the second case, confirm the real query-parameter contract of the
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `cd apps/api && pnpm test:integration -- --testPathPattern=api-keys -t "people-facing"`
+Run: `cd apps/api && pnpm test:integration --testPathPattern=api-keys -t "people-facing"`
 Expected: FAIL — the principal appears in both lists, and `reporter.kind` is undefined.
 
 - [ ] **Step 3: Exclude `SERVICE` from the queries**
@@ -2294,7 +2294,7 @@ Add `kind: true` to the reporter/assignee `select` in `apps/api/src/modules/issu
 
 - [ ] **Step 5: Run the integration tests to verify they pass**
 
-Run: `cd apps/api && pnpm test:integration -- --testPathPattern=api-keys`
+Run: `cd apps/api && pnpm test:integration --testPathPattern=api-keys`
 Expected: PASS.
 
 - [ ] **Step 6: Run the full API gate**
