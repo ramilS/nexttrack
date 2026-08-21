@@ -98,4 +98,12 @@ describe('ApiKeyAuthService', () => {
     await service.authenticate(req, RAW);
     expect(background.run).not.toHaveBeenCalled();
   });
+
+  it('short-circuits a second pass against the same request (JwtAuthGuard runs twice per request)', async () => {
+    await service.authenticate(req, RAW);
+    await service.authenticate(req, RAW);
+
+    expect(repo.findActiveByHash).toHaveBeenCalledTimes(1);
+    expect(background.run).toHaveBeenCalledTimes(1);
+  });
 });

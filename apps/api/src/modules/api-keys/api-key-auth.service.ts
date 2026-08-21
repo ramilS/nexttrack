@@ -24,6 +24,15 @@ export class ApiKeyAuthService {
   ) {}
 
   async authenticate(req: IntegrationRequest, presented: string): Promise<boolean> {
+    // JwtAuthGuard runs twice per request today (once as the global APP_GUARD,
+    // once again via @ProjectAuth()/@IssueAuth()/@BoardAuth()'s own @UseGuards).
+    // apiKeyId is set only by a successful pass of THIS method, so it is the one
+    // marker safe to key on — req.user alone isn't, since another auth source
+    // could populate it without ever validating a key.
+    if (req.apiKeyId !== undefined && req.user !== undefined) {
+      return true;
+    }
+
     const row = await this.repo.findActiveByHash(hashApiKey(presented));
     const now = new Date();
 
