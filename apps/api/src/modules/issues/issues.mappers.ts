@@ -10,9 +10,18 @@ import type {
   WorkflowStatus,
 } from '@repo/shared/schemas';
 
+/** Shared with `assignee` — both render `UserSummaryWithKind` (see issue.schema.ts). */
+const REPORTER_ASSIGNEE_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  avatarUrl: true,
+  kind: true,
+} as const;
+
 export const LIST_INCLUDE = {
-  reporter: { select: { id: true, name: true, email: true, avatarUrl: true } },
-  assignee: { select: { id: true, name: true, email: true, avatarUrl: true } },
+  reporter: { select: REPORTER_ASSIGNEE_SELECT },
+  assignee: { select: REPORTER_ASSIGNEE_SELECT },
   tags: { include: { tag: true } },
   sprint: { select: { id: true, name: true } },
   _count: { select: { comments: true, children: true } },

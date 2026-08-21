@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE } from '../constants/pagination';
-import { userSummarySchema, uniqueUuidArray } from './common.schema';
+import { userSummarySchema, userSummaryWithKindSchema, uniqueUuidArray } from './common.schema';
 import { statusCategorySchema } from './project.schema';
 import { tiptapContentSchema } from './tiptap.schema';
 
@@ -190,8 +190,8 @@ export const issueListItemSchema = z.object({
   type: issueTypeSchema,
   priority: issuePrioritySchema,
   status: issueStatusSchema.nullable(),
-  assignee: userSummarySchema.nullable(),
-  reporter: userSummarySchema,
+  assignee: userSummaryWithKindSchema.nullable(),
+  reporter: userSummaryWithKindSchema,
   tags: z.array(issueTagSchema),
   estimate: z.number().int().nullable(),
   spent: z.number().int().nonnegative(),

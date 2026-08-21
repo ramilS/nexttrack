@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, UserKind } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { TransactionService } from '@/common/repository/transaction.service';
 import type { Tx } from '@/common/repository/tx.types';
@@ -107,6 +107,7 @@ export class ProjectMembersRepository {
         user: {
           name: { contains: partial, mode: 'insensitive' },
           deletedAt: null,
+          kind: UserKind.HUMAN,
         },
       },
       select: {
@@ -138,11 +139,15 @@ export class ProjectMembersRepository {
     projectId: string,
     query?: MemberListQuery,
   ): Promise<ProjectMember[]> {
-    const where: Prisma.ProjectMemberWhereInput = { projectId };
+    const where: Prisma.ProjectMemberWhereInput = {
+      projectId,
+      user: { kind: UserKind.HUMAN },
+    };
 
     if (query?.roleId) where.roleId = query.roleId;
     if (query?.search) {
       where.user = {
+        kind: UserKind.HUMAN,
         OR: [
           { name: { contains: query.search, mode: 'insensitive' } },
           { email: { contains: query.search, mode: 'insensitive' } },
@@ -289,6 +294,7 @@ export class ProjectMembersRepository {
         user: {
           deletedAt: null,
           isBlocked: false,
+          kind: UserKind.HUMAN,
           OR: [
             { name: { contains: query, mode: 'insensitive' } },
             { email: { contains: query, mode: 'insensitive' } },
@@ -308,6 +314,7 @@ export class ProjectMembersRepository {
     const where: Prisma.UserWhereInput = {
       deletedAt: null,
       isBlocked: false,
+      kind: UserKind.HUMAN,
       projectMembers: { none: { projectId } },
     };
     if (query) {

@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundError } from '@/common/errors/domain.errors';
-import { IssueType, Priority } from '@prisma/client';
+import { IssueType, Priority, UserKind } from '@prisma/client';
 import { IssuesQueryService } from './issues-query.service';
 import { IssuesRepository } from './issues.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
@@ -68,7 +68,7 @@ describe('IssuesQueryService', () => {
     ytId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-    reporter: { id: 'u1', name: 'Test', email: 't@t.local', avatarUrl: null },
+    reporter: { id: 'u1', name: 'Test', email: 't@t.local', avatarUrl: null, kind: UserKind.HUMAN },
     assignee: null,
     sprint: null,
     tags: [],

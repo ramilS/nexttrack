@@ -252,4 +252,82 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
       expect(res.status).toBe(403);
     });
   });
+
+  /**
+   * The brief for this scenario assumed `GET /users?projectKey=` is the
+   * assignee-picker endpoint. It isn't: `/users` is the admin-only, non-
+   * project-scoped user directory (`ListUsersQueryDto` has no `projectKey`),
+   * and the frontend assignee picker / mention-suggestion list / "add to
+   * team" picker all read `GET /projects/:key/members` (`useProjectMembers`)
+   * — the same endpoint the members-list case below already exercises.
+   * These cases target the real endpoints instead: the member list (which
+   * doubles as the assignee-picker and mention-suggestion source), the
+   * member search/autocomplete endpoint, and the addable-users endpoint
+   * (the "invite an existing user" candidate list, tested across a second
+   * project so the SERVICE principal isn't already excluded merely for
+   * being a member of the first one).
+   */
+  describe('service principals are hidden from people-facing lists', () => {
+    it('does not appear in the project members list', async () => {
+      const res = await request(ctx.app.getHttpServer())
+        .get(`/projects/${projectKey}/members`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(
+        res.body.data.some((m: { user: { email: string } }) =>
+          m.user.email.endsWith('@integrations.invalid'),
+        ),
+      ).toBe(false);
+    });
+
+    it('does not appear in member search results', async () => {
+      const res = await request(ctx.app.getHttpServer())
+        .get(`/projects/${projectKey}/members/search`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(
+        res.body.data.some((u: { email: string }) => u.email.endsWith('@integrations.invalid')),
+      ).toBe(false);
+    });
+
+    it('is not offered as an addable member of a project it has not joined', async () => {
+      const otherProjectKey = 'DDK2';
+      const otherProjectRes = await request(ctx.app.getHttpServer())
+        .post('/projects')
+        .set('Cookie', adminCookie)
+        .send({ key: otherProjectKey, name: 'Second Project' });
+      expect(otherProjectRes.status).toBe(201);
+
+      // The SERVICE principal is a member of `projectKey` but not of
+      // `otherProjectKey` — without the `kind` filter it would legitimately
+      // qualify as "addable" here, so this exercises the filter rather than
+      // the pre-existing "already a member" exclusion.
+      const res = await request(ctx.app.getHttpServer())
+        .get(`/projects/${otherProjectKey}/members/addable`)
+        .set('Cookie', adminCookie);
+
+      expect(res.status).toBe(200);
+      expect(
+        res.body.data.some((u: { email: string }) => u.email.endsWith('@integrations.invalid')),
+      ).toBe(false);
+    });
+
+    it('still renders as the reporter of the issue it created', async () => {
+      const created = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/issues`)
+        .set('X-Api-Key', rawKey)
+        .send({ title: 'from the machine' });
+
+      expect(created.status).toBe(201);
+
+      const detail = await request(ctx.app.getHttpServer())
+        .get(`/projects/${projectKey}/issues/${created.body.data.number}`)
+        .set('Cookie', adminCookie);
+
+      expect(detail.status).toBe(200);
+      expect(detail.body.data.reporter.kind).toBe('SERVICE');
+    });
+  });
 });

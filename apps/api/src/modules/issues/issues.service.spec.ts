@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictError, NotFoundError, ValidationError } from '@/common/errors/domain.errors';
-import { IssueType, Priority } from '@prisma/client';
+import { IssueType, Priority, UserKind } from '@prisma/client';
 import { IssuesService } from './issues.service';
 import { IssueHierarchyService } from './issue-hierarchy.service';
 import { IssuesRepository } from './issues.repository';
@@ -90,7 +90,7 @@ describe('IssuesService', () => {
     dedupKey: null,
     createdAt: new Date(),
     updatedAt: new Date(),
-    reporter: { id: 'u1', name: 'Test', email: 't@t.local', avatarUrl: null },
+    reporter: { id: 'u1', name: 'Test', email: 't@t.local', avatarUrl: null, kind: UserKind.HUMAN },
     assignee: null,
     sprint: null,
     tags: [],

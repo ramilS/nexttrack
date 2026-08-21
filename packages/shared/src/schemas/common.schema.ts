@@ -22,6 +22,19 @@ export const userSummarySchema = z.object({
 });
 export type UserSummary = z.infer<typeof userSummarySchema>;
 
+/**
+ * `userSummarySchema` plus `kind` (HUMAN | SERVICE). Kept off the base schema
+ * deliberately — `userSummarySchema` is reused by ~15 unrelated response
+ * shapes (watchers, comment authors, team members, ...) whose backing queries
+ * don't select `kind`. Use this only where the Prisma select actually loads
+ * it, e.g. the issue reporter/assignee, so the frontend can render an
+ * integration badge.
+ */
+export const userSummaryWithKindSchema = userSummarySchema.extend({
+  kind: z.enum(['HUMAN', 'SERVICE']),
+});
+export type UserSummaryWithKind = z.infer<typeof userSummaryWithKindSchema>;
+
 export const userRefSchema = z.object({
   id: z.guid(),
   name: z.string(),
