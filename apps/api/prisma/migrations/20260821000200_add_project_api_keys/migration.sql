@@ -24,6 +24,9 @@ CREATE UNIQUE INDEX "project_api_keys_project_id_name_key" ON "project_api_keys"
 -- CreateIndex
 CREATE INDEX "project_api_keys_project_id_idx" ON "project_api_keys"("project_id");
 
+-- CreateIndex
+CREATE INDEX "project_api_keys_user_id_idx" ON "project_api_keys"("user_id");
+
 -- AddForeignKey
 ALTER TABLE "project_api_keys" ADD CONSTRAINT "project_api_keys_project_id_fkey" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

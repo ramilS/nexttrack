@@ -1416,5 +1416,6 @@ model ProjectApiKey {
 
   @@unique([projectId, name])
   @@index([projectId])
+  @@index([userId])
   @@map("project_api_keys")
 }
