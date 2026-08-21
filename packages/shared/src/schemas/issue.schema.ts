@@ -7,6 +7,7 @@ import { tiptapContentSchema } from './tiptap.schema';
 export const ISSUE_TITLE_MAX = 500;
 export const ISSUE_ESTIMATE_MIN = 1;
 export const ISSUE_ESTIMATE_MAX = 9999;
+export const ISSUE_DEDUP_KEY_MAX = 200;
 
 export const ISSUE_TYPES = ['TASK', 'BUG', 'STORY', 'EPIC', 'FEATURE'] as const;
 export const issueTypeSchema = z.enum(ISSUE_TYPES);
@@ -39,6 +40,12 @@ export const createIssueSchema = z.object({
       message: 'Duplicate fieldId values not allowed',
     })
     .optional(),
+  /**
+   * Caller-supplied opaque idempotency key (e.g. an error-tracker group id).
+   * A repeated key within the same project returns the existing issue instead
+   * of creating a duplicate — see IssuesService.create.
+   */
+  dedupKey: z.string().trim().min(1).max(ISSUE_DEDUP_KEY_MAX).optional(),
 });
 export type CreateIssueInput = z.input<typeof createIssueSchema>;
 export type CreateIssueParsed = z.infer<typeof createIssueSchema>;

@@ -15,6 +15,7 @@ import { CustomFieldValuesService } from '@/modules/custom-fields/custom-field-v
 import { DomainEventPublisher } from '@/modules/outbox/domain-event-publisher';
 import { ProjectEntity } from '@/modules/projects/projects.repository';
 import type { Workflow } from '@repo/shared/schemas';
+import { buildIssueDetailRow } from '@test/helpers/factories';
 
 type Mocked<T> = { [K in keyof T]: jest.Mock };
 
@@ -86,6 +87,7 @@ describe('IssuesService', () => {
     deletedById: null,
     startDate: null,
     ytId: null,
+    dedupKey: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     reporter: { id: 'u1', name: 'Test', email: 't@t.local', avatarUrl: null },
@@ -125,6 +127,8 @@ describe('IssuesService', () => {
       findDeletedByNumber: jest.fn(),
       findParentInProject: jest.fn(),
       findAncestorChain: jest.fn().mockResolvedValue([]),
+      findByDedupKey: jest.fn().mockResolvedValue(null),
+      findDetailById: jest.fn(),
       createWithDetails: jest.fn(),
       updateWithTagsTx: jest.fn(),
       softDelete: jest.fn().mockResolvedValue(undefined),
@@ -197,7 +201,8 @@ describe('IssuesService', () => {
     it('creates an issue using the workflow initial status', async () => {
       issuesRepo.createWithDetails.mockResolvedValue(buildDetailRow() as never);
       const result = await service.create(project, dto as never, 'u1');
-      expect(result.title).toBe('Test Issue');
+      expect(result.deduplicated).toBe(false);
+      expect(result.issue.title).toBe('Test Issue');
       expect(issuesRepo.getNextNumber).toHaveBeenCalledWith('proj-1');
       expect(issuesRepo.createWithDetails).toHaveBeenCalledWith(
         expect.objectContaining({ statusId: 'open', reporterId: 'u1' }),
@@ -246,6 +251,59 @@ describe('IssuesService', () => {
         [{ fieldId: 'f1', value: 'x' }],
         expect.anything(),
       );
+    });
+  });
+
+  describe('create — dedupKey', () => {
+    const USER_ID = 'u1';
+
+    it('returns the existing issue without creating a second one on a fast-path hit', async () => {
+      issuesRepo.findByDedupKey.mockResolvedValue({ id: 'existing-1' });
+      issuesRepo.findDetailById.mockResolvedValue(
+        buildIssueDetailRow({ id: 'existing-1', projectId: 'proj-1' }) as never,
+      );
+
+      const result = await service.create(project, { title: 'boom', dedupKey: 'g-1' } as never, USER_ID);
+
+      expect(result.deduplicated).toBe(true);
+      expect(result.issue.id).toBe('existing-1');
+      expect(issuesRepo.createWithDetails).not.toHaveBeenCalled();
+    });
+
+    it('recovers from a lost insert race by returning the winner', async () => {
+      issuesRepo.findByDedupKey
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({ id: 'winner-1' });
+      txService.run.mockRejectedValueOnce(
+        Object.assign(new Error('unique violation'), { code: 'P2002' }),
+      );
+      issuesRepo.findDetailById.mockResolvedValue(
+        buildIssueDetailRow({ id: 'winner-1', projectId: 'proj-1' }) as never,
+      );
+
+      const result = await service.create(project, { title: 'boom', dedupKey: 'g-1' } as never, USER_ID);
+
+      expect(result.deduplicated).toBe(true);
+      expect(result.issue.id).toBe('winner-1');
+    });
+
+    it('rethrows a P2002 that is not about the dedup key', async () => {
+      issuesRepo.findByDedupKey.mockResolvedValue(null);
+      txService.run.mockRejectedValueOnce(
+        Object.assign(new Error('unique violation'), { code: 'P2002' }),
+      );
+
+      await expect(
+        service.create(project, { title: 'boom', dedupKey: 'g-1' } as never, USER_ID),
+      ).rejects.toMatchObject({ code: 'P2002' });
+    });
+
+    it('skips the dedup lookup entirely when no key is supplied', async () => {
+      issuesRepo.createWithDetails.mockResolvedValue(buildDetailRow() as never);
+
+      await service.create(project, { title: 'boom' } as never, USER_ID);
+
+      expect(issuesRepo.findByDedupKey).not.toHaveBeenCalled();
     });
   });
 

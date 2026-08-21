@@ -50,6 +50,25 @@ export default async function globalSetup(): Promise<void> {
     stdio: 'pipe',
   });
 
+  // `db push` does not create migration-only partial indexes. The dedup race
+  // test depends on this one, so create it explicitly or that test is vacuous.
+  //
+  // Prisma 7's `db execute` reads its datasource exclusively from
+  // prisma.config.ts (which resolves `DATABASE_URL` from the environment) —
+  // there is no `--url` flag, unlike older Prisma CLIs. Passing `DATABASE_URL`
+  // in `env` below is what actually points it at the ephemeral container.
+  execSync('npx prisma db execute --stdin', {
+    env: {
+      ...process.env,
+      DATABASE_URL: dbUrl,
+    },
+    cwd: process.cwd(),
+    input:
+      'CREATE UNIQUE INDEX IF NOT EXISTS "issues_project_dedup_key_unique" ' +
+      'ON "issues" ("project_id", "dedup_key") WHERE "deleted_at" IS NULL;',
+    stdio: 'pipe',
+  });
+
   // Store container refs for teardown
   globalThis.__TESTCONTAINERS__ = { pgContainer, redisContainer };
 

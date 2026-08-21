@@ -133,7 +133,9 @@ export class DocGenerationProcessor extends WorkerHost {
 
     const base = await this.captureBase(projectId, suggestion.targetArticleId);
 
-    const docIssue = await this.issues.create(
+    // This is an internal, system-generated create (no dedupKey) — it never
+    // deduplicates, so only the issue itself is needed here.
+    const { issue: docIssue } = await this.issues.create(
       project,
       {
         title: `Update docs: ${suggestion.proposedTitle}`,

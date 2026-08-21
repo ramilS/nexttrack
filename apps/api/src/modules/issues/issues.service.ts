@@ -89,7 +89,14 @@ export class IssuesService {
     project: ProjectEntity,
     dto: CreateIssueParsed,
     userId: string,
-  ): Promise<IssueDetail> {
+  ): Promise<{ issue: IssueDetail; deduplicated: boolean }> {
+    if (dto.dedupKey) {
+      const existing = await this.issuesRepo.findByDedupKey(project.id, dto.dedupKey);
+      if (existing) {
+        return { issue: await this.detailById(existing.id, userId), deduplicated: true };
+      }
+    }
+
     const workflow = await this.requireDefaultWorkflow(project.id);
 
     const statusId = dto.statusId ?? workflow.statuses.find((s) => s.isInitial)?.id;
@@ -113,63 +120,83 @@ export class IssuesService {
     const number = await this.issuesRepo.getNextNumber(project.id);
     const status = workflow.statuses.find((s) => s.id === statusId)!;
 
-    const issue = await this.txService.run(async (tx) => {
-      const created = await this.issuesRepo.createWithDetails(
-        {
-          projectId: project.id,
-          number,
-          title: dto.title,
-          description: dto.description ?? null,
-          type: dto.type,
-          priority: dto.priority,
-          statusId,
-          reporterId: userId,
-          assigneeId: dto.assigneeId ?? null,
-          parentId: dto.parentId ?? null,
-          sprintId: dto.sprintId ?? null,
-          dueDate: dto.dueDate ?? null,
-          estimate: dto.estimate ?? null,
-          resolved: status.isResolved,
-          tagIds: dto.tagIds ?? [],
-        },
-        tx,
-      );
-
-      await this.domainEvents.publish(
-        {
-          eventType: 'issue.created',
-          aggregateType: 'Issue',
-          aggregateId: created.id,
-          payload: {
-            ...new IssueCreatedEvent(
-              created.id,
-              project.id,
-              project.key,
-              project.name,
-              number,
-              dto.title,
-              userId,
-              dto.description ?? undefined,
-              dto.assigneeId,
-              created.reporter.name,
-            ),
+    let issue: Awaited<ReturnType<typeof this.issuesRepo.createWithDetails>>;
+    try {
+      issue = await this.txService.run(async (tx) => {
+        const created = await this.issuesRepo.createWithDetails(
+          {
+            projectId: project.id,
+            number,
+            title: dto.title,
+            description: dto.description ?? null,
+            type: dto.type,
+            priority: dto.priority,
+            statusId,
+            reporterId: userId,
+            assigneeId: dto.assigneeId ?? null,
+            parentId: dto.parentId ?? null,
+            sprintId: dto.sprintId ?? null,
+            dueDate: dto.dueDate ?? null,
+            estimate: dto.estimate ?? null,
+            resolved: status.isResolved,
+            tagIds: dto.tagIds ?? [],
+            dedupKey: dto.dedupKey ?? null,
           },
-        },
-        tx,
-      );
-
-      if (dto.fieldValues?.length) {
-        await this.customFieldValues.setInitialFieldValues(
-          created.id,
-          project.id,
-          userId,
-          dto.fieldValues.map((fv) => ({ fieldId: fv.fieldId, value: fv.value })),
           tx,
         );
-      }
 
-      return created;
-    });
+        await this.domainEvents.publish(
+          {
+            eventType: 'issue.created',
+            aggregateType: 'Issue',
+            aggregateId: created.id,
+            payload: {
+              ...new IssueCreatedEvent(
+                created.id,
+                project.id,
+                project.key,
+                project.name,
+                number,
+                dto.title,
+                userId,
+                dto.description ?? undefined,
+                dto.assigneeId,
+                created.reporter.name,
+              ),
+            },
+          },
+          tx,
+        );
+
+        if (dto.fieldValues?.length) {
+          await this.customFieldValues.setInitialFieldValues(
+            created.id,
+            project.id,
+            userId,
+            dto.fieldValues.map((fv) => ({ fieldId: fv.fieldId, value: fv.value })),
+            tx,
+          );
+        }
+
+        return created;
+      });
+    } catch (err) {
+      // A concurrent caller won the insert. The transaction has already rolled
+      // back in full — including its outbox event — so nothing partial exists
+      // and nothing is being continued inside a dead transaction: this catch
+      // sits outside `txService.run`, after Postgres has already unwound it.
+      if (dto.dedupKey && isUniqueViolation(err)) {
+        const winner = await this.issuesRepo.findByDedupKey(project.id, dto.dedupKey);
+        if (winner) {
+          this.logger.log('Issue create deduplicated after insert race', {
+            projectId: project.id,
+            issueId: winner.id,
+          });
+          return { issue: await this.detailById(winner.id, userId), deduplicated: true };
+        }
+      }
+      throw err;
+    }
 
     this.logger.log('Issue created', {
       issueId: issue.id,
@@ -184,7 +211,7 @@ export class IssuesService {
       fieldValueCount: dto.fieldValues?.length ?? 0,
     });
 
-    return toIssueDetail(issue, workflow.statuses, userId);
+    return { issue: toIssueDetail(issue, workflow.statuses, userId), deduplicated: false };
   }
 
   async update(
@@ -615,6 +642,17 @@ export class IssuesService {
 
   // ─── Private helpers ───────────────────────────────────────
 
+  /** Hydrates a dedup-resolved issue id into the same `IssueDetail` shape a
+   * fresh create returns. */
+  private async detailById(issueId: string, userId: string): Promise<IssueDetail> {
+    const row = await this.issuesRepo.findDetailById(issueId);
+    if (!row) {
+      throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
+    }
+    const workflow = await this.requireDefaultWorkflow(row.projectId);
+    return toIssueDetail(row, workflow.statuses, userId);
+  }
+
   private async requireDefaultWorkflow(projectId: string): Promise<Workflow> {
     const workflow = await this.workflowsRepo.findDefault(projectId);
     if (!workflow) {
@@ -667,4 +705,11 @@ export class IssuesService {
     const users = await this.usersRepo.findPublicRefsByIds(ids);
     return new Map(users.map((u) => [u.id, u]));
   }
+}
+
+/** True for a Prisma unique-constraint violation (P2002), from any source. */
+function isUniqueViolation(err: unknown): boolean {
+  return (
+    typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'P2002'
+  );
 }

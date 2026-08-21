@@ -9,6 +9,11 @@ interface MockContextOptions {
   headers?: Record<string, unknown>;
   handler?: HandlerFn;
   classRef?: Type<unknown>;
+  /** `res.locals` of the mocked HTTP response — e.g. `{ meta: {...} }` for
+   * TransformInterceptor's extra-meta pass-through. */
+  responseLocals?: Record<string, unknown>;
+  /** Overrides `getType()` — e.g. `'ws'` to simulate a non-HTTP context. */
+  contextType?: string;
 }
 
 export function createMockExecutionContext(
@@ -27,12 +32,12 @@ export function createMockExecutionContext(
   return {
     switchToHttp: () => ({
       getRequest: () => request,
-      getResponse: () => ({}),
+      getResponse: () => ({ locals: options.responseLocals ?? {} }),
       getNext: () => jest.fn(),
     }),
     getHandler: () => handler,
     getClass: () => classRef,
-    getType: () => 'http',
+    getType: () => options.contextType ?? 'http',
     getArgs: () => [request, {}, jest.fn()],
     getArgByIndex: (index: number) => [request, {}, jest.fn()][index],
     switchToRpc: () => ({ getData: () => ({}) }),

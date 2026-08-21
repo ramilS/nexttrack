@@ -41,4 +41,31 @@ describe('TransformInterceptor', () => {
       done();
     });
   });
+
+  it('should merge res.locals.meta into the envelope meta', (done) => {
+    const context = createMockExecutionContext({
+      responseLocals: { meta: { deduplicated: true } },
+    });
+    const handler = { handle: () => of({ id: 'issue-1' }) };
+
+    interceptor.intercept(context, handler).subscribe((result) => {
+      expect(result.data).toEqual({ id: 'issue-1' });
+      expect(result.meta.timestamp).toBeDefined();
+      expect(result.meta.deduplicated).toBe(true);
+      done();
+    });
+  });
+
+  it('should not merge res.locals.meta for a non-HTTP execution context', (done) => {
+    const context = createMockExecutionContext({
+      responseLocals: { meta: { deduplicated: true } },
+      contextType: 'ws',
+    });
+    const handler = { handle: () => of({ id: 'issue-1' }) };
+
+    interceptor.intercept(context, handler).subscribe((result) => {
+      expect(result.meta.deduplicated).toBeUndefined();
+      done();
+    });
+  });
 });

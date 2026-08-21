@@ -149,6 +149,7 @@ export function buildIssue(overrides?: Record<string, unknown>) {
     estimate: null,
     spent: 0,
     version: 1,
+    dedupKey: null,
     dueDate: null,
     startDate: null,
     resolvedAt: null,
@@ -157,6 +158,53 @@ export function buildIssue(overrides?: Record<string, unknown>) {
     ytId: null,
     createdAt: new Date(),
     updatedAt: new Date(),
+    ...overrides,
+  };
+}
+
+/**
+ * Full `IssueDetailRow` shape (the `DETAIL_INCLUDE` relations `toIssueDetail`
+ * reads) — for tests that hydrate an issue through
+ * `IssuesRepository.findDetailById`/`createWithDetails`.
+ */
+export function buildIssueDetailRow(overrides?: Record<string, unknown>) {
+  const id = nextId();
+  const projectId = nextId();
+  const reporterId = nextId();
+  return {
+    id,
+    number: counter,
+    title: `Issue ${id}`,
+    description: null,
+    type: IssueType.TASK,
+    priority: Priority.MEDIUM,
+    statusId: 'status-open',
+    projectId,
+    reporterId,
+    assigneeId: null,
+    parentId: null,
+    sprintId: null,
+    estimate: null,
+    spent: 0,
+    version: 1,
+    dedupKey: null,
+    dueDate: null,
+    startDate: null,
+    resolvedAt: null,
+    deletedAt: null,
+    deletedById: null,
+    ytId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    reporter: { id: reporterId, name: 'Reporter', email: `reporter-${id}@test.local`, avatarUrl: null },
+    assignee: null,
+    sprint: null,
+    tags: [],
+    children: [],
+    parent: null,
+    watchers: [],
+    project: { id: projectId, key: 'TEST', name: 'Test', color: '#3b82f6' },
+    _count: { comments: 0, children: 0 },
     ...overrides,
   };
 }

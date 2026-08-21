@@ -29,6 +29,13 @@ describe('createIssueSchema', () => {
     expect(createIssueSchema.safeParse({ title: 'x', tagIds: [A, A] }).success).toBe(false);
     expect(createIssueSchema.safeParse({ title: 'x', tagIds: [A, B] }).success).toBe(true);
   });
+
+  it('trims dedupKey and rejects blank or oversized values', () => {
+    expect(createIssueSchema.safeParse({ title: 'x', dedupKey: '  g-1  ' }).data?.dedupKey).toBe('g-1');
+    expect(createIssueSchema.safeParse({ title: 'x', dedupKey: '   ' }).success).toBe(false);
+    expect(createIssueSchema.safeParse({ title: 'x', dedupKey: 'a'.repeat(201) }).success).toBe(false);
+    expect(createIssueSchema.safeParse({ title: 'x' }).success).toBe(true);
+  });
 });
 
 describe('bulkUpdateIssuesSchema', () => {

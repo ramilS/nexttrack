@@ -10,7 +10,10 @@ import {
   HttpCode,
   HttpStatus,
   ParseIntPipe,
+  Res,
 } from '@nestjs/common';
+import { ApiExtraModels, ApiResponse, getSchemaPath } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { Project } from '@prisma/client';
 import { IssuesService } from './issues.service';
 import { IssuesQueryService } from './issues-query.service';
@@ -50,12 +53,46 @@ export class IssuesController {
   @Post()
   @RequirePermission(Permission.ISSUE_CREATE)
   @ApiEnvelope(IssueDetailDto, { status: HttpStatus.CREATED })
+  @ApiExtraModels(IssueDetailDto)
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description:
+      'dto.dedupKey matched an existing, non-deleted issue in this project: ' +
+      'returns that issue unchanged instead of creating a new one, with ' +
+      '`meta.deduplicated: true`.',
+    schema: {
+      type: 'object',
+      required: ['data', 'meta'],
+      properties: {
+        data: { $ref: getSchemaPath(IssueDetailDto) },
+        meta: {
+          type: 'object',
+          required: ['timestamp', 'deduplicated'],
+          properties: {
+            timestamp: { type: 'string', format: 'date-time' },
+            deduplicated: { type: 'boolean', enum: [true] },
+          },
+        },
+      },
+    },
+  })
   async create(
     @ReqProject() project: Project,
     @Body() dto: CreateIssueDto,
     @CurrentUser('id') userId: string,
+    @Res({ passthrough: true }) res: Response,
   ) {
-    return this.issuesService.create(project, dto, userId);
+    const { issue, deduplicated } = await this.issuesService.create(project, dto, userId);
+    // 201 Created would be a lie for a request that created nothing.
+    res.status(deduplicated ? HttpStatus.OK : HttpStatus.CREATED);
+    // The handler must still return the plain entity — ZodSerializerInterceptor
+    // runs before TransformInterceptor and parses this return value against
+    // IssueDetailDto's schema, so it can't be pre-wrapped in { data, meta }.
+    // TransformInterceptor reads this back out of res.locals to build meta.
+    if (deduplicated) {
+      res.locals.meta = { deduplicated: true };
+    }
+    return issue;
   }
 
   @Get()

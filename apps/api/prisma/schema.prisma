@@ -413,6 +413,13 @@ model Issue {
 
   ytId String? @unique @map("yt_id")
 
+  // Caller-supplied idempotency key for API-key issue creation (see
+  // IssuesService.create). Uniqueness is enforced per-project by a partial
+  // index (WHERE deleted_at IS NULL) added in the migration SQL directly —
+  // Prisma's schema DSL cannot express a partial unique index, so it is not
+  // declared here as `@@unique`/`@@index`.
+  dedupKey String? @map("dedup_key") @db.VarChar(200)
+
   project  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   status   WorkflowStatus @relation(fields: [statusId], references: [id], onDelete: Restrict)
   reporter User           @relation("IssueReporter", fields: [reporterId], references: [id])

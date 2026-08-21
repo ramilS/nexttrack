@@ -813,6 +813,7 @@ export class IssuesRepository {
       estimate: number | null;
       resolved: boolean;
       tagIds: string[];
+      dedupKey: string | null;
     },
     tx?: Tx,
   ): Promise<IssueDetailRow> {
@@ -836,7 +837,34 @@ export class IssuesRepository {
           ? { create: input.tagIds.map((tagId) => ({ tagId })) }
           : undefined,
         watchers: { create: { userId: input.reporterId } },
+        dedupKey: input.dedupKey,
       },
+      include: DETAIL_INCLUDE,
+    });
+  }
+
+  /**
+   * Looks up an active issue by its caller-supplied dedup key, scoped to the
+   * project. `deletedAt: null` MUST match the partial unique index
+   * (`issues_project_dedup_key_unique`, `WHERE deleted_at IS NULL`) exactly,
+   * or Postgres cannot use it for this query.
+   */
+  findByDedupKey(projectId: string, dedupKey: string): Promise<{ id: string } | null> {
+    return this.prisma.issue.findFirst({
+      where: { projectId, dedupKey, deletedAt: null },
+      select: { id: true },
+    });
+  }
+
+  /**
+   * Detail lookup by id, any status — used to hydrate an issue resolved via
+   * `findByDedupKey` (a fast-path hit or the winner of a lost insert race).
+   * Same include shape as `createWithDetails` so `toIssueDetail` receives an
+   * identical row either way.
+   */
+  findDetailById(issueId: string): Promise<IssueDetailRow | null> {
+    return this.prisma.issue.findUnique({
+      where: { id: issueId },
       include: DETAIL_INCLUDE,
     });
   }
