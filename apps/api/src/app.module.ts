@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
+import { ServicePrincipalScopeGuard } from './common/guards/service-principal-scope.guard';
 import { ZodSerializerInterceptor } from 'nestjs-zod';
 import { AppZodValidationPipe } from './common/pipes/app-zod-validation.pipe';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -183,6 +184,15 @@ import {
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    // Runs immediately after JwtAuthGuard so req.user is already populated:
+    // confines a SERVICE (API-key) principal to routes that declare
+    // @RequirePermission, closing every permission-less authenticated route
+    // to machine callers regardless of which composite guard (if any) the
+    // route uses.
+    {
+      provide: APP_GUARD,
+      useClass: ServicePrincipalScopeGuard,
     },
     {
       provide: APP_GUARD,
