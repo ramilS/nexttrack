@@ -4,6 +4,7 @@ import {
   Priority,
   IssueLinkType,
   DocUpdateProposalStatus,
+  UserKind,
 } from '@prisma/client';
 import { ALL_PERMISSIONS, Permission } from '../../../../packages/shared/src/permissions';
 
@@ -19,6 +20,7 @@ export function buildUser(overrides?: Record<string, unknown>) {
     passwordHash: '$2b$12$hashedpassword',
     hasPassword: true,
     role: GlobalRole.USER,
+    kind: UserKind.HUMAN,
     avatarUrl: null,
     isBlocked: false,
     blockReason: null,

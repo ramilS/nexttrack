@@ -24,6 +24,7 @@ model User {
   deletedById String?   @map("deleted_by_id")
 
   role         GlobalRole @default(USER)
+  kind         UserKind   @default(HUMAN)
   migratedFrom String?    @map("migrated_from") @db.VarChar(50)
   ytId         String?    @unique @map("yt_id")
   createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
@@ -116,6 +117,13 @@ enum GlobalRole {
   USER
 
   @@map("global_role")
+}
+
+enum UserKind {
+  HUMAN
+  SERVICE
+
+  @@map("user_kind")
 }
 
 enum InviteStatus {

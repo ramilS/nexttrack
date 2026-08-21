@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { GlobalRole, Prisma } from '@prisma/client';
+import { GlobalRole, Prisma, UserKind } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import type {
   User,
@@ -241,13 +241,16 @@ export class UsersRepository {
 
   async findByEmailWithPasswordHash(
     email: string,
-  ): Promise<{ user: User; passwordHash: string | null } | null> {
+  ): Promise<{ user: User & { kind: UserKind }; passwordHash: string | null } | null> {
     const row = await this.prisma.user.findFirst({
       where: { email },
-      select: { ...USER_SELECT, passwordHash: true },
+      select: { ...USER_SELECT, kind: true, passwordHash: true },
     });
     if (!row) return null;
-    return { user: toUser(row), passwordHash: row.passwordHash };
+    return {
+      user: { ...toUser(row), kind: row.kind },
+      passwordHash: row.passwordHash,
+    };
   }
 
   // ─── Admin list ────────────────────────────────────────────

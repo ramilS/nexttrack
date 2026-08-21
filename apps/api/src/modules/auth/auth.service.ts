@@ -6,7 +6,7 @@ import {
   ValidationError,
 } from '@/common/errors/domain.errors';
 import { ConfigType } from '@nestjs/config';
-import { InviteStatus } from '@prisma/client';
+import { InviteStatus, UserKind } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { ErrorCode } from '@repo/shared/error-codes';
 import {
@@ -72,6 +72,20 @@ export class AuthService {
         user.blockReason
           ? `Account blocked: ${user.blockReason}`
           : 'Account has been blocked',
+      );
+    }
+
+    if (user.kind === UserKind.SERVICE) {
+      // Service principals authenticate with an API key, never a password.
+      // Reported as invalid credentials so the response does not confirm
+      // that this address belongs to an integration.
+      this.logger.warn('Login attempt for service principal', {
+        userId: user.id,
+        ip: ipAddress,
+      });
+      throw new UnauthenticatedError(
+        ErrorCode.INVALID_CREDENTIALS,
+        'Invalid email or password',
       );
     }
 

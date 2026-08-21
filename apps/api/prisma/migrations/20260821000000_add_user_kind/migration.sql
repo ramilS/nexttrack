@@ -1,0 +1,3 @@
+CREATE TYPE "user_kind" AS ENUM ('HUMAN', 'SERVICE');
+
+ALTER TABLE "users" ADD COLUMN "kind" "user_kind" NOT NULL DEFAULT 'HUMAN';

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { UnauthenticatedError, PermissionDeniedError, ValidationError } from '@/common/errors/domain.errors';
-import { InviteStatus } from '@prisma/client';
+import { InviteStatus, UserKind } from '@prisma/client';
+import { ErrorCode } from '@repo/shared/error-codes';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { AuthService } from './auth.service';
@@ -154,6 +155,36 @@ describe('AuthService', () => {
       bcryptCompare.mockResolvedValue(false);
 
       await expect(service.login(dto)).rejects.toThrow(UnauthenticatedError);
+    });
+
+    it('refuses login for a service principal', async () => {
+      // Arrange
+      const serviceUser = buildUser({
+        kind: UserKind.SERVICE,
+        email: 'svc.abc123@integrations.invalid',
+        passwordHash: null,
+      });
+      usersRepo.findByEmailWithPasswordHash.mockResolvedValue(serviceUser);
+
+      // Act + Assert
+      await expect(
+        service.login({ email: serviceUser.email, password: 'whatever' }, undefined, undefined),
+      ).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS });
+    });
+
+    it('refuses login for a service principal even if a password hash is set', async () => {
+      // Arrange — guards the explicit kind check independently of the
+      // "no password hash" branch above, which a null passwordHash would
+      // otherwise satisfy on its own. With a valid password hash and a
+      // matching password, only the kind check can produce a rejection here.
+      const serviceUser = buildUser({ kind: UserKind.SERVICE });
+      mockLogin(serviceUser);
+      bcryptCompare.mockResolvedValue(true);
+
+      // Act + Assert
+      await expect(service.login(dto)).rejects.toMatchObject({
+        code: ErrorCode.INVALID_CREDENTIALS,
+      });
     });
   });
 
