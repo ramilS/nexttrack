@@ -379,16 +379,141 @@ reload only the prefix remains; revocation removes the key from the list.
 - **Provider connectors of any kind**, including Sentry. Out of the repository by
   design, per section 2.
 
-## 10. To verify during implementation
+## 10. Open questions — closed out
 
-These are assumptions this design rests on that have not been confirmed against a
-running system:
+Three assumptions were listed at design time as unconfirmed against a running
+system. This section records what was actually checked, against what was
+implemented, and not against the design's original wording — the implementation
+diverged from the design in ways that made one item moot outright and changed
+what the third item is even asking.
 
-1. `AuthGuard(['jwt', 'api-key'])` strategy ordering, and what Passport returns when
-   the first strategy fails — it propagates the last strategy's challenge, which
-   affects the error body a caller sees on a bad key.
-2. Whether the Elasticsearch indexer selects issue fields explicitly. If it reads the
-   model wholesale, `dedupKey` would enter the index and require a reindex for no
-   benefit.
-3. That `@Res({ passthrough: true })` composes with the `@ApiEnvelope` decorator
-   without breaking the generated OpenAPI response schema.
+### 10.1 Passport strategy ordering — moot, superseded by a hand-written guard
+
+The design assumed `JwtAuthGuard extends AuthGuard(['jwt', 'api-key'])`, a Passport
+multi-strategy list, and flagged Passport's failure-propagation behaviour across
+that list as unconfirmed. That is not what shipped. Reading
+`apps/api/src/common/guards/jwt-auth.guard.ts` shows `JwtAuthGuard` still extends
+`AuthGuard('jwt')` alone; `canActivate` inspects the request for an `X-Api-Key`
+header itself, and when present delegates entirely to `ApiKeyAuthService.authenticate`,
+never invoking Passport's strategy machinery for that request. Only when the header
+is absent does it fall through to `super.canActivate(context)`, the original
+single-strategy JWT path, untouched.
+
+There is consequently no strategy list, no shared Passport failure path between the
+two authentication methods, and no challenge-propagation question to answer — the
+two paths are fully separate branches in application code, not two entries evaluated
+by Passport's own fallback logic. The item is closed as moot, not as verified: the
+mechanism the question was about was never built. `apps/api/src/common/guards/jwt-auth.guard.ts`
+is the file that supersedes section 2's original one-line-change proposal.
+
+### 10.2 `dedupKey` and the search index — checked directly, confirmed no leak
+
+Read `apps/api/src/modules/search/indexer/issue-indexer.service.ts` and its data
+source, `apps/api/src/modules/search/search.repository.ts`, rather than trusting
+Task 7's report on its own. Task 7 had already reached the same conclusion; this
+was an independent re-check against the current code, not a re-statement of it.
+
+`SearchRepository.findForIndex` and `findManyForIndex` fetch through
+`prisma.issue.findUnique`/`findMany` with `include: INDEXER_INCLUDE`. Prisma's
+`include` (unlike `select`) always pulls every scalar column of the base model
+alongside the named relations, so the raw Prisma row here does carry `dedupKey`
+once that column exists. That much matches the worry in the original item. But
+`toIndexerIssue(row)`, the mapper immediately applied to that row, builds the
+`IndexerIssue` object field-by-field from a fixed, named list — `id`, `projectId`,
+`number`, `title`, `description`, `statusId`, `priority`, `type`, `assigneeId`,
+`assigneeName`, `assigneeEmail`, `reporterId`, `estimate`, `spent`, `dueDate`,
+timestamps, `project`, `tagIds`, `tagNames`, `customFields`, `commentBodies` — with
+no spread of the source row and no `dedupKey` entry. `IssueIndexerService.buildDocument`,
+the function that actually produces the Elasticsearch document, is likewise a fully
+explicit object literal built from that mapped `IndexerIssue`, again with no spread
+and no `dedupKey` field. A `grep -n "dedupKey" apps/api/src/modules/search` finds no
+matches outside test files.
+
+`dedupKey` therefore never reaches the ES document, on either the single-issue
+reindex path or the batched `reindexProject` path (both route through the same
+`buildDocument`). No `select` needed to be added, because the leak the item worried
+about does not exist: the boundary is the two explicit mapper functions, not the
+Prisma query shape. No code was changed for this item, and no test run was required
+as a result — `apps/api/src/modules/search/indexer/issue-indexer.service.ts` and
+`apps/api/src/modules/search/search.repository.ts` are unmodified.
+
+### 10.3 `@Res({ passthrough: true })` and the OpenAPI schema — implementation changed, and the runtime check is still blocked
+
+The design's original worry — that returning `{ data, meta }` directly from a
+`@Res({ passthrough: true })` handler would confuse response-schema generation —
+was superseded before this task by a different bug Task 7 found: that same return
+shape breaks `ZodSerializerInterceptor`, because it parses the handler's raw return
+value against `IssueDetailDto`'s schema, and `{ data, meta }` fails that parse (and,
+separately, does not match `TransformInterceptor`'s existing items+meta pass-through
+check, so it would have been double-wrapped). The shipped fix, read directly from
+`apps/api/src/modules/issues/issues.controller.ts` and
+`apps/api/src/common/interceptors/transform.interceptor.ts`, has the `create` handler
+return the plain `IssueDetailDto`-shaped entity in both branches and stash
+`{ deduplicated: true }` on `res.locals.meta` only on the dedup path;
+`TransformInterceptor.extraMeta` reads that back out (HTTP contexts only) and merges
+it into the envelope's `meta` alongside `timestamp`.
+
+`@Res({ passthrough: true })` is confirmed still present on the handler — it was not
+removed, only its return value changed — so, contrary to what a first reading of the
+brief for this task might suggest, this item is not moot the way 10.1 is. What
+changed is what there is to verify: not whether `@Res` breaks envelope generation for
+a hand-built body (it no longer receives one), but whether Nest's Swagger plugin,
+faced with a `@Res({ passthrough: true })` parameter, still statically registers the
+two explicit response schemas now hand-written on the handler — `@ApiEnvelope(IssueDetailDto,
+{ status: CREATED })` for 201 and the added `@ApiResponse({ status: OK, schema: {...} })`
+for the dedup 200 — rather than falling back to inferring (or losing) the response
+type from the handler's actual return statement. `@Res` is documented upstream to
+suppress Nest's automatic return-type inference for undecorated handlers; whether
+that suppression also reaches an explicitly-decorated handler like this one is a
+Swagger-plugin behaviour, not something readable from this file in isolation.
+
+This cannot be checked this session: confirming it means booting the API with
+`SWAGGER_ENABLED=true`, which needs a reachable Postgres and Valkey, and R6 for this
+task rules out starting any infrastructure. The item stays **unresolved**. To close
+it, run:
+
+```bash
+cd apps/api && SWAGGER_ENABLED=true pnpm start:dev
+```
+
+against the project's normal local stack (`infra/docker-compose` up first), then
+
+```bash
+curl -s http://localhost:3001/docs-json | \
+  jq '.paths["/projects/{key}/issues"].post.responses | keys'
+```
+
+and confirm both `"200"` and `"201"` are present, each `$ref`-ing (or inlining)
+`IssueDetailDto` inside `data`. If either status is missing or its schema has
+collapsed to an empty object, the `@Res` parameter is suppressing inference for the
+explicit decorators too, and the fix is to make the response documentation fully
+independent of return-type inference — which, on the evidence above, it already
+intends to be; the open question is only whether Nest's plugin agrees.
+
+### What this implementation could not verify
+
+Beyond the three items above, two categories of evidence are written but not run,
+and belong in one place for whoever picks this up next:
+
+- **Migrations are authored, not applied.** `20260821000000_add_user_kind`,
+  `20260821000100_add_integration_role`, `20260821000200_add_project_api_keys`, and
+  `20260821000300_add_issue_dedup_key` all exist under `apps/api/prisma/migrations/`
+  and were hand-authored against the schema (per R6, with no reachable database to
+  run `prisma migrate dev` against). None has been applied to any database. Apply
+  with `cd apps/api && pnpm prisma migrate deploy` against a real Postgres before
+  trusting that they run clean, in order, against a non-empty existing database —
+  migration 3's `ON CONFLICT DO NOTHING` seed insert in particular has never executed
+  against real data.
+- **The integration and e2e suites for this feature are written but never executed.**
+  `apps/api/test/api-keys.integration-spec.ts` covers repeat-key dedup, the concurrent
+  same-`dedupKey` race (the actual proof that the partial unique index works, per
+  section 7), and soft-delete freeing a key; it type-checks and lints cleanly but has
+  never run against a live Postgres. Run it with
+  `cd apps/api && pnpm test:integration --testPathPattern=api-keys` (note: the
+  no-extra-`--` form — `pnpm test:integration -- --testPathPattern=api-keys` silently
+  matches zero files and exits 0). `apps/e2e/tests/api-keys.spec.ts` and its page object
+  `apps/e2e/pages/api-keys.page.ts` cover key issuance, the once-only secret reveal,
+  and revocation in the settings UI; run with `pnpm test:e2e` from the repo root
+  against a fully running stack. Until both suites run green against real
+  infrastructure, the concurrency guarantee in section 4.2 and the UI flow in
+  section 6 are implemented but not demonstrated.
