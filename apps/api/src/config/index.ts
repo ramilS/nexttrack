@@ -15,3 +15,4 @@ export { migrationConfig, MigrationConfig } from './migration.config';
 export { opsConfig, OpsConfig } from './ops.config';
 export { aiDocsConfig, AiDocsConfig, ANTHROPIC_DEFAULT_MODEL } from './ai-docs.config';
 export { timeTrackingConfig, TimeTrackingConfig } from './time-tracking.config';
+export { throttleConfig, ThrottleConfig } from './throttle.config';

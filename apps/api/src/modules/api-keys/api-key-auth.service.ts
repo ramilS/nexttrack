@@ -5,6 +5,7 @@ import { AppLogger } from '@/common/logging/app-logger';
 import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import { setRequestUserId } from '@/common/context/request-context';
 import type { IntegrationRequest } from '@/common/http/integration-request';
+import { ApiKeyAwareThrottlerGuard } from '@/common/guards/api-key-aware-throttler.guard';
 import { ApiKeysRepository } from './api-keys.repository';
 import { hashApiKey } from './api-key-token';
 
@@ -33,7 +34,8 @@ export class ApiKeyAuthService {
       return true;
     }
 
-    const row = await this.repo.findActiveByHash(hashApiKey(presented));
+    const presentedHash = hashApiKey(presented);
+    const row = await this.repo.findActiveByHash(presentedHash);
     const now = new Date();
 
     // One error for every failure mode: distinct codes would confirm to an
@@ -59,6 +61,7 @@ export class ApiKeyAuthService {
       kind: row.user.kind,
     };
     req.apiKeyId = row.id;
+    ApiKeyAwareThrottlerGuard.rememberVerifiedKey(presentedHash, row.id);
     setRequestUserId(row.user.id);
 
     if (this.shouldTouch(row.lastUsedAt, now)) {

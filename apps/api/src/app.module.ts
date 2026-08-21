@@ -10,7 +10,8 @@ import { ConfigModule, ConfigType } from '@nestjs/config';
 import { BullModule } from '@nestjs/bullmq';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { LoggerModule } from 'nestjs-pino';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
+import { ApiKeyAwareThrottlerGuard } from './common/guards/api-key-aware-throttler.guard';
 import { createLoggerConfig } from './common/logger/logger.config';
 import { OpsAuthMiddleware } from './common/ops/ops-auth.middleware';
 import { PrismaModule } from './prisma/prisma.module';
@@ -76,6 +77,7 @@ import {
   opsConfig,
   aiDocsConfig,
   timeTrackingConfig,
+  throttleConfig,
 } from './config';
 
 @Module({
@@ -101,6 +103,7 @@ import {
         opsConfig,
         aiDocsConfig,
         timeTrackingConfig,
+        throttleConfig,
       ],
     }),
     LoggerModule.forRootAsync({
@@ -108,15 +111,17 @@ import {
       useFactory: (config: ConfigType<typeof appConfig>) =>
         createLoggerConfig(config.nodeEnv),
     }),
-    ThrottlerModule.forRoot(
-      process.env.NODE_ENV === 'test'
-        ? [{ name: 'default', ttl: 0, limit: 0 }] // Effectively disable throttling in test
-        : [
-            { name: 'short', ttl: 1000, limit: 3 },
-            { name: 'medium', ttl: 10000, limit: 20 },
-            { name: 'long', ttl: 60000, limit: 100 },
-          ],
-    ),
+    ThrottlerModule.forRootAsync({
+      inject: [throttleConfig.KEY],
+      useFactory: (t: ConfigType<typeof throttleConfig>) =>
+        process.env.NODE_ENV === 'test'
+          ? [{ name: 'default', ttl: 0, limit: 0 }] // Effectively disable throttling in test
+          : [
+              { name: 'short', ttl: t.shortTtl, limit: t.shortLimit },
+              { name: 'medium', ttl: t.mediumTtl, limit: t.mediumLimit },
+              { name: 'long', ttl: t.longTtl, limit: t.longLimit },
+            ],
+    }),
     BullModule.forRootAsync({
       inject: [valkeyConfig.KEY],
       useFactory: (valkey: ConfigType<typeof valkeyConfig>) => ({
@@ -181,7 +186,7 @@ import {
     },
     {
       provide: APP_GUARD,
-      useClass: ThrottlerGuard,
+      useClass: ApiKeyAwareThrottlerGuard,
     },
     // Wraps every JSON response in { data, meta } envelope. Paginated
     // responses ({ items, meta }) pass through unchanged. @Res() handlers

@@ -7,6 +7,7 @@ import { ApiKeysRepository, ApiKeyPrincipalRow } from './api-keys.repository';
 import { hashApiKey } from './api-key-token';
 import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import type { IntegrationRequest } from '@/common/http/integration-request';
+import { ApiKeyAwareThrottlerGuard } from '@/common/guards/api-key-aware-throttler.guard';
 
 const RAW = 'nt_test_key_value';
 
@@ -44,6 +45,7 @@ describe('ApiKeyAuthService', () => {
     } as unknown as jest.Mocked<ApiKeysRepository>;
     background = { run: jest.fn() };
     req = { headers: {} } as IntegrationRequest;
+    ApiKeyAwareThrottlerGuard.verifiedKeys.clear();
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -85,6 +87,21 @@ describe('ApiKeyAuthService', () => {
       message: ErrorCode.API_KEY_INVALID,
     });
     expect(req.user).toBeUndefined();
+  });
+
+  it('remembers the verified key hash for the throttler guard on success', async () => {
+    await service.authenticate(req, RAW);
+
+    expect(ApiKeyAwareThrottlerGuard.verifiedKeys.get(hashApiKey(RAW))).toMatchObject({
+      keyId: 'key-1',
+    });
+  });
+
+  it('does not remember a key that failed authentication', async () => {
+    repo.findActiveByHash.mockResolvedValue(null);
+
+    await expect(service.authenticate(req, RAW)).rejects.toThrow(UnauthorizedException);
+    expect(ApiKeyAwareThrottlerGuard.verifiedKeys.get(hashApiKey(RAW))).toBeUndefined();
   });
 
   it('touches lastUsedAt through BackgroundTasks, not inline', async () => {
