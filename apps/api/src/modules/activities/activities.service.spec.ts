@@ -93,7 +93,7 @@ describe('ActivitiesService', () => {
         type,
         payload,
         createdAt: new Date(),
-        actor: { id: actorId, name: 'A', email: 'a@b.c', avatarUrl: null },
+        actor: { id: actorId, name: 'A', email: 'a@b.c', avatarUrl: null, kind: 'HUMAN' },
       };
       repo.create.mockResolvedValue(created);
 
@@ -145,7 +145,7 @@ describe('ActivitiesService', () => {
             type: ActivityType.STATUS_CHANGE,
             payload: { from: 'a', to: 'b' },
             createdAt,
-            actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null },
+            actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null, kind: 'HUMAN' },
           },
         ],
         meta: { nextCursor: null, pageSize: 50, hasNextPage: false },
@@ -159,8 +159,28 @@ describe('ActivitiesService', () => {
         type: ActivityType.STATUS_CHANGE,
         payload: { from: 'a', to: 'b' },
         createdAt: '2026-01-02T03:04:05.000Z',
-        actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null },
+        actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null, kind: 'HUMAN' },
       });
+    });
+
+    it('carries a SERVICE actor kind through to the mapped activity', async () => {
+      repo.findByIssue.mockResolvedValue({
+        items: [
+          {
+            id: 'act-2',
+            issueId: 'issue-1',
+            type: ActivityType.ISSUE_CREATED,
+            payload: {},
+            createdAt: new Date('2026-01-02T03:04:05.000Z'),
+            actor: { id: 'svc-1', name: 'CI Bot', email: 'ci-bot@x.io', avatarUrl: null, kind: 'SERVICE' },
+          },
+        ],
+        meta: { nextCursor: null, pageSize: 50, hasNextPage: false },
+      });
+
+      const out = await service.findByIssue('issue-1');
+
+      expect(out.items[0].actor.kind).toBe('SERVICE');
     });
   });
 });

@@ -1,8 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { createIssueSchema, bulkUpdateIssuesSchema } from './issue.schema';
+import { activitySchema, createIssueSchema, bulkUpdateIssuesSchema } from './issue.schema';
 
 const A = '11111111-1111-1111-1111-111111111111';
 const B = '22222222-2222-2222-2222-222222222222';
+
+const baseActivity = {
+  id: A,
+  issueId: B,
+  type: 'ISSUE_CREATED',
+  payload: {},
+  createdAt: '2026-01-02T03:04:05.000Z',
+};
 
 describe('createIssueSchema', () => {
   it('trims the title and applies type/priority defaults', () => {
@@ -35,6 +43,33 @@ describe('createIssueSchema', () => {
     expect(createIssueSchema.safeParse({ title: 'x', dedupKey: '   ' }).success).toBe(false);
     expect(createIssueSchema.safeParse({ title: 'x', dedupKey: 'a'.repeat(201) }).success).toBe(false);
     expect(createIssueSchema.safeParse({ title: 'x' }).success).toBe(true);
+  });
+});
+
+describe('activitySchema', () => {
+  it('keeps the actor kind (HUMAN | SERVICE) so the UI can badge integration actors', () => {
+    const result = activitySchema.safeParse({
+      ...baseActivity,
+      actor: { id: A, name: 'Bot', email: 'bot@x.io', avatarUrl: null, kind: 'SERVICE' },
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.actor.kind).toBe('SERVICE');
+  });
+
+  it('rejects an actor missing kind', () => {
+    const result = activitySchema.safeParse({
+      ...baseActivity,
+      actor: { id: A, name: 'Bot', email: 'bot@x.io', avatarUrl: null },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a kind outside HUMAN | SERVICE', () => {
+    const result = activitySchema.safeParse({
+      ...baseActivity,
+      actor: { id: A, name: 'Bot', email: 'bot@x.io', avatarUrl: null, kind: 'ADMIN' },
+    });
+    expect(result.success).toBe(false);
   });
 });
 

@@ -258,6 +258,9 @@ export type BulkUpdateResult = z.infer<typeof bulkUpdateResultSchema>;
  * Activity-feed entry for an issue (GET .../activities). `type` is a Prisma
  * ActivityType value (kept as a string — shared stays Prisma-free); `payload`
  * shape varies by type. `createdAt` mapped to ISO at the service boundary.
+ * `actor` carries `kind` (see `userSummaryWithKindSchema`) — same as the issue
+ * reporter/assignee — so the frontend can render the integration badge on
+ * activity rows too, not just the reporter.
  */
 export const activitySchema = z.object({
   id: z.guid(),
@@ -265,6 +268,6 @@ export const activitySchema = z.object({
   type: z.string(),
   payload: z.record(z.string(), z.unknown()),
   createdAt: z.iso.datetime(),
-  actor: userSummarySchema,
+  actor: userSummaryWithKindSchema,
 });
 export type Activity = z.infer<typeof activitySchema>;

@@ -98,7 +98,7 @@ export function buildActivity(overrides?: Partial<Activity>): Activity {
     id: uid(),
     issueId: uid(),
     type: 'STATUS_CHANGE',
-    actor: { id: uid(), name: 'Actor', email: 'actor@test.com', avatarUrl: null },
+    actor: { id: uid(), name: 'Actor', email: 'actor@test.com', avatarUrl: null, kind: 'HUMAN' },
     payload: { field: 'status', from: 'TODO', to: 'IN_PROGRESS' },
     createdAt: new Date().toISOString(),
     ...overrides,

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { ActivityType, Prisma } from '@prisma/client';
+import { ActivityType, Prisma, UserKind } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { asJson } from '@/prisma/json';
 import type { Tx } from '@/common/repository/tx.types';
@@ -33,6 +33,7 @@ export interface ActivityRow {
     name: string;
     email: string;
     avatarUrl: string | null;
+    kind: UserKind;
   };
 }
 
@@ -41,6 +42,20 @@ export interface FindByIssueOptions {
   pageSize?: number;
   types?: ActivityType[];
 }
+
+/**
+ * Selected on both `create` and `findByIssue` — kept as one constant so the
+ * two call sites can't drift (a `kind` added to one but not the other is
+ * exactly the bug this shape exists to prevent: the integration badge shows
+ * up on one activity feed and silently vanishes on the other).
+ */
+const ACTOR_SELECT = {
+  id: true,
+  name: true,
+  email: true,
+  avatarUrl: true,
+  kind: true,
+} as const;
 
 @Injectable()
 export class ActivitiesRepository {
@@ -90,7 +105,7 @@ export class ActivitiesRepository {
         payload: asJson(entry.payload),
       },
       include: {
-        actor: { select: { id: true, name: true, email: true, avatarUrl: true } },
+        actor: { select: ACTOR_SELECT },
       },
     });
   }
@@ -114,7 +129,7 @@ export class ActivitiesRepository {
     const items = await this.prisma.activity.findMany({
       where,
       include: {
-        actor: { select: { id: true, name: true, email: true, avatarUrl: true } },
+        actor: { select: ACTOR_SELECT },
       },
       orderBy: { createdAt: 'desc' },
       ...cursorArgs,

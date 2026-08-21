@@ -17,6 +17,7 @@ import { UserAvatar } from '@/components/shared/user-avatar';
 import { StatusBadge } from '@/components/shared/status-badge';
 import { PriorityBadge } from '@/components/shared/priority-badge';
 import { LoadMoreButton } from '@/components/shared/load-more-button';
+import { ServiceActorBadge } from '@/components/shared/service-actor-badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CommentList } from '@/components/comments/comment-list';
 import { useIssueActivities } from '@/lib/hooks/use-issues';
@@ -88,7 +89,7 @@ export function IssueActivity({ projectKey, issueNumber, issueId, className }: I
   );
 }
 
-function ActivityItem({ activity }: { activity: Activity }) {
+export function ActivityItem({ activity }: { activity: Activity }) {
   const { icon, text } = getActivityDisplay(activity);
 
   return (
@@ -102,6 +103,7 @@ function ActivityItem({ activity }: { activity: Activity }) {
         <div className="flex items-center gap-1.5 text-sm">
           {icon}
           <span className="font-medium">{activity.actor.name}</span>
+          {activity.actor.kind === 'SERVICE' && <ServiceActorBadge />}
           <span className="text-muted-foreground">{text}</span>
         </div>
         {activity.type === 'COMMENT_ADD' && typeof activity.payload.comment === 'string' && (
