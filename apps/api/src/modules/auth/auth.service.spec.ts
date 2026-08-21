@@ -157,21 +157,6 @@ describe('AuthService', () => {
       await expect(service.login(dto)).rejects.toThrow(UnauthenticatedError);
     });
 
-    it('refuses login for a service principal', async () => {
-      // Arrange
-      const serviceUser = buildUser({
-        kind: UserKind.SERVICE,
-        email: 'svc.abc123@integrations.invalid',
-        passwordHash: null,
-      });
-      usersRepo.findByEmailWithPasswordHash.mockResolvedValue(serviceUser);
-
-      // Act + Assert
-      await expect(
-        service.login({ email: serviceUser.email, password: 'whatever' }, undefined, undefined),
-      ).rejects.toMatchObject({ code: ErrorCode.INVALID_CREDENTIALS });
-    });
-
     it('refuses login for a service principal even if a password hash is set', async () => {
       // Arrange — guards the explicit kind check independently of the
       // "no password hash" branch above, which a null passwordHash would

@@ -46,6 +46,20 @@ describe('ApiKeysCard', () => {
   });
 
   it('shows the secret once after creation and only the prefix afterwards', async () => {
+    // Simulates the list having refetched and already holding the new key —
+    // in production this lands via query invalidation; here it lets the
+    // assertion below tell "prefix still shown" apart from "list is just empty".
+    mockKeys = [
+      {
+        id: 'k1',
+        name: 'MyTracker',
+        prefix: 'nt_abcdefgh',
+        expiresAt: null,
+        lastUsedAt: null,
+        revokedAt: null,
+        createdAt: new Date().toISOString(),
+      },
+    ];
     issuedKey = {
       id: 'k1',
       name: 'MyTracker',
@@ -68,9 +82,10 @@ describe('ApiKeysCard', () => {
     expect(screen.getByText(/won't be shown again/i)).toBeInTheDocument();
 
     // Dismissing the dialog must purge the secret from every render path —
-    // only the prefix (shown once the list refetches) may remain.
+    // only the prefix (shown in the list) may remain.
     await userEvent.click(screen.getByRole('button', { name: /done/i }));
     expect(screen.queryByText('nt_abcdefghSECRET')).not.toBeInTheDocument();
+    expect(screen.getByText('nt_abcdefgh…')).toBeInTheDocument();
   });
 
   it('renders the empty state when the project has no keys', () => {

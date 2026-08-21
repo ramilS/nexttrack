@@ -63,7 +63,7 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
         id: INTEGRATION_ROLE.id,
         name: INTEGRATION_ROLE.name,
         description: INTEGRATION_ROLE.description,
-        permissions: INTEGRATION_ROLE.permissions as unknown as Prisma.InputJsonValue,
+        permissions: [...INTEGRATION_ROLE.permissions] as Prisma.InputJsonValue,
         isSystem: INTEGRATION_ROLE.isSystem,
       },
     });
@@ -102,9 +102,10 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
     );
     rawKey = issued.raw;
 
-    // Developer role (seeded above by seedSystemRoles) holds neither
-    // PROJECT_SETTINGS_UPDATE nor ISSUE_UPDATE — a real project member used
-    // to isolate the permission checks in "key management endpoints" below.
+    // Developer role (seeded above by seedSystemRoles) lacks
+    // PROJECT_SETTINGS_UPDATE — a real project member used to prove the
+    // "key management endpoints" checks below are permission-gated, not
+    // just admin-only.
     const developer = await ctx.prisma.user.create({
       data: {
         email: 'developer@test.local',
@@ -217,6 +218,13 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
         .send({ name: 'Temp' });
 
       expect(created.status).toBe(201);
+
+      const beforeRevoke = await request(ctx.app.getHttpServer())
+        .post(`/projects/${projectKey}/issues`)
+        .set('X-Api-Key', created.body.data.raw)
+        .send({ title: 'before revoke' });
+
+      expect(beforeRevoke.status).toBe(201);
 
       await request(ctx.app.getHttpServer())
         .delete(`/projects/${projectKey}/api-keys/${created.body.data.id}`)
