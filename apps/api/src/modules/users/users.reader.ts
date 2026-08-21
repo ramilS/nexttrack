@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { GlobalRole } from '@prisma/client';
+import type { GlobalRole, UserKind } from '@prisma/client';
 import {
   UsersRepository,
   type UserNameRef,
@@ -34,6 +34,11 @@ export class UsersReader {
 
   findRoleById(userId: string): Promise<GlobalRole | null> {
     return this.repo.findRoleById(userId);
+  }
+
+  async findKind(userId: string): Promise<UserKind | null> {
+    const row = await this.repo.findKind(userId);
+    return row?.kind ?? null;
   }
 
   findActiveForJwt(userId: string): Promise<{

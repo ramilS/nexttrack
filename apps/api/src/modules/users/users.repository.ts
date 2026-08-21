@@ -164,6 +164,13 @@ export class UsersRepository {
     return row?.role ?? null;
   }
 
+  findKind(userId: string): Promise<{ kind: UserKind } | null> {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { kind: true },
+    });
+  }
+
   // ─── Self / by-id reads ─────────────────────────────────────
 
   async findById(userId: string): Promise<User | null> {

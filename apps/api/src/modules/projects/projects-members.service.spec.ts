@@ -1,14 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { UserKind } from '@prisma/client';
 import {
   ConflictError,
   NotFoundError,
   ValidationError,
 } from '@/common/errors/domain.errors';
+import { ErrorCode } from '@repo/shared/error-codes';
+import { buildProjectMember } from '@test/helpers';
 import { ProjectsMembersService } from './projects-members.service';
 import { ProjectMembersRepository } from './project-members.repository';
 import { ProjectEntity } from './projects.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { UsersReader } from '@/modules/users/users.reader';
+import { ApiKeysRepository } from '@/modules/api-keys/api-keys.repository';
+import { INTEGRATION_ROLE_ID } from '@/modules/api-keys/integration-role';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
 import type { ProjectMember } from '@repo/shared/schemas';
 
@@ -22,6 +27,7 @@ describe('ProjectsMembersService', () => {
   let membersRepo: Mocked<ProjectMembersRepository>;
   let rolesRepo: Mocked<RolesRepository>;
   let usersRepo: Mocked<UsersReader>;
+  let apiKeysRepo: Mocked<ApiKeysRepository>;
   let permissionsCache: { invalidateAll: jest.Mock };
 
   const project: ProjectEntity = {
@@ -69,7 +75,12 @@ describe('ProjectsMembersService', () => {
 
     usersRepo = {
       existsActiveById: jest.fn().mockResolvedValue(true),
+      findKind: jest.fn().mockResolvedValue(UserKind.HUMAN),
     } as unknown as Mocked<UsersReader>;
+
+    apiKeysRepo = {
+      countActiveForUser: jest.fn().mockResolvedValue(0),
+    } as unknown as Mocked<ApiKeysRepository>;
 
     permissionsCache = { invalidateAll: jest.fn().mockResolvedValue(undefined) };
 
@@ -79,6 +90,7 @@ describe('ProjectsMembersService', () => {
         { provide: ProjectMembersRepository, useValue: membersRepo },
         { provide: RolesRepository, useValue: rolesRepo },
         { provide: UsersReader, useValue: usersRepo },
+        { provide: ApiKeysRepository, useValue: apiKeysRepo },
         { provide: PermissionsCacheService, useValue: permissionsCache },
       ],
     }).compile();
@@ -218,6 +230,42 @@ describe('ProjectsMembersService', () => {
       await service.removeMember(project, userId);
 
       expect(membersRepo.removeWithCleanup).toHaveBeenCalled();
+    });
+  });
+
+  describe('removeMember — service principals', () => {
+    it('refuses to remove a SERVICE member that still has an active key', async () => {
+      membersRepo.findOne.mockResolvedValue(
+        buildProjectMember({ userId: 'svc-1', projectId: project.id, roleId: INTEGRATION_ROLE_ID }),
+      );
+      usersRepo.findKind.mockResolvedValue(UserKind.SERVICE);
+      apiKeysRepo.countActiveForUser.mockResolvedValue(1);
+
+      await expect(service.removeMember(project, 'svc-1')).rejects.toMatchObject({
+        code: ErrorCode.SERVICE_MEMBER_HAS_ACTIVE_KEY,
+      });
+      expect(membersRepo.removeWithCleanup).not.toHaveBeenCalled();
+    });
+
+    it('allows removing a SERVICE member whose keys are all revoked', async () => {
+      membersRepo.findOne.mockResolvedValue(
+        buildProjectMember({ userId: 'svc-1', projectId: project.id, roleId: INTEGRATION_ROLE_ID }),
+      );
+      usersRepo.findKind.mockResolvedValue(UserKind.SERVICE);
+      apiKeysRepo.countActiveForUser.mockResolvedValue(0);
+
+      await service.removeMember(project, 'svc-1');
+
+      expect(membersRepo.removeWithCleanup).toHaveBeenCalledWith('svc-1', project.id);
+    });
+
+    it('does not query keys for a human member', async () => {
+      membersRepo.findOne.mockResolvedValue(buildProjectMember({ userId: 'human-1' }));
+      usersRepo.findKind.mockResolvedValue(UserKind.HUMAN);
+
+      await service.removeMember(project, 'human-1');
+
+      expect(apiKeysRepo.countActiveForUser).not.toHaveBeenCalled();
     });
   });
 

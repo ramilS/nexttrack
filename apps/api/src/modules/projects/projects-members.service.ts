@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { UserKind } from '@prisma/client';
 import { AppLogger } from '@/common/logging/app-logger';
 import {
   ConflictError,
@@ -19,6 +20,7 @@ import {
 import { ProjectEntity } from './projects.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { UsersReader } from '@/modules/users/users.reader';
+import { ApiKeysRepository } from '@/modules/api-keys/api-keys.repository';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
 
 const PROJECT_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001';
@@ -31,6 +33,7 @@ export class ProjectsMembersService {
     private membersRepo: ProjectMembersRepository,
     private rolesRepo: RolesRepository,
     private usersRepo: UsersReader,
+    private apiKeysRepo: ApiKeysRepository,
     private permissionsCache: PermissionsCacheService,
   ) {}
 
@@ -124,6 +127,19 @@ export class ProjectsMembersService {
     const member = await this.membersRepo.findOne(userId, project.id);
     if (!member) {
       throw new NotFoundError(ErrorCode.NOT_PROJECT_MEMBER);
+    }
+
+    // Removal of an integration principal must go through key revocation.
+    // Allowing it here means someone silently breaks a live integration from
+    // the members screen, with no signal that anything stopped working.
+    if ((await this.usersRepo.findKind(userId)) === UserKind.SERVICE) {
+      const activeKeys = await this.apiKeysRepo.countActiveForUser(userId);
+      if (activeKeys > 0) {
+        throw new ConflictError(
+          ErrorCode.SERVICE_MEMBER_HAS_ACTIVE_KEY,
+          'Revoke the API key instead of removing its principal',
+        );
+      }
     }
 
     if (member.roleId === PROJECT_ADMIN_ROLE_ID) {
