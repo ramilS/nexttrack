@@ -12,7 +12,7 @@ import { ProjectMembersRepository } from './project-members.repository';
 import { ProjectEntity } from './projects.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { UsersReader } from '@/modules/users/users.reader';
-import { ApiKeysRepository } from '@/modules/api-keys/api-keys.repository';
+import { ApiKeysReader } from '@/modules/api-keys/api-keys.reader';
 import { INTEGRATION_ROLE_ID } from '@/modules/api-keys/integration-role';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
 import type { ProjectMember } from '@repo/shared/schemas';
@@ -27,7 +27,7 @@ describe('ProjectsMembersService', () => {
   let membersRepo: Mocked<ProjectMembersRepository>;
   let rolesRepo: Mocked<RolesRepository>;
   let usersRepo: Mocked<UsersReader>;
-  let apiKeysRepo: Mocked<ApiKeysRepository>;
+  let apiKeysRepo: Mocked<ApiKeysReader>;
   let permissionsCache: { invalidateAll: jest.Mock };
 
   const project: ProjectEntity = {
@@ -80,7 +80,7 @@ describe('ProjectsMembersService', () => {
 
     apiKeysRepo = {
       countActiveForUser: jest.fn().mockResolvedValue(0),
-    } as unknown as Mocked<ApiKeysRepository>;
+    } as unknown as Mocked<ApiKeysReader>;
 
     permissionsCache = { invalidateAll: jest.fn().mockResolvedValue(undefined) };
 
@@ -90,7 +90,7 @@ describe('ProjectsMembersService', () => {
         { provide: ProjectMembersRepository, useValue: membersRepo },
         { provide: RolesRepository, useValue: rolesRepo },
         { provide: UsersReader, useValue: usersRepo },
-        { provide: ApiKeysRepository, useValue: apiKeysRepo },
+        { provide: ApiKeysReader, useValue: apiKeysRepo },
         { provide: PermissionsCacheService, useValue: permissionsCache },
       ],
     }).compile();

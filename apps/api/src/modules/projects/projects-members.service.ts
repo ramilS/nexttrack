@@ -20,7 +20,7 @@ import {
 import { ProjectEntity } from './projects.repository';
 import { RolesRepository } from '@/modules/roles/roles.repository';
 import { UsersReader } from '@/modules/users/users.reader';
-import { ApiKeysRepository } from '@/modules/api-keys/api-keys.repository';
+import { ApiKeysReader } from '@/modules/api-keys/api-keys.reader';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
 
 const PROJECT_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001';
@@ -33,7 +33,7 @@ export class ProjectsMembersService {
     private membersRepo: ProjectMembersRepository,
     private rolesRepo: RolesRepository,
     private usersRepo: UsersReader,
-    private apiKeysRepo: ApiKeysRepository,
+    private apiKeysRepo: ApiKeysReader,
     private permissionsCache: PermissionsCacheService,
   ) {}
 
