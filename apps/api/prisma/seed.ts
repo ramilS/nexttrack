@@ -62,6 +62,12 @@ const SYSTEM_ROLES = [
     description: 'Read-only access to issues and articles',
     permissions: [Permission.ISSUE_READ, Permission.ARTICLE_READ],
   },
+  {
+    id: '00000000-0000-0000-0000-000000000006',
+    name: 'Integration',
+    description: 'Machine access: read issues, create issues, comment',
+    permissions: [Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.COMMENT_CREATE],
+  },
 ];
 
 async function seedSystemRoles() {

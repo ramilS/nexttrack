@@ -172,6 +172,7 @@ const SYSTEM_ROLES = [
   { id: '00000000-0000-0000-0000-000000000003', name: 'QA', description: 'Same as Developer plus can delete issues', permissions: [Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.ISSUE_UPDATE, Permission.ISSUE_DELETE, Permission.ISSUE_MOVE, Permission.ISSUE_LINK_MANAGE, Permission.COMMENT_CREATE, Permission.COMMENT_EDIT_OWN, Permission.ARTICLE_READ, Permission.ARTICLE_CREATE, Permission.ARTICLE_UPDATE, Permission.SPRINT_MANAGE, Permission.TIME_LOG_OWN] },
   { id: '00000000-0000-0000-0000-000000000004', name: 'Reporter', description: 'Can create issues and comments, read articles, and log own time', permissions: [Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.COMMENT_CREATE, Permission.COMMENT_EDIT_OWN, Permission.ARTICLE_READ, Permission.TIME_LOG_OWN] },
   { id: '00000000-0000-0000-0000-000000000005', name: 'Observer', description: 'Read-only access to issues and articles', permissions: [Permission.ISSUE_READ, Permission.ARTICLE_READ] },
+  { id: '00000000-0000-0000-0000-000000000006', name: 'Integration', description: 'Machine access: read issues, create issues, comment', permissions: [Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.COMMENT_CREATE] },
 ];
 
 async function seedSystemRoles() {
