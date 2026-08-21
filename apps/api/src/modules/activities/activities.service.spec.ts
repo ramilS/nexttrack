@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ActivitiesService } from './activities.service';
 import { ActivitiesRepository } from './activities.repository';
-import { ActivityType } from '@prisma/client';
+import { ActivityType, UserKind } from '@prisma/client';
 import { ActivityEntry } from './activity-builder';
 
 describe('ActivitiesService', () => {
@@ -93,7 +93,7 @@ describe('ActivitiesService', () => {
         type,
         payload,
         createdAt: new Date(),
-        actor: { id: actorId, name: 'A', email: 'a@b.c', avatarUrl: null, kind: 'HUMAN' },
+        actor: { id: actorId, name: 'A', email: 'a@b.c', avatarUrl: null, kind: UserKind.HUMAN },
       };
       repo.create.mockResolvedValue(created);
 
@@ -145,7 +145,7 @@ describe('ActivitiesService', () => {
             type: ActivityType.STATUS_CHANGE,
             payload: { from: 'a', to: 'b' },
             createdAt,
-            actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null, kind: 'HUMAN' },
+            actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null, kind: UserKind.HUMAN },
           },
         ],
         meta: { nextCursor: null, pageSize: 50, hasNextPage: false },
@@ -159,7 +159,7 @@ describe('ActivitiesService', () => {
         type: ActivityType.STATUS_CHANGE,
         payload: { from: 'a', to: 'b' },
         createdAt: '2026-01-02T03:04:05.000Z',
-        actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null, kind: 'HUMAN' },
+        actor: { id: 'u1', name: 'U', email: 'u@x.io', avatarUrl: null, kind: UserKind.HUMAN },
       });
     });
 
@@ -172,7 +172,7 @@ describe('ActivitiesService', () => {
             type: ActivityType.ISSUE_CREATED,
             payload: {},
             createdAt: new Date('2026-01-02T03:04:05.000Z'),
-            actor: { id: 'svc-1', name: 'CI Bot', email: 'ci-bot@x.io', avatarUrl: null, kind: 'SERVICE' },
+            actor: { id: 'svc-1', name: 'CI Bot', email: 'ci-bot@x.io', avatarUrl: null, kind: UserKind.SERVICE },
           },
         ],
         meta: { nextCursor: null, pageSize: 50, hasNextPage: false },
