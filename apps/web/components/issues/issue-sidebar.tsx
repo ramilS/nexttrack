@@ -10,6 +10,7 @@ import { PriorityBadge } from '@/components/shared/priority-badge';
 import { IssueTypeIcon } from '@/components/shared/issue-type-icon';
 import { UserAvatar } from '@/components/shared/user-avatar';
 import { RelativeTime } from '@/components/shared/relative-time';
+import { ServiceActorBadge } from '@/components/shared/service-actor-badge';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -375,7 +376,12 @@ export function IssueSidebar({ issue, projectKey, className, readOnly, onDelete,
       <div className="space-y-0.5 text-[11px] text-muted-foreground">
         <div>
           Created <RelativeTime date={issue.createdAt} className="text-[11px]" />
-          {issue.reporter && <> by {issue.reporter.name}</>}
+          {issue.reporter && (
+            <>
+              {' '}by {issue.reporter.name}
+              {issue.reporter.kind === 'SERVICE' && <ServiceActorBadge className="ml-1" />}
+            </>
+          )}
         </div>
         <div>Updated <RelativeTime date={issue.updatedAt} className="text-[11px]" /></div>
       </div>

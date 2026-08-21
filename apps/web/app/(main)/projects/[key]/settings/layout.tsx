@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
-import { Settings, Tags, Columns3, Package, Users, GitBranch, Users2, UserCog, Zap, Webhook, Plug, Sparkles } from 'lucide-react';
+import { Settings, Tags, Columns3, Package, Users, GitBranch, Users2, UserCog, Zap, Webhook, Plug, Sparkles, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SETTINGS_NAV = [
@@ -17,6 +17,7 @@ const SETTINGS_NAV = [
   { label: 'Automation', href: '/workflow-rules', icon: Zap },
   { label: 'Webhooks', href: '/webhooks', icon: Webhook },
   { label: 'Integrations', href: '/integrations', icon: Plug },
+  { label: 'API Keys', href: '/api-keys', icon: KeyRound },
   { label: 'AI Docs', href: '/ai-docs', icon: Sparkles },
 ];
 

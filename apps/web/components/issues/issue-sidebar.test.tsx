@@ -106,7 +106,7 @@ describe('IssueSidebar — Assignee Picker', () => {
 
   it('shows assigned user name in trigger', () => {
     const issue = buildIssueDto({
-      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null },
+      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null, kind: 'HUMAN' },
     });
     render(<IssueSidebar issue={issue} projectKey="PROJ" />);
 
@@ -161,7 +161,7 @@ describe('IssueSidebar — Assignee Picker', () => {
 
   it('shows "Unassign" button when someone is assigned', () => {
     const issue = buildIssueDto({
-      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null },
+      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null, kind: 'HUMAN' },
     });
     render(<IssueSidebar issue={issue} projectKey="PROJ" />);
 
@@ -171,7 +171,7 @@ describe('IssueSidebar — Assignee Picker', () => {
   it('calls updateIssue with null assigneeId on Unassign click', async () => {
     const user = userEvent.setup();
     const issue = buildIssueDto({
-      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null },
+      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null, kind: 'HUMAN' },
     });
     render(<IssueSidebar issue={issue} projectKey="PROJ" />);
 
@@ -211,7 +211,7 @@ describe('IssueSidebar — Assignee Picker', () => {
 
   it('highlights currently assigned member with check icon', () => {
     const issue = buildIssueDto({
-      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null },
+      assignee: { id: 'bob-1', name: 'Bob Developer', email: 'bob@test.com', avatarUrl: null, kind: 'HUMAN' },
     });
     render(<IssueSidebar issue={issue} projectKey="PROJ" />);
 
@@ -359,5 +359,43 @@ describe('IssueSidebar — read-only fallback (no ISSUE_UPDATE)', () => {
     // But values are still shown
     expect(screen.getByText('backend')).toBeInTheDocument();
     expect(screen.getByText('2h 30m')).toBeInTheDocument();
+  });
+});
+
+describe('IssueSidebar — reporter kind', () => {
+  beforeEach(() => {
+    resetFactoryCounter();
+    mockMutate.mockClear();
+  });
+
+  it('marks an integration-authored issue with the service badge', () => {
+    const issue = buildIssueDto({
+      reporter: {
+        id: 'bot-1',
+        name: 'CI Bot',
+        email: 'ci-bot@test.com',
+        avatarUrl: null,
+        kind: 'SERVICE',
+      },
+    });
+    render(<IssueSidebar issue={issue} projectKey="PROJ" />);
+
+    expect(screen.getByText('Integration')).toBeInTheDocument();
+    expect(screen.getByLabelText('Created by an integration')).toBeInTheDocument();
+  });
+
+  it('does not badge a human reporter', () => {
+    const issue = buildIssueDto({
+      reporter: {
+        id: 'human-1',
+        name: 'Alice Reporter',
+        email: 'alice@test.com',
+        avatarUrl: null,
+        kind: 'HUMAN',
+      },
+    });
+    render(<IssueSidebar issue={issue} projectKey="PROJ" />);
+
+    expect(screen.queryByText('Integration')).not.toBeInTheDocument();
   });
 });

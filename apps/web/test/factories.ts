@@ -50,7 +50,7 @@ export function buildIssueListItem(overrides?: Partial<IssueListItem>): IssueLis
     priority: 'MEDIUM',
     type: 'TASK',
     assignee: null,
-    reporter: { id: uid(), name: 'Reporter', email: 'reporter@test.com', avatarUrl: null },
+    reporter: { id: uid(), name: 'Reporter', email: 'reporter@test.com', avatarUrl: null, kind: 'HUMAN' },
     tags: [],
     estimate: null,
     spent: 0,

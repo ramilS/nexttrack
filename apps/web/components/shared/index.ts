@@ -12,3 +12,4 @@ export { ConfirmDialog } from './confirm-dialog';
 export { RelativeTime } from './relative-time';
 export { AsyncContent } from './async-content';
 export { ErrorBoundary } from './error-boundary';
+export { ServiceActorBadge } from './service-actor-badge';
