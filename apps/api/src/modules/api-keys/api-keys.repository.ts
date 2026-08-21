@@ -109,9 +109,14 @@ export class ApiKeysRepository {
     });
   }
 
+  /**
+   * Idempotent: `revokedAt: null` in the filter means a second concurrent
+   * revoke of the same key matches zero rows instead of clobbering the
+   * first call's timestamp — no error either way.
+   */
   async revoke(id: string, tx?: Tx): Promise<void> {
-    await this.db(tx).projectApiKey.update({
-      where: { id },
+    await this.db(tx).projectApiKey.updateMany({
+      where: { id, revokedAt: null },
       data: { revokedAt: new Date() },
     });
   }

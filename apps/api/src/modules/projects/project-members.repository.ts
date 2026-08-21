@@ -257,6 +257,13 @@ export class ProjectMembersRepository {
     await this.removeAndCleanup(userId, projectId, tx);
   }
 
+  /**
+   * `deleteMany` (not `delete`) on purpose: a concurrent caller may have
+   * already removed this membership row (e.g. two overlapping API-key
+   * revokes racing on the same principal). `delete` throws P2025 when the
+   * row is gone; `deleteMany` just reports zero affected rows, so a
+   * duplicate removal is a no-op instead of an unhandled error.
+   */
   private async removeAndCleanup(
     userId: string,
     projectId: string,
@@ -269,8 +276,8 @@ export class ProjectMembersRepository {
     await tx.issueWatcher.deleteMany({
       where: { userId, issue: { projectId } },
     });
-    await tx.projectMember.delete({
-      where: { userId_projectId: { userId, projectId } },
+    await tx.projectMember.deleteMany({
+      where: { userId, projectId },
     });
   }
 

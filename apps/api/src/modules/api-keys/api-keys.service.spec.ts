@@ -1,7 +1,7 @@
 import { Test } from '@nestjs/testing';
 import { UserKind } from '@prisma/client';
 import { ErrorCode } from '@repo/shared';
-import { buildUser } from '@test/helpers';
+import { buildUser, createMockPrisma } from '@test/helpers';
 import { ApiKeysService } from './api-keys.service';
 import { ApiKeysRepository } from './api-keys.repository';
 import { INTEGRATION_ROLE_ID } from './integration-role';
@@ -9,6 +9,17 @@ import { UsersRepository } from '@/modules/users/users.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { TransactionService } from '@/common/repository/transaction.service';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
+
+/**
+ * Shape of the transaction handle `ProjectMembersRepository.remove` actually
+ * calls (a slice of `Prisma.TransactionClient`), for the race-condition test
+ * below where we drive the real repository instead of a full mock.
+ */
+interface FakeMemberCleanupTx {
+  issue: { updateMany: jest.Mock };
+  issueWatcher: { deleteMany: jest.Mock };
+  projectMember: { deleteMany: jest.Mock; delete: jest.Mock };
+}
 
 describe('ApiKeysService', () => {
   let service: ApiKeysService;
@@ -158,5 +169,71 @@ describe('ApiKeysService', () => {
     });
     expect(repo.revoke).not.toHaveBeenCalled();
     expect(membersRepo.remove).not.toHaveBeenCalled();
+  });
+
+  it('completes without throwing when a concurrent revoke already removed the membership row', async () => {
+    // Both concurrent callers read the key as not-yet-revoked before either
+    // transaction commits, so both pass the guard in `revoke()`.
+    repo.findById.mockResolvedValue({
+      id: 'key-1',
+      projectId: PROJECT_ID,
+      userId: 'svc-1',
+      name: 'MyTracker',
+      prefix: 'nt_abcdefgh',
+      expiresAt: null,
+      revokedAt: null,
+      lastUsedAt: null,
+      createdAt: new Date(),
+    });
+
+    // Reproduces the missing-row condition a losing concurrent revoke hits:
+    // the winner's transaction already deleted this row, so a real Postgres
+    // `deleteMany` reports zero affected rows here — not an error. `delete`
+    // is wired to throw so the test fails loudly if the fix regresses back
+    // to the non-tolerant call.
+    const fakeTx: FakeMemberCleanupTx = {
+      issue: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      issueWatcher: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+      projectMember: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+        delete: jest.fn().mockRejectedValue(
+          Object.assign(new Error('An operation failed because it depends on one or more records that were required but not found.'), {
+            code: 'P2025',
+          }),
+        ),
+      },
+    };
+
+    // The real repository, not a mock: it is the one whose delegate choice
+    // (`deleteMany` vs `delete`) determines whether this scenario throws.
+    const realMembersRepo = new ProjectMembersRepository(
+      createMockPrisma(),
+      new TransactionService(createMockPrisma()),
+    );
+
+    const moduleRef = await Test.createTestingModule({
+      providers: [
+        ApiKeysService,
+        { provide: ApiKeysRepository, useValue: repo },
+        { provide: UsersRepository, useValue: usersRepo },
+        { provide: ProjectMembersRepository, useValue: realMembersRepo },
+        {
+          provide: TransactionService,
+          useValue: { run: jest.fn((cb: (tx: FakeMemberCleanupTx) => unknown) => cb(fakeTx)) },
+        },
+        {
+          provide: PermissionsCacheService,
+          useValue: { invalidateAll: jest.fn().mockResolvedValue(undefined) },
+        },
+      ],
+    }).compile();
+    const racingService = moduleRef.get(ApiKeysService);
+
+    await expect(racingService.revoke(PROJECT_ID, 'key-1')).resolves.toBeUndefined();
+
+    expect(fakeTx.projectMember.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'svc-1', projectId: PROJECT_ID },
+    });
+    expect(fakeTx.projectMember.delete).not.toHaveBeenCalled();
   });
 });
