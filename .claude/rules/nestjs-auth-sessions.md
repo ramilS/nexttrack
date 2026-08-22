@@ -52,10 +52,18 @@ resolves it to the key's backing `User` (`kind: SERVICE`) and populates
 so every downstream guard (`PermissionGuard` included) is unchanged.
 
 - **One error code for every failure mode** — missing key, unknown hash,
-  revoked, expired, or a principal that is blocked/soft-deleted all throw
-  `UnauthorizedException(ErrorCode.API_KEY_INVALID)`. Distinct codes per
+  revoked, expired, a shape that cannot be one of ours, or a principal that is
+  blocked/soft-deleted all throw `UnauthenticatedError(ErrorCode.API_KEY_INVALID)`
+  — the domain error, not a NestJS `UnauthorizedException`, so the rule that HTTP
+  exceptions stay in the transport layer holds here too. Distinct codes per
   failure would let an attacker binary-search a guessed key into existence;
   don't add finer-grained codes here.
+- **Failed attempts are rate-limited per IP.** A presented key whose prefix or
+  length cannot match ours is rejected before any query; beyond that, failures are
+  counted per client IP (`API_KEY_AUTH_*` config, 20/60s by default) and answered
+  with `429`. The counter's increment and its expiry are armed in one Lua script,
+  and the script re-arms a TTL that is missing — a counter left without one would
+  lock that IP out permanently.
 - **`SERVICE` principals cannot authenticate with a password.** `AuthService.login`
   rejects `user.kind === UserKind.SERVICE` outright — a service account has no
   password hash to check, and API-key auth is its only entry point.
