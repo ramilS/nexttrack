@@ -18,6 +18,7 @@ export const mockAppConfig: AppConfig = {
   apiUrl: 'http://localhost:3001',
   webUrl: 'http://localhost:3000',
   requestTimeoutMs: 30_000,
+  trustProxy: false,
 };
 
 export const mockSsoConfig: SsoConfig = {

@@ -1,8 +1,10 @@
 import { INestApplication } from '@nestjs/common';
+import { ConfigType } from '@nestjs/config';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import { json, urlencoded } from 'express';
 import { requestIdMiddleware } from '@/common/context/request-id.middleware';
+import { appConfig } from '@/config';
 
 // Express/body-parser defaults to 100kb, which is too small for this app:
 // Tiptap rich-text (issue descriptions, comments) and especially the migration
@@ -25,9 +27,24 @@ const JSON_BODY_LIMIT = '10mb';
  * behavioral coverage in tests but would force every supertest URL to carry it.
  */
 export function configureApp(app: INestApplication): void {
+  applyTrustProxy(app);
+
   app.use(requestIdMiddleware);
   app.use(helmet());
   app.use(cookieParser());
   app.use(json({ limit: JSON_BODY_LIMIT }));
   app.use(urlencoded({ extended: true, limit: JSON_BODY_LIMIT }));
+}
+
+/**
+ * Defaults to `false` (Express's own default), so `req.ip` is the proxy's
+ * address unless a deployer opts in — the failed-attempt limiter (keyed on
+ * IP) and every security-event log otherwise bucket all clients behind one
+ * reverse proxy together. Split out from `configureApp` so it is testable
+ * without also exercising `cookie-parser`'s CJS default export, which
+ * ts-jest's module interop cannot resolve in this project's config.
+ */
+export function applyTrustProxy(app: INestApplication): void {
+  const { trustProxy } = app.get<ConfigType<typeof appConfig>>(appConfig.KEY);
+  app.getHttpAdapter().getInstance().set('trust proxy', trustProxy);
 }

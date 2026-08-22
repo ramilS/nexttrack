@@ -1,4 +1,4 @@
-import { envBoolean, envBooleanOptional, productionSecret } from './helpers';
+import { envBoolean, envBooleanOptional, envTrustProxy, productionSecret } from './helpers';
 
 describe('productionSecret', () => {
   const originalNodeEnv = process.env.NODE_ENV;
@@ -76,5 +76,31 @@ describe('envBooleanOptional', () => {
 
   it('rejects non-boolean strings', () => {
     expect(() => envBooleanOptional().parse('enabled')).toThrow();
+  });
+});
+
+describe('envTrustProxy', () => {
+  it('defaults to false when unset, matching Express’s own default', () => {
+    expect(envTrustProxy().parse(undefined)).toBe(false);
+  });
+
+  it("parses the literal strings 'true' and 'false'", () => {
+    expect(envTrustProxy().parse('true')).toBe(true);
+    expect(envTrustProxy().parse('false')).toBe(false);
+  });
+
+  it('parses a non-negative integer as a hop count', () => {
+    expect(envTrustProxy().parse('1')).toBe(1);
+    expect(envTrustProxy().parse('0')).toBe(0);
+    expect(envTrustProxy().parse('3')).toBe(3);
+  });
+
+  it('rejects a negative or non-integer hop count', () => {
+    expect(() => envTrustProxy().parse('-1')).toThrow();
+    expect(() => envTrustProxy().parse('1.5')).toThrow();
+  });
+
+  it('rejects a value that is neither a boolean literal nor a number', () => {
+    expect(() => envTrustProxy().parse('loopback')).toThrow();
   });
 });

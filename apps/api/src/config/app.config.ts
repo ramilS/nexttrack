@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 import { z } from 'zod';
-import { envBoolean } from './helpers';
+import { envBoolean, envTrustProxy } from './helpers';
 
 const schema = z.object({
   nodeEnv: z.enum(['development', 'production', 'test']).default('development'),
@@ -11,6 +11,10 @@ const schema = z.object({
   // Swagger UI + /docs-json are an unauthenticated surface — off unless
   // explicitly enabled (dev/staging).
   swaggerEnabled: envBoolean(false),
+  // Express's own resolution of req.ip is the proxy's address unless told
+  // which hop to trust — off by default so behaviour is unchanged for a
+  // deployment with no reverse proxy in front of it.
+  trustProxy: envTrustProxy(),
 });
 
 export type AppConfig = z.infer<typeof schema>;
@@ -23,5 +27,6 @@ export const appConfig = registerAs('app', (): AppConfig => {
     webUrl: process.env.WEB_URL,
     requestTimeoutMs: process.env.APP_REQUEST_TIMEOUT_MS,
     swaggerEnabled: process.env.SWAGGER_ENABLED,
+    trustProxy: process.env.TRUST_PROXY,
   });
 });

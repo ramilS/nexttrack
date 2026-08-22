@@ -60,3 +60,28 @@ export function envBooleanOptional() {
     .transform((v) => v === 'true')
     .optional();
 }
+
+/**
+ * Express's `trust proxy` setting, restricted to the two forms that make
+ * sense for a deployer to configure directly: 'true'/'false', or a
+ * non-negative integer hop count (Express counts that many hops from the
+ * client before trusting `X-Forwarded-For`). Unset → `false`, matching
+ * Express's own default — current behaviour for anyone not behind a proxy
+ * is unchanged. A deployer behind exactly one reverse proxy sets `1`.
+ */
+export function envTrustProxy() {
+  return z
+    .string()
+    .optional()
+    .transform((value, ctx): boolean | number => {
+      if (value === undefined || value === 'false') return false;
+      if (value === 'true') return true;
+      const hops = Number(value);
+      if (Number.isInteger(hops) && hops >= 0) return hops;
+      ctx.addIssue({
+        code: 'custom',
+        message: `TRUST_PROXY must be "true", "false", or a non-negative integer hop count, got "${value}"`,
+      });
+      return false;
+    });
+}
