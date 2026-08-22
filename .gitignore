@@ -41,7 +41,19 @@ yarn-error.log*
 .docker
 .playwright-mcp
 .agents
-.claude
+# .claude/ holds project conventions (rules/, hooks/, skills/) that CLAUDE.md
+# refers to and the code-review workflow matches against — those are versioned.
+# Only the per-machine parts stay ignored.
+.claude/settings.local.json
+.claude/worktrees/
+# Symlinks into the ignored .agents/ tree — tracking them would hand teammates
+# dangling links, since the targets are not versioned.
+.claude/skills/vercel-react-best-practices
+.claude/skills/web-design-guidelines
+
+# Python bytecode caches (a vendored skill under apps/web ships scripts)
+**/__pycache__/
+*.pyc
 .worktrees/
 .codex
 .pnpm-store
