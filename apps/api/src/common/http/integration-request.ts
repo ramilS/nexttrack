@@ -9,6 +9,6 @@ export interface IntegrationRequest {
   headers: IncomingHttpHeaders;
   /** Express's own resolution — the same source the login path logs for security events. */
   ip?: string;
-  user?: RequestUser & { kind: UserKind };
+  user?: RequestUser & { kind?: UserKind };
   apiKeyId?: string;
 }
