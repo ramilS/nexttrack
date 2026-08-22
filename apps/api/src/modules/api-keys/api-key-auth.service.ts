@@ -1,15 +1,16 @@
-import { HttpException, HttpStatus, Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus, Inject, Injectable } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { UserKind } from '@prisma/client';
 import { ErrorCode } from '@repo/shared';
 import { AppLogger } from '@/common/logging/app-logger';
 import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import { setRequestUserId } from '@/common/context/request-context';
+import { UnauthenticatedError } from '@/common/errors/domain.errors';
 import type { IntegrationRequest } from '@/common/http/integration-request';
 import { apiKeyAuthConfig } from '@/config';
 import { ValkeyService } from '@/valkey/valkey.service';
 import { ApiKeysRepository } from './api-keys.repository';
-import { hashApiKey } from './api-key-token';
+import { hashApiKey, hasPlausibleApiKeyShape } from './api-key-token';
 
 /**
  * Writing lastUsedAt on every request would turn a busy integration into one
@@ -46,6 +47,17 @@ export class ApiKeyAuthService {
     // security events, not a spoofable header we'd parse ourselves.
     const ip = req.ip ?? UNKNOWN_IP;
 
+    // A value with the wrong namespace or the wrong length cannot possibly
+    // be one of ours — reject it before spending a Valkey read or a DB
+    // lookup on it. Still recorded as a failed attempt: skipping that would
+    // hand an attacker an amplification path that never counts toward the
+    // limiter.
+    if (!hasPlausibleApiKeyShape(presented)) {
+      this.logger.warn('API key rejected', { keyId: null, ip });
+      await this.recordFailedAttempt(ip);
+      throw new UnauthenticatedError(ErrorCode.API_KEY_INVALID);
+    }
+
     if (await this.isRateLimited(ip)) {
       // Object form (not a bare string): AllExceptionsFilter reads `.code`
       // straight off the response body for the client-facing `error.code` —
@@ -72,7 +84,7 @@ export class ApiKeyAuthService {
     ) {
       this.logger.warn('API key rejected', { keyId: row?.id ?? null, ip });
       await this.recordFailedAttempt(ip);
-      throw new UnauthorizedException(ErrorCode.API_KEY_INVALID);
+      throw new UnauthenticatedError(ErrorCode.API_KEY_INVALID);
     }
 
     req.user = {

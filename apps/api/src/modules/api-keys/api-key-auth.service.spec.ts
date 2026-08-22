@@ -1,16 +1,19 @@
 import { Test } from '@nestjs/testing';
-import { HttpException, HttpStatus, UnauthorizedException } from '@nestjs/common';
+import { HttpException, HttpStatus } from '@nestjs/common';
 import { GlobalRole, UserKind } from '@prisma/client';
 import { ErrorCode } from '@repo/shared';
 import { ApiKeyAuthService } from './api-key-auth.service';
 import { ApiKeysRepository, ApiKeyPrincipalRow } from './api-keys.repository';
 import { hashApiKey } from './api-key-token';
+import { UnauthenticatedError } from '@/common/errors/domain.errors';
 import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import { ValkeyService } from '@/valkey/valkey.service';
 import { apiKeyAuthConfig } from '@/config';
 import type { IntegrationRequest } from '@/common/http/integration-request';
 
-const RAW = 'nt_test_key_value';
+// Matches the real shape (`nt_` + base64url of 32 bytes, 46 chars total) so
+// tests exercise the DB-lookup path rather than tripping the new pre-check.
+const RAW = 'nt_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const IP = '203.0.113.7';
 
 function principal(overrides: Partial<ApiKeyPrincipalRow> = {}): ApiKeyPrincipalRow {
@@ -98,12 +101,12 @@ describe('ApiKeyAuthService', () => {
   ])('rejects a %s with an indistinguishable error', async (_label, row) => {
     repo.findActiveByHash.mockResolvedValue(row);
 
-    await expect(service.authenticate(req, RAW)).rejects.toThrow(UnauthorizedException);
-    // NestJS wraps a string ctor arg into `{ statusCode, message, error }`; the
-    // ErrorCode always surfaces as `.message`, which is what AllExceptionsFilter
-    // reads to build the client-facing `error.code`.
+    await expect(service.authenticate(req, RAW)).rejects.toThrow(UnauthenticatedError);
+    // The domain error's `code` (and default `message`, since none is passed)
+    // is `ErrorCode.API_KEY_INVALID` — what `AllExceptionsFilter` reads to
+    // build the client-facing `error.code`.
     await expect(service.authenticate(req, RAW)).rejects.toMatchObject({
-      message: ErrorCode.API_KEY_INVALID,
+      code: ErrorCode.API_KEY_INVALID,
     });
     expect(req.user).toBeUndefined();
   });
@@ -252,5 +255,43 @@ describe('ApiKeyAuthService — failed-attempt rate limiting', () => {
 
     expect(valkey.get).toHaveBeenCalledWith('apikeyauth:fail:198.51.100.9');
     expect(valkey.incrementWithExpiry).toHaveBeenCalledWith('apikeyauth:fail:198.51.100.9', WINDOW);
+  });
+});
+
+describe('ApiKeyAuthService — implausible key shape', () => {
+  it.each([
+    ['wrong namespace', `xx_${RAW.slice(3)}`],
+    ['too short', RAW.slice(0, -1)],
+    ['too long', `${RAW}x`],
+  ])('rejects a %s value before touching Valkey or the DB', async (_label, presented) => {
+    const { service, repo, valkey, req } = await buildService();
+
+    await expect(service.authenticate(req, presented)).rejects.toMatchObject({
+      code: ErrorCode.API_KEY_INVALID,
+    });
+
+    // The whole point of the pre-check is to skip both the rate-limit read
+    // and the indexed DB lookup for a value that cannot possibly be ours.
+    expect(valkey.get).not.toHaveBeenCalled();
+    expect(repo.findActiveByHash).not.toHaveBeenCalled();
+  });
+
+  it('still counts an implausible value toward the failed-attempt limiter', async () => {
+    const { service, valkey, req } = await buildService();
+
+    await service.authenticate(req, 'not-even-close').catch(() => undefined);
+
+    // Skipping this would hand an attacker an uncounted amplification path
+    // that never trips the 429 — the failure mode M-2's fix must not reopen.
+    expect(valkey.incrementWithExpiry).toHaveBeenCalledTimes(1);
+    expect(valkey.incrementWithExpiry).toHaveBeenCalledWith(`apikeyauth:fail:${IP}`, 60);
+  });
+
+  it('accepts a plausibly-shaped value through to the DB lookup', async () => {
+    const { service, repo, req } = await buildService();
+
+    await service.authenticate(req, RAW);
+
+    expect(repo.findActiveByHash).toHaveBeenCalledWith(hashApiKey(RAW));
   });
 });
