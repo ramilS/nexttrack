@@ -860,11 +860,13 @@ export class IssuesRepository {
    * Detail lookup by id, any status — used to hydrate an issue resolved via
    * `findByDedupKey` (a fast-path hit or the winner of a lost insert race).
    * Same include shape as `createWithDetails` so `toIssueDetail` receives an
-   * identical row either way.
+   * identical row either way. `findFirst` + `deletedAt`/`projectId` (not a
+   * raw-id `findUnique`) so this is safe by construction rather than by the
+   * caller always sourcing the id from a `findByDedupKey` that filters both.
    */
-  findDetailById(issueId: string): Promise<IssueDetailRow | null> {
-    return this.prisma.issue.findUnique({
-      where: { id: issueId },
+  findDetailById(projectId: string, issueId: string): Promise<IssueDetailRow | null> {
+    return this.prisma.issue.findFirst({
+      where: { id: issueId, projectId, deletedAt: null },
       include: DETAIL_INCLUDE,
     });
   }

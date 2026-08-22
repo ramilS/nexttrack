@@ -93,7 +93,7 @@ export class IssuesService {
     if (dto.dedupKey) {
       const existing = await this.issuesRepo.findByDedupKey(project.id, dto.dedupKey);
       if (existing) {
-        return { issue: await this.detailById(existing.id, userId), deduplicated: true };
+        return { issue: await this.detailById(project.id, existing.id, userId), deduplicated: true };
       }
     }
 
@@ -192,7 +192,7 @@ export class IssuesService {
             projectId: project.id,
             issueId: winner.id,
           });
-          return { issue: await this.detailById(winner.id, userId), deduplicated: true };
+          return { issue: await this.detailById(project.id, winner.id, userId), deduplicated: true };
         }
       }
       throw err;
@@ -644,8 +644,12 @@ export class IssuesService {
 
   /** Hydrates a dedup-resolved issue id into the same `IssueDetail` shape a
    * fresh create returns. */
-  private async detailById(issueId: string, userId: string): Promise<IssueDetail> {
-    const row = await this.issuesRepo.findDetailById(issueId);
+  private async detailById(
+    projectId: string,
+    issueId: string,
+    userId: string,
+  ): Promise<IssueDetail> {
+    const row = await this.issuesRepo.findDetailById(projectId, issueId);
     if (!row) {
       throw new NotFoundError(ErrorCode.ISSUE_NOT_FOUND);
     }

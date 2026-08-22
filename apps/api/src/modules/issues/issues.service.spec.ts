@@ -268,6 +268,8 @@ describe('IssuesService', () => {
       expect(result.deduplicated).toBe(true);
       expect(result.issue.id).toBe('existing-1');
       expect(issuesRepo.createWithDetails).not.toHaveBeenCalled();
+      // Detail hydration is project-scoped, not a raw-id lookup.
+      expect(issuesRepo.findDetailById).toHaveBeenCalledWith(project.id, 'existing-1');
     });
 
     it('recovers from a lost insert race by returning the winner', async () => {
@@ -285,6 +287,7 @@ describe('IssuesService', () => {
 
       expect(result.deduplicated).toBe(true);
       expect(result.issue.id).toBe('winner-1');
+      expect(issuesRepo.findDetailById).toHaveBeenCalledWith(project.id, 'winner-1');
     });
 
     it('rethrows a P2002 that is not about the dedup key', async () => {
