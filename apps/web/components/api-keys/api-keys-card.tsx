@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { KeyRound } from 'lucide-react';
+import { format } from 'date-fns';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,7 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { AsyncContent } from '@/components/shared/async-content';
 import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { RelativeTime } from '@/components/shared/relative-time';
-import { dateInputToIsoOrUndefined } from '@/lib/dates';
+import { dateInputToEndOfDayIsoOrUndefined } from '@/lib/dates';
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '@/lib/hooks/use-api-keys';
 import type { ApiKey } from '@repo/shared/schemas';
 import { ApiKeyCreatedDialog } from './api-key-created-dialog';
@@ -38,7 +39,7 @@ export function ApiKeysCard({ projectKey }: ApiKeysCardProps) {
     if (!trimmedName) return;
 
     createApiKey.mutate(
-      { name: trimmedName, expiresAt: dateInputToIsoOrUndefined(expiresAt) },
+      { name: trimmedName, expiresAt: dateInputToEndOfDayIsoOrUndefined(expiresAt) },
       {
         onSuccess: () => {
           setName('');
@@ -75,6 +76,7 @@ export function ApiKeysCard({ projectKey }: ApiKeysCardProps) {
               id="api-key-expires"
               type="date"
               value={expiresAt}
+              min={format(new Date(), 'yyyy-MM-dd')}
               onChange={(e) => setExpiresAt(e.target.value)}
               className="w-40"
             />

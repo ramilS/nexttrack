@@ -38,6 +38,33 @@ export function dateInputToIsoOrUndefined(value: string): string | undefined {
 }
 
 /**
+ * Convert a `<input type="date">` value (`YYYY-MM-DD`) to the ISO 8601
+ * instant marking the END of that day, in the browser's local timezone.
+ *
+ * For an expiry date this is the meaning that cannot surprise a user:
+ * picking "today" keeps the key valid through the rest of today as the
+ * user experiences it, rather than expiring it at UTC midnight (already in
+ * the past for every timezone east of UTC). Using the *local* end of day —
+ * not the UTC one — matters at the edges too: for a timezone behind UTC,
+ * UTC 23:59:59 falls before local midnight, which would expire the key
+ * hours before the user's day is actually over.
+ */
+export function dateInputToEndOfDayIso(value: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  if (year === undefined || month === undefined || day === undefined) {
+    throw new Error(`Invalid date input: "${value}"`);
+  }
+  return new Date(year, month - 1, day, 23, 59, 59, 999).toISOString();
+}
+
+/**
+ * Same as `dateInputToEndOfDayIso` but returns `undefined` for empty input.
+ */
+export function dateInputToEndOfDayIsoOrUndefined(value: string): string | undefined {
+  return value ? dateInputToEndOfDayIso(value) : undefined;
+}
+
+/**
  * Convert an ISO datetime string back to `YYYY-MM-DD` for binding to
  * `<input type="date">`. Returns `''` for nullish input.
  */

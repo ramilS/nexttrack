@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, waitFor } from '@/test/test-utils';
+import { fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ApiKey, IssuedApiKey } from '@repo/shared/schemas';
 import { ApiKeysCard } from './api-keys-card';
@@ -14,6 +15,7 @@ import { ApiKeysCard } from './api-keys-card';
 let mockKeys: ApiKey[] = [];
 let issuedKey: IssuedApiKey | null = null;
 const revokeMutate = vi.fn();
+const createMutateSpy = vi.fn();
 
 function useCreateApiKeyMock() {
   const [data, setData] = useState<IssuedApiKey | null>(null);
@@ -21,9 +23,10 @@ function useCreateApiKeyMock() {
     data,
     isPending: false,
     mutate: (
-      _variables: { name: string; expiresAt?: string },
+      variables: { name: string; expiresAt?: string },
       options?: { onSuccess?: (result: IssuedApiKey) => void },
     ) => {
+      createMutateSpy(variables);
       if (!issuedKey) return;
       setData(issuedKey);
       options?.onSuccess?.(issuedKey);
@@ -43,6 +46,7 @@ describe('ApiKeysCard', () => {
     mockKeys = [];
     issuedKey = null;
     revokeMutate.mockClear();
+    createMutateSpy.mockClear();
   });
 
   it('shows the secret once after creation and only the prefix afterwards', async () => {
@@ -114,5 +118,49 @@ describe('ApiKeysCard', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /yes, revoke/i }));
     expect(revokeMutate).toHaveBeenCalledWith('k1');
+  });
+
+  it('rejects a past expiry date at the input level via min', () => {
+    render(<ApiKeysCard projectKey="DEMO" />);
+    const expiresInput = screen.getByLabelText('Expires') as HTMLInputElement;
+    const today = new Date();
+    const expectedMin = [
+      today.getFullYear(),
+      String(today.getMonth() + 1).padStart(2, '0'),
+      String(today.getDate()).padStart(2, '0'),
+    ].join('-');
+    expect(expiresInput.min).toBe(expectedMin);
+  });
+
+  it('sends the end-of-day instant for a chosen expiry date, not UTC midnight', async () => {
+    render(<ApiKeysCard projectKey="DEMO" />);
+
+    // A date safely in the future — the input's `min` (today) would block
+    // native form submission for a past date.
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    const futureValue = [
+      future.getFullYear(),
+      String(future.getMonth() + 1).padStart(2, '0'),
+      String(future.getDate()).padStart(2, '0'),
+    ].join('-');
+
+    await userEvent.type(screen.getByLabelText('Name'), 'MyTracker');
+    const expiresInput = screen.getByLabelText('Expires');
+    // userEvent.type does not support type="date" inputs reliably across
+    // browsers/jsdom; fireEvent.change is the standard escape hatch for
+    // committing a value to a controlled date input in tests.
+    fireEvent.change(expiresInput, { target: { value: futureValue } });
+
+    await userEvent.click(screen.getByRole('button', { name: /create key/i }));
+
+    expect(createMutateSpy).toHaveBeenCalledTimes(1);
+    const call = createMutateSpy.mock.calls[0];
+    expect(call).toBeDefined();
+    const sentExpiresAt = (call as [{ expiresAt: string }])[0].expiresAt;
+    expect(sentExpiresAt).not.toBe(`${futureValue}T00:00:00.000Z`);
+    const parsed = new Date(sentExpiresAt);
+    expect(parsed.getHours()).toBe(23);
+    expect(parsed.getMinutes()).toBe(59);
   });
 });
