@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { Copy, Check } from 'lucide-react';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -26,9 +27,15 @@ export function ApiKeyCreatedDialog({ apiKey, onOpenChange }: ApiKeyCreatedDialo
 
   function handleCopy() {
     if (!apiKey) return;
-    navigator.clipboard.writeText(apiKey.raw);
-    setCopied(true);
-    setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
+    navigator.clipboard.writeText(apiKey.raw).then(
+      () => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), COPY_FEEDBACK_MS);
+      },
+      () => {
+        toast.error('Could not copy the key — select and copy it manually.');
+      },
+    );
   }
 
   return (
