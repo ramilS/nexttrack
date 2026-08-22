@@ -309,6 +309,31 @@ A per-key limit column is deliberately not added. Until two integrations with
 materially different volumes exist, it is a setting nobody has asked for; it can be
 added later as a nullable override without reworking anything.
 
+**Deviation actually shipped.** The guard above describes what this section
+originally assumed; what was built is `ApiKeyAwareThrottlerGuard`, and it differs in
+the one respect that matters operationally. It does track a machine caller by **key
+id** (`apikey:${apiKeyId}`) rather than IP, so two integrations behind the same NAT —
+or one integration and the humans behind the same proxy — no longer fight over a
+shared bucket. But it does **not** apply a separate `rateLimitPerMinute` (this
+section's proposed 120/min default was never implemented as a per-key override): a
+machine caller's own bucket is still governed by the same three `ThrottlerModule`
+ceilings a human gets — 3/s, 20/10s, and 100/min.
+
+The consequence is concrete: 100/min is *below* the 120/min this section assumed a
+real integration would need, and the only lever is `THROTTLE_LONG_LIMIT`, which
+raises the ceiling for humans at the same time — there is no machine-only knob. The
+"burst above 3 req/s succeeds; above `rateLimitPerMinute` is throttled" case in
+§7 cannot be written against the shipped guard, because there is no independent
+`rateLimitPerMinute` to cross; delete it or rewrite it against `THROTTLE_LONG_LIMIT`.
+
+This was a deliberate call, not an oversight: a genuinely per-key limit means
+overriding `@nestjs/throttler` internals whose method signatures are
+version-coupled, and a subtly wrong override disables throttling silently — a worse
+failure mode than a documented, shared ceiling. Deployers pointing a high-volume
+integration (an error tracker, a CI pipeline firing on every build) at this API must
+raise `THROTTLE_LONG_LIMIT` first (see `.env.example` and the `CLAUDE.md` Gotchas
+entry) and accept that the new ceiling applies to human traffic too.
+
 ## 6. Frontend
 
 - **Project settings → API keys** (`apps/web/app/(main)/projects/[key]/settings/api-keys/`),
@@ -343,7 +368,7 @@ added later as a nullable override without reworking anything.
 | `Integration` role lacks `ISSUE_UPDATE` → `403` on update | proves the scope is actually bounded by the role |
 | `SERVICE` user absent from members list and assignee picker responses | the picker leak described in 6 |
 | Key revoked → next request `401` | proves revocation is immediate, not TTL-bound |
-| Machine burst above 3 req/s succeeds; above `rateLimitPerMinute` is throttled | proves the named buckets were actually bypassed |
+| ~~Machine burst above 3 req/s succeeds; above `rateLimitPerMinute` is throttled~~ — not written; see the §5.4 deviation note. `NODE_ENV=test` disables throttling outright, and the shipped guard has no independent per-key ceiling to cross. | — |
 
 **Harness requirement:** the partial unique index is created by raw SQL in a migration,
 and the integration harness builds its schema with `db push`, which skips
