@@ -99,11 +99,18 @@ export class ApiKeysRepository {
   /**
    * Unbounded by design: API keys are a human-managed list per project
    * (single digits in practice), not a growing data set — no pagination
-   * needed.
+   * needed. `retentionCutoff` bounds the one part of that list that DOES
+   * grow without limit: a project rotating keys monthly would otherwise
+   * accumulate an ever-growing tail of inert "Revoked" rows. A key revoked
+   * on or after the cutoff is still shown; one revoked earlier ages out. An
+   * unrevoked key (`revokedAt: null`) is always included, regardless of age.
    */
-  listByProject(projectId: string): Promise<ApiKeyRow[]> {
+  listByProject(projectId: string, retentionCutoff: Date): Promise<ApiKeyRow[]> {
     return this.prisma.projectApiKey.findMany({
-      where: { projectId },
+      where: {
+        projectId,
+        OR: [{ revokedAt: null }, { revokedAt: { gte: retentionCutoff } }],
+      },
       select: ROW_SELECT,
       orderBy: { createdAt: 'desc' },
     });

@@ -1,5 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
+import { ConfigType } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { ErrorCode } from '@repo/shared/error-codes';
 import { AppLogger } from '@/common/logging/app-logger';
@@ -8,9 +9,12 @@ import { PermissionsCacheService } from '@/common/cache/permissions-cache.servic
 import { TransactionService } from '@/common/repository/transaction.service';
 import { UsersRepository } from '@/modules/users/users.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
+import { apiKeyAuthConfig } from '@/config';
 import { ApiKeyRow, ApiKeysRepository } from './api-keys.repository';
 import { generateApiKey } from './api-key-token';
 import { INTEGRATION_ROLE_ID } from './integration-role';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export interface IssuedApiKey {
   key: ApiKeyRow;
@@ -37,6 +41,8 @@ export class ApiKeysService {
     private membersRepo: ProjectMembersRepository,
     private txService: TransactionService,
     private permissionsCache: PermissionsCacheService,
+    @Inject(apiKeyAuthConfig.KEY)
+    private config: ConfigType<typeof apiKeyAuthConfig>,
   ) {}
 
   async issue(
@@ -60,7 +66,10 @@ export class ApiKeysService {
   }
 
   list(projectId: string): Promise<ApiKeyRow[]> {
-    return this.repo.listByProject(projectId);
+    const retentionCutoff = new Date(
+      Date.now() - this.config.revokedKeyRetentionDays * MS_PER_DAY,
+    );
+    return this.repo.listByProject(projectId, retentionCutoff);
   }
 
   async revoke(projectId: string, keyId: string): Promise<void> {

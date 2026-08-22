@@ -9,6 +9,7 @@ import { UsersRepository } from '@/modules/users/users.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { TransactionService } from '@/common/repository/transaction.service';
 import { PermissionsCacheService } from '@/common/cache/permissions-cache.service';
+import { apiKeyAuthConfig } from '@/config';
 
 /**
  * Shape of the transaction handle `ProjectMembersRepository.remove` actually
@@ -75,6 +76,14 @@ describe('ApiKeysService', () => {
         {
           provide: PermissionsCacheService,
           useValue: { invalidateAll: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: apiKeyAuthConfig.KEY,
+          useValue: {
+            failedAttemptsLimit: 20,
+            failedAttemptsWindowSeconds: 60,
+            revokedKeyRetentionDays: 30,
+          },
         },
       ],
     }).compile();
@@ -225,6 +234,14 @@ describe('ApiKeysService', () => {
           provide: PermissionsCacheService,
           useValue: { invalidateAll: jest.fn().mockResolvedValue(undefined) },
         },
+        {
+          provide: apiKeyAuthConfig.KEY,
+          useValue: {
+            failedAttemptsLimit: 20,
+            failedAttemptsWindowSeconds: 60,
+            revokedKeyRetentionDays: 30,
+          },
+        },
       ],
     }).compile();
     const racingService = moduleRef.get(ApiKeysService);
@@ -235,5 +252,20 @@ describe('ApiKeysService', () => {
       where: { userId: 'svc-1', projectId: PROJECT_ID },
     });
     expect(fakeTx.projectMember.delete).not.toHaveBeenCalled();
+  });
+
+  describe('list', () => {
+    it('passes a retention cutoff computed from the configured window', async () => {
+      const before = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+      await service.list(PROJECT_ID);
+
+      expect(repo.listByProject).toHaveBeenCalledWith(PROJECT_ID, expect.any(Date));
+      const cutoff = repo.listByProject.mock.calls[0][1].getTime();
+      // Allow a small margin for the test's own execution time between
+      // computing `before` and the service computing its own `Date.now()`.
+      expect(cutoff).toBeGreaterThanOrEqual(before - 1000);
+      expect(cutoff).toBeLessThanOrEqual(before + 1000);
+    });
   });
 });
