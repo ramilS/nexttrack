@@ -141,8 +141,13 @@ export class UsersRepository {
 
   async findActiveIdsByIds(ids: string[]): Promise<string[]> {
     if (ids.length === 0) return [];
+    // kind: HUMAN excludes SERVICE principals, matching findActiveForJwt's
+    // convention below. Every current caller (notification recipient
+    // resolution) uses this to decide who a human-facing side effect (an
+    // in-app row, an email) can go to — a machine principal has no inbox and
+    // no reachable email, so "active" here means "active human account".
     const rows = await this.prisma.user.findMany({
-      where: { id: { in: ids }, isBlocked: false, deletedAt: null },
+      where: { id: { in: ids }, isBlocked: false, deletedAt: null, kind: UserKind.HUMAN },
       select: { id: true },
     });
     return rows.map((r) => r.id);
