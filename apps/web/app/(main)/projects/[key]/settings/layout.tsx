@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { Settings, Tags, Columns3, Package, Users, GitBranch, Users2, UserCog, Zap, Webhook, Plug, Sparkles, KeyRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useHasPermission } from '@/lib/hooks/use-permission';
+import { Permission } from '@repo/shared';
 
 const SETTINGS_NAV = [
   { label: 'General', href: '', icon: Settings },
@@ -17,7 +19,7 @@ const SETTINGS_NAV = [
   { label: 'Automation', href: '/workflow-rules', icon: Zap },
   { label: 'Webhooks', href: '/webhooks', icon: Webhook },
   { label: 'Integrations', href: '/integrations', icon: Plug },
-  { label: 'API Keys', href: '/api-keys', icon: KeyRound },
+  { label: 'API Keys', href: '/api-keys', icon: KeyRound, permission: Permission.PROJECT_SETTINGS_UPDATE },
   { label: 'AI Docs', href: '/ai-docs', icon: Sparkles },
 ];
 
@@ -25,6 +27,11 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
   const { key } = useParams<{ key: string }>();
   const pathname = usePathname();
   const base = `/projects/${key}/settings`;
+  const canUpdateProjectSettings = useHasPermission(Permission.PROJECT_SETTINGS_UPDATE);
+
+  const visibleNav = SETTINGS_NAV.filter(
+    (item) => !item.permission || canUpdateProjectSettings,
+  );
 
   return (
     <div className="flex gap-8 p-8">
@@ -32,7 +39,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
         <h2 className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Settings
         </h2>
-        {SETTINGS_NAV.map((item) => {
+        {visibleNav.map((item) => {
           const href = `${base}${item.href}`;
           const isActive = item.href === ''
             ? pathname === base || pathname === `${base}/`
