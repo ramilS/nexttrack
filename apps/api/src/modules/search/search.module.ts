@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { SearchController } from './search.controller';
 import { SearchService } from './search.service';
 import { SearchRepository } from './search.repository';
-import { ElasticsearchModule } from './elasticsearch/elasticsearch.module';
+import { SearchEngineModule } from './engine/search-engine.module';
 import { IssueIndexerService } from './indexer/issue-indexer.service';
 import { AutocompleteService } from './query-language/autocomplete.service';
 import { IndexerHooksModule } from './indexer/indexer-hooks.module';
@@ -16,7 +16,7 @@ import { CustomFieldsModule } from '@/modules/custom-fields/custom-fields.module
 @Module({
   imports: [
     IndexerHooksModule,
-    ElasticsearchModule,
+    SearchEngineModule,
     UsersModule,
     WorkflowsModule,
     TagsModule,
@@ -37,7 +37,7 @@ import { CustomFieldsModule } from '@/modules/custom-fields/custom-fields.module
     // Re-export so existing consumers that import SearchModule still resolve
     // IndexerHooksService.
     IndexerHooksModule,
-    ElasticsearchModule,
+    SearchEngineModule,
   ],
 })
 export class SearchModule {}

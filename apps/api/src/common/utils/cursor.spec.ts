@@ -1,5 +1,5 @@
 import { ValidationError } from '@/common/errors/domain.errors';
-import { encodeCursor, decodeCursor, encodeEsCursor, decodeEsCursor } from './cursor';
+import { encodeCursor, decodeCursor, encodeSearchCursor, decodeSearchCursor } from './cursor';
 
 describe('cursor', () => {
   describe('encodeCursor / decodeCursor', () => {
@@ -38,21 +38,21 @@ describe('cursor', () => {
     });
   });
 
-  describe('encodeEsCursor / decodeEsCursor', () => {
+  describe('encodeSearchCursor / decodeSearchCursor', () => {
     it('should round-trip an ES cursor', () => {
       const payload = { searchAfter: [1.5, 'doc-1'], id: 'doc-1' };
-      const encoded = encodeEsCursor(payload);
-      expect(decodeEsCursor(encoded)).toEqual(payload);
+      const encoded = encodeSearchCursor(payload);
+      expect(decodeSearchCursor(encoded)).toEqual(payload);
     });
 
     it('should throw for missing searchAfter', () => {
       const encoded = encodeCursor({ id: 'x' });
-      expect(() => decodeEsCursor(encoded)).toThrow(ValidationError);
+      expect(() => decodeSearchCursor(encoded)).toThrow(ValidationError);
     });
 
     it('should throw for non-array searchAfter', () => {
       const encoded = encodeCursor({ searchAfter: 'not-array', id: 'x' });
-      expect(() => decodeEsCursor(encoded)).toThrow(ValidationError);
+      expect(() => decodeSearchCursor(encoded)).toThrow(ValidationError);
     });
   });
 });

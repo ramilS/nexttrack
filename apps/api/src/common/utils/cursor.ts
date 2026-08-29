@@ -28,16 +28,16 @@ export function decodeCursor<T extends Record<string, unknown>>(cursor: string):
 }
 
 /**
- * Encode an Elasticsearch search_after cursor.
+ * Encode a search-engine search_after cursor.
  */
-export function encodeEsCursor(payload: { searchAfter: unknown[]; id: string }): string {
+export function encodeSearchCursor(payload: { searchAfter: unknown[]; id: string }): string {
   return encodeCursor(payload);
 }
 
 /**
- * Decode an Elasticsearch search_after cursor.
+ * Decode a search-engine search_after cursor.
  */
-export function decodeEsCursor(cursor: string): { searchAfter: unknown[]; id: string } {
+export function decodeSearchCursor(cursor: string): { searchAfter: unknown[]; id: string } {
   const decoded = decodeCursor<{ searchAfter: unknown[]; id: string }>(cursor);
   if (!Array.isArray(decoded.searchAfter) || typeof decoded.id !== 'string') {
     throw new ValidationError(ErrorCode.INVALID_CURSOR);

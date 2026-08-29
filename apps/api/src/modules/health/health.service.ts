@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '@/prisma/prisma.service';
 import { ValkeyService } from '@/valkey/valkey.service';
-import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
+import { SearchEngineService } from '@/modules/search/engine/search-engine.service';
 import { AppLogger } from '@/common/logging/app-logger';
 
 export type ServiceStatus = 'ok' | 'down';
@@ -16,7 +16,7 @@ export interface ReadinessHealth {
   services: {
     postgres: ServiceCheck;
     valkey: ServiceCheck;
-    elasticsearch: ServiceCheck;
+    searchEngine: ServiceCheck;
   };
 }
 
@@ -25,14 +25,14 @@ export interface AggregateHealth {
   services: {
     postgres: ServiceStatus;
     valkey: ServiceStatus;
-    elasticsearch: ServiceStatus;
+    searchEngine: ServiceStatus;
   };
 }
 
 /**
  * Owns the dependency probes, latency timing and status aggregation so the
  * controller stays a thin transport layer (it is the only place infra clients
- * — Prisma/Valkey/Elasticsearch — would otherwise be injected).
+ * — Prisma/Valkey/SearchEngine — would otherwise be injected).
  */
 @Injectable()
 export class HealthService {
@@ -41,25 +41,25 @@ export class HealthService {
   constructor(
     private prisma: PrismaService,
     private valkey: ValkeyService,
-    private elasticsearch: ElasticsearchService,
+    private searchEngine: SearchEngineService,
   ) {}
 
   /** Aggregate dependency checks with per-check latency. */
   async readiness(): Promise<ReadinessHealth> {
-    const [postgres, valkey, elasticsearch] = await Promise.all([
+    const [postgres, valkey, searchEngine] = await Promise.all([
       this.timedCheck(() => this.checkPostgres()),
       this.timedCheck(() => this.checkValkey()),
-      this.timedCheck(() => this.checkElasticsearch()),
+      this.timedCheck(() => this.checkSearchEngine()),
     ]);
 
     const allOk =
       postgres.status === 'ok' &&
       valkey.status === 'ok' &&
-      elasticsearch.status === 'ok';
+      searchEngine.status === 'ok';
 
     return {
       status: allOk ? 'ok' : 'degraded',
-      services: { postgres, valkey, elasticsearch },
+      services: { postgres, valkey, searchEngine },
     };
   }
 
@@ -71,7 +71,7 @@ export class HealthService {
       services: {
         postgres: ready.services.postgres.status,
         valkey: ready.services.valkey.status,
-        elasticsearch: ready.services.elasticsearch.status,
+        searchEngine: ready.services.searchEngine.status,
       },
     };
   }
@@ -98,13 +98,13 @@ export class HealthService {
     }
   }
 
-  async checkElasticsearch(): Promise<ServiceStatus> {
+  async checkSearchEngine(): Promise<ServiceStatus> {
     try {
-      await this.elasticsearch.getClient().cluster.health();
+      await this.searchEngine.ping();
       return 'ok';
     } catch (err) {
       this.logger.warn(
-        `Elasticsearch health check failed: ${(err as Error).message}`,
+        `Search engine health check failed: ${(err as Error).message}`,
       );
       return 'down';
     }

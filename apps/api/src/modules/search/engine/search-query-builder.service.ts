@@ -48,7 +48,7 @@ const DATE_FIELDS = new Set(['created', 'updated', 'due date', 'resolved']);
 const CASE_INSENSITIVE_FIELDS = new Set(['statusName', 'tagNames', 'projectKey']);
 
 @Injectable()
-export class EsQueryBuilderService {
+export class SearchQueryBuilderService {
   build(parsedQuery: ParsedQuery, context: QueryContext): object {
     const mustClauses: object[] = [];
     const filterClauses: object[] = [];

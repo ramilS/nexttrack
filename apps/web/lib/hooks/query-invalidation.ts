@@ -23,7 +23,7 @@ const GANTT_KEY: QueryKey = ['gantt'];
 /**
  * Every view that renders issue data — the list, the ES-backed search, the
  * board, sprint boards/backlog and the gantt. Each is a separate query, and the
- * board and gantt are NOT Elasticsearch-backed, so a change to a single issue
+ * board and gantt are NOT OpenSearch-backed, so a change to a single issue
  * must mark all of them stale; otherwise the ones not currently mounted keep
  * serving cached rows until their staleTime lapses (30s) or a hard reload. A
  * function, not a const, so it is never evaluated at module load (the key

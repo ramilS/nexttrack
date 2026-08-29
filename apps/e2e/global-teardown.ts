@@ -32,8 +32,8 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
     await refs.redisContainer.stop();
     console.log('[e2e] Stopped Redis container');
 
-    await refs.esContainer.stop();
-    console.log('[e2e] Stopped Elasticsearch container');
+    await refs.searchEngineContainer.stop();
+    console.log('[e2e] Stopped OpenSearch container');
 
     await refs.minioContainer.stop();
     console.log('[e2e] Stopped MinIO container');

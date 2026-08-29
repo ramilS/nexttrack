@@ -6,7 +6,7 @@ Issue tracking & project management platform (YouTrack-style). Turborepo monorep
 
 ```bash
 pnpm install
-cd infra && docker compose up -d postgres valkey minio elasticsearch
+cd infra && docker compose up -d postgres valkey minio opensearch
 cd ../apps/api && pnpm prisma migrate deploy
 pnpm seed:dev          # demo data (Postgres only — see reindex note below)
 cd ../.. && pnpm dev   # web :3000, api :3001
@@ -14,7 +14,7 @@ cd ../.. && pnpm dev   # web :3000, api :3001
 
 Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN_EMAIL` + `PASSWORD` constants, both env-overridable) — read the current values there rather than trusting a copy pasted here.
 
-> ⚠️ After `pnpm seed:dev` you MUST reindex Elasticsearch (admin `POST /api/search/reindex`) or the issue list stays empty — seeding bypasses the indexer. Full detail in **Gotchas**.
+> ⚠️ After `pnpm seed:dev` you MUST reindex OpenSearch (admin `POST /api/search/reindex`) or the issue list stays empty — seeding bypasses the indexer. Full detail in **Gotchas**.
 
 ## Monorepo Layout
 
@@ -25,7 +25,7 @@ Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN
 - `packages/migrator` — YouTrack → NextTrack import CLI (`@repo/migrator`: extractors/transformers/loaders)
 - `packages/test-support` — Testcontainers helpers (`@repo/test-support`) for API integration tests
 - `packages/ui` — shared React primitives (`@repo/ui`) — NOT the web app's UI (that's `apps/web/components/ui`)
-- `infra` — docker-compose for local stack (Postgres, Valkey, MinIO/S3, ES, Mailhog)
+- `infra` — docker-compose for local stack (Postgres, Valkey, MinIO/S3, OpenSearch, Mailhog)
 
 ## Common Commands
 
@@ -83,7 +83,9 @@ Project conventions live in `.claude/rules/*.md`. Index:
 - Source of truth for auth on the client is `/users/me` via `useCurrentUser`, NOT localStorage.
 - `User.email` is `@db.Citext` — case-insensitive at DB level; still normalize in Zod (`.trim().toLowerCase()`).
 - WebSocket auth is httpOnly-cookie based; refresh fires `auth:token-refreshed` event → socket reconnects.
-- Issue search-index sync: any mutation that changes ES-indexed content MUST re-index. Route through the `issue.updated` outbox event (→ `issue-events.listener` re-indexes + runs workflows + notifies) when those cross-cutting effects apply (issue update, bulk, **board move**); use the direct `IndexerHooksService.onIssueChanged` (via the leaf `IndexerHooksModule`, cycle-free) when ONLY searchable content changed (time-logs, custom-field values). `sprintId` is NOT in the ES doc → sprint membership needs no re-index.
+- Issue search-index sync: any mutation that changes indexed content MUST re-index. Route through the `issue.updated` outbox event (→ `issue-events.listener` re-indexes + runs workflows + notifies) when those cross-cutting effects apply (issue update, bulk, **board move**); use the direct `IndexerHooksService.onIssueChanged` (via the leaf `IndexerHooksModule`, cycle-free) when ONLY searchable content changed (time-logs, custom-field values). `sprintId` is NOT in the search doc → sprint membership needs no re-index.
+- The search engine is **OpenSearch** (Apache-2.0), client `@opensearch-project/opensearch`. `SearchEngineService` (`modules/search/engine/`) is the ONLY place that knows the client's transport shape: requests wrap their DSL in `body`, responses arrive as `{ body }`. It unwraps both, so no `.body` may appear in `search.service.ts`, the indexer, or health checks. Keep the engine swappable by keeping that rule.
+- Do NOT try to point `@elastic/elasticsearch` at OpenSearch: the Elastic client 8+ runs a product check (`X-elastic-product` header) and refuses any non-Elasticsearch cluster. Engine changes mean a client change.
 - Web mutations never call `invalidateQueries` inline: declare `meta.invalidates` (a global `MutationCache` handler invalidates) or `useMutationWithToast`'s `invalidateKeys`, using the named view-sets `issueViews()`/`sprintViews()` from `apps/web/lib/hooks/query-invalidation.ts`.
 - Machine callers authenticate with a project API key in the `X-Api-Key` header, which resolves to a `User` with `kind: SERVICE` holding the `Integration` role in that project. There is no separate machine authorization model — `PermissionGuard` applies unchanged. Issue creation accepts an opaque caller-supplied `dedupKey`; a repeat returns `200` with `meta.deduplicated` and the existing issue.
 
@@ -95,8 +97,8 @@ Project conventions live in `.claude/rules/*.md`. Index:
 - Public guest pages live under `app/(auth)/` and are wrapped by `GuestGuard`, which calls `/users/me`. A guest's 401 → refresh-fail would otherwise bounce them to `/login`; the axios interceptor's `PUBLIC_ROUTE_PREFIXES` allow-list (`/login`, `/accept-invite`) suppresses that. Add any new public guest route (e.g. password-reset) to that list, or it will redirect away before rendering.
 - Running a one-off `nest build` while `pnpm dev` (`nest start --watch`) is up wipes `dist` (`deleteOutDir`) out from under the watcher and breaks its incremental recompile — the running server then serves stale code. Restart `pnpm dev` after any standalone build.
 - `apps/web` does NOT use Next middleware — auth is React-side via `AuthGuard`/`GuestGuard`.
-- The project issue list is **Elasticsearch-backed**: `apps/web/.../projects/[key]/issues` → `IssueList` uses `useSearch` → `GET /api/search`, NOT `GET /projects/:key/issues`. So the list reflects the ES index, not Postgres directly. `pnpm seed:dev` writes only to Postgres and bypasses the indexer hooks, so **issues won't appear in the list until ES is reindexed** (symptom: "issues don't load" with a populated DB). Reindex via admin `POST /api/search/reindex` (`IssueIndexerService.reindexAll()`); `seed-dev.ts` prints a banner with a ready-to-run curl. Both `/search` and `/projects/:key/issues` already use shared `@repo/shared` DTOs — this is a sync issue, not a contract issue.
-- **New issues show on the board but not in the issue list?** Board is DB-direct, the list is ES-backed → ES indexing has stopped. Check the `search-indexing` BullMQ **failed** set. Common cause: ES disk past the flood-stage watermark flips `nexttrack_issues` to read-only (`index.blocks.read_only_allow_delete`) and index jobs fail silently. Fix: free disk (or relax `cluster.routing.allocation.disk.threshold_enabled` for dev) → clear the block → `POST /api/search/reindex`. The pipeline logs each stage ("Issue indexed" on success, "Search-indexing job failed" on error).
+- The project issue list is **OpenSearch-backed**: `apps/web/.../projects/[key]/issues` → `IssueList` uses `useSearch` → `GET /api/search`, NOT `GET /projects/:key/issues`. So the list reflects the search index, not Postgres directly. `pnpm seed:dev` writes only to Postgres and bypasses the indexer hooks, so **issues won't appear in the list until the index is rebuilt** (symptom: "issues don't load" with a populated DB). Reindex via admin `POST /api/search/reindex` (`IssueIndexerService.reindexAll()`); `seed-dev.ts` prints a banner with a ready-to-run curl. Both `/search` and `/projects/:key/issues` already use shared `@repo/shared` DTOs — this is a sync issue, not a contract issue.
+- **New issues show on the board but not in the issue list?** Board is DB-direct, the list is search-backed → indexing has stopped. Check the `search-indexing` BullMQ **failed** set. Common cause: OpenSearch disk past the flood-stage watermark flips `nexttrack_issues` to read-only (`index.blocks.read_only_allow_delete`) and index jobs fail silently. Fix: free disk (or relax `cluster.routing.allocation.disk.threshold_enabled` for dev) → clear the block → `POST /api/search/reindex`. The pipeline logs each stage ("Issue indexed" on success, "Search-indexing job failed" on error).
 - `POST /api/search/reindex` takes `{ projectKey }` (e.g. `"DEVX"`, case-insensitive) or `{}` for all projects — not a UUID.
 - The `issues_project_dedup_key_unique` index is a **partial** unique index created by raw SQL in a migration. `prisma db push` skips it, so the integration harness (`test/support/global-setup.ts`) creates it explicitly after pushing the schema. If that step is dropped, the dedup race test passes without testing anything.
 - **Prisma 7 config lives in `apps/api/prisma.config.ts`, not `package.json`.** The DB URL is set there (`datasource.url`) — the `datasource db {}` block in `schema.prisma` has NO `url`. The seed command is `migrations.seed` (`tsx prisma/seed.ts`); the old `package.json#prisma.seed` key is **silently ignored** in Prisma 7. So `prisma db seed` / `migrate dev` / `migrate reset` only seed via `migrations.seed`.

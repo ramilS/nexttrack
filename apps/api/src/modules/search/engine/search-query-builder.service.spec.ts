@@ -1,11 +1,11 @@
-import { EsQueryBuilderService } from './es-query-builder.service';
+import { SearchQueryBuilderService } from './search-query-builder.service';
 import {
   ParsedQuery,
   FilterValue,
 } from '@/modules/search/query-language/ast.types';
 
 /**
- * Recursive object shape for the Elasticsearch query DSL the builder emits.
+ * Recursive object shape for the OpenSearch query DSL the builder emits.
  * Every property access yields the same node type so the deeply-nested
  * assertions below stay readable without per-line casts.
  */
@@ -20,8 +20,8 @@ interface EsQuery {
   highlight: EsClause;
 }
 
-describe('EsQueryBuilderService', () => {
-  let service: EsQueryBuilderService;
+describe('SearchQueryBuilderService', () => {
+  let service: SearchQueryBuilderService;
 
   const context = {
     currentUserId: 'user-1',
@@ -35,7 +35,7 @@ describe('EsQueryBuilderService', () => {
   };
 
   beforeEach(() => {
-    service = new EsQueryBuilderService();
+    service = new SearchQueryBuilderService();
   });
 
   const fv = (

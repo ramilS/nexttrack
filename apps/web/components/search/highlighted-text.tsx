@@ -8,7 +8,7 @@ interface HighlightedTextProps {
 }
 
 /**
- * Renders highlighted HTML from Elasticsearch safely.
+ * Renders highlighted HTML from the search engine safely.
  * Only allows <mark> tags for highlighting, strips everything else.
  */
 export function HighlightedText({ html, className }: HighlightedTextProps) {

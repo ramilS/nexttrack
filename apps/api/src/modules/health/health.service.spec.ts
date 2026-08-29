@@ -2,7 +2,7 @@ import { Test } from '@nestjs/testing';
 import { HealthService } from './health.service';
 import { PrismaService } from '@/prisma/prisma.service';
 import { ValkeyService } from '@/valkey/valkey.service';
-import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
+import { SearchEngineService } from '@/modules/search/engine/search-engine.service';
 
 describe('HealthService', () => {
   let service: HealthService;
@@ -10,25 +10,21 @@ describe('HealthService', () => {
   const prisma = { $queryRaw: jest.fn() };
   const valkeyPing = jest.fn();
   const valkey = { getClient: jest.fn() };
-  const esClusterHealth = jest.fn();
-  const elasticsearch = { getClient: jest.fn() };
+  const searchEngine = { ping: jest.fn() };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     prisma.$queryRaw.mockResolvedValue([{ ok: 1 }]);
     valkeyPing.mockResolvedValue('PONG');
     valkey.getClient.mockReturnValue({ ping: valkeyPing });
-    esClusterHealth.mockResolvedValue({ status: 'green' });
-    elasticsearch.getClient.mockReturnValue({
-      cluster: { health: esClusterHealth },
-    });
+    searchEngine.ping.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
         HealthService,
         { provide: PrismaService, useValue: prisma },
         { provide: ValkeyService, useValue: valkey },
-        { provide: ElasticsearchService, useValue: elasticsearch },
+        { provide: SearchEngineService, useValue: searchEngine },
       ],
     }).compile();
 
@@ -43,7 +39,7 @@ describe('HealthService', () => {
       for (const check of [
         result.services.postgres,
         result.services.valkey,
-        result.services.elasticsearch,
+        result.services.searchEngine,
       ]) {
         expect(check.status).toBe('ok');
         expect(check.latencyMs).toEqual(expect.any(Number));
@@ -62,7 +58,7 @@ describe('HealthService', () => {
         latencyMs: expect.any(Number),
       });
       expect(result.services.valkey.status).toBe('ok');
-      expect(result.services.elasticsearch.status).toBe('ok');
+      expect(result.services.searchEngine.status).toBe('ok');
     });
   });
 
@@ -72,17 +68,17 @@ describe('HealthService', () => {
 
       expect(result).toEqual({
         status: 'ok',
-        services: { postgres: 'ok', valkey: 'ok', elasticsearch: 'ok' },
+        services: { postgres: 'ok', valkey: 'ok', searchEngine: 'ok' },
       });
     });
 
     it('reports degraded when a dependency is down', async () => {
-      esClusterHealth.mockRejectedValue(new Error('cluster unreachable'));
+      searchEngine.ping.mockRejectedValue(new Error('cluster unreachable'));
 
       const result = await service.aggregate();
 
       expect(result.status).toBe('degraded');
-      expect(result.services.elasticsearch).toBe('down');
+      expect(result.services.searchEngine).toBe('down');
     });
   });
 

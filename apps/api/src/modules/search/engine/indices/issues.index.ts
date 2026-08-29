@@ -1,8 +1,11 @@
-import type { estypes } from '@elastic/elasticsearch';
+import type { Types } from '@opensearch-project/opensearch';
 
 export const ISSUES_INDEX_SUFFIX = 'issues';
 
-type IndicesCreateBody = Pick<estypes.IndicesCreateRequest, 'mappings' | 'settings'>;
+type IndicesCreateBody = {
+  mappings?: Types.Common_Mapping.TypeMapping;
+  settings?: Types.Indices_Common.IndexSettings;
+};
 
 export const ISSUES_MAPPING: IndicesCreateBody = {
   mappings: {

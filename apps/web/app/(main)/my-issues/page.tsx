@@ -46,7 +46,7 @@ export default function MyIssuesPage() {
         <EmptyState
           icon={ListChecks}
           title="Unable to load issues"
-          description="Search service may be unavailable. Please ensure Elasticsearch is running and issues are indexed."
+          description="Search service may be unavailable. Please ensure OpenSearch is running and issues are indexed."
         />
       ) : allItems.length === 0 ? (
         <EmptyState

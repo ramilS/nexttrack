@@ -55,7 +55,7 @@ export default function AdminSystemPage() {
         open={reindexOpen}
         onOpenChange={setReindexOpen}
         title="Reindex all issues"
-        description="This reindexes all issues in Elasticsearch. It runs in the background and may take a few minutes."
+        description="This reindexes all issues in OpenSearch. It runs in the background and may take a few minutes."
         confirmLabel="Continue"
         onConfirm={handleReindex}
       />

@@ -7,7 +7,7 @@ import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { TagsReader } from '@/modules/tags/tags.reader';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { VersionsRepository } from '@/modules/versions/versions.repository';
-import { elasticsearchConfig } from '@/config';
+import { searchEngineConfig } from '@/config';
 
 describe('AutocompleteService', () => {
   let service: AutocompleteService;
@@ -49,7 +49,7 @@ describe('AutocompleteService', () => {
         { provide: TagsReader, useValue: tagsReader },
         { provide: ProjectsRepository, useValue: projectsRepo },
         { provide: VersionsRepository, useValue: versionsRepo },
-        { provide: elasticsearchConfig.KEY, useValue: { autocompleteCacheTtl: 60 } },
+        { provide: searchEngineConfig.KEY, useValue: { autocompleteCacheTtl: 60 } },
       ],
     }).compile();
 

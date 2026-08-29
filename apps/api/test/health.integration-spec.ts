@@ -27,7 +27,7 @@ describe('Health Integration (full AppModule)', () => {
       expect(res.body.data.services).toEqual({
         postgres: expect.stringMatching(/^(ok|down)$/),
         valkey: expect.stringMatching(/^(ok|down)$/),
-        elasticsearch: expect.stringMatching(/^(ok|down)$/),
+        searchEngine: expect.stringMatching(/^(ok|down)$/),
       });
     });
 
@@ -60,12 +60,12 @@ describe('Health Integration (full AppModule)', () => {
     });
   });
 
-  describe('GET /health/es', () => {
+  describe('GET /health/search-engine', () => {
     it('should return 200 or 503 for ES (depends on test container availability)', async () => {
-      const res = await request(ctx.app.getHttpServer()).get('/health/es');
+      const res = await request(ctx.app.getHttpServer()).get('/health/search-engine');
       expect([200, 503]).toContain(res.status);
       if (res.status === 200) {
-        expect(res.body.data).toEqual({ status: 'ok', service: 'elasticsearch' });
+        expect(res.body.data).toEqual({ status: 'ok', service: 'searchEngine' });
       }
     });
   });

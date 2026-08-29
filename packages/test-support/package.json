@@ -18,12 +18,12 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@testcontainers/elasticsearch": "^11.13.0",
     "@testcontainers/postgresql": "^11.13.0",
     "@testcontainers/redis": "^11.13.0",
     "testcontainers": "^11.12.0"
   },
   "devDependencies": {
+    "@testcontainers/opensearch": "11.13.0",
     "typescript": "5.9.2"
   }
 }

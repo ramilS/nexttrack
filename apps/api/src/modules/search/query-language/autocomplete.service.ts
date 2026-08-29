@@ -2,7 +2,7 @@ import { Injectable, Inject } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { CustomFieldType } from '@prisma/client';
 import { ValkeyService } from '@/valkey/valkey.service';
-import { elasticsearchConfig } from '@/config';
+import { searchEngineConfig } from '@/config';
 import { CustomFieldsRepository } from '@/modules/custom-fields/custom-fields.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
@@ -54,8 +54,8 @@ export class AutocompleteService {
     private tagsReader: TagsReader,
     private projectsRepo: ProjectsRepository,
     private versionsRepo: VersionsRepository,
-    @Inject(elasticsearchConfig.KEY)
-    private config: ConfigType<typeof elasticsearchConfig>,
+    @Inject(searchEngineConfig.KEY)
+    private config: ConfigType<typeof searchEngineConfig>,
   ) {}
 
   async getSuggestions(

@@ -1642,18 +1642,18 @@ async function main() {
 
 /**
  * Seeding writes only to Postgres — it bypasses the indexer hooks that keep
- * Elasticsearch in sync. The project issue list is backed by `GET /search`
- * (Elasticsearch), so seeded issues stay invisible until ES is reindexed.
+ * the search index in sync. The project issue list is backed by `GET /search`
+ * (OpenSearch), so seeded issues stay invisible until the index is rebuilt.
  * Reindex is exposed as an admin-only endpoint; print a ready-to-run curl.
  */
 function printReindexBanner(): void {
   const base = `http://localhost:${process.env.API_PORT ?? '3001'}/api`;
   console.log(`
 ────────────────────────────────────────────────────────────────────
-  ACTION REQUIRED: reindex Elasticsearch
+  ACTION REQUIRED: reindex OpenSearch
 ────────────────────────────────────────────────────────────────────
   Seeded issues live only in Postgres. The issue list reads from
-  Elasticsearch (GET /search), so it stays empty until you reindex.
+  OpenSearch (GET /search), so it stays empty until you reindex.
 
   With the API running (pnpm dev), run:
 

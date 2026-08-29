@@ -5,7 +5,7 @@ export { valkeyConfig, ValkeyConfig } from './valkey.config';
 export { mailConfig, MailConfig } from './mail.config';
 export { ssoConfig, SsoConfig } from './sso.config';
 export { storageConfig, StorageConfig } from './storage.config';
-export { elasticsearchConfig, ElasticsearchConfig } from './elasticsearch.config';
+export { searchEngineConfig, SearchEngineConfig } from './search-engine.config';
 export { notificationConfig, NotificationConfig } from './notification.config';
 export { websocketConfig, WebsocketConfig } from './websocket.config';
 export { outboxConfig, OutboxConfig } from './outbox.config';

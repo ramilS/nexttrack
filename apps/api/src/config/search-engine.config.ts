@@ -12,16 +12,16 @@ const schema = z.object({
   indexerBatchSize: z.coerce.number().default(100),
 });
 
-export type ElasticsearchConfig = z.infer<typeof schema>;
+export type SearchEngineConfig = z.infer<typeof schema>;
 
-export const elasticsearchConfig = registerAs(
-  'elasticsearch',
-  (): ElasticsearchConfig => {
+export const searchEngineConfig = registerAs(
+  'searchEngine',
+  (): SearchEngineConfig => {
     return schema.parse({
-      url: process.env.ELASTICSEARCH_URL ?? 'http://localhost:9200',
-      indexPrefix: process.env.ELASTICSEARCH_INDEX_PREFIX,
-      requestTimeout: process.env.ELASTICSEARCH_REQUEST_TIMEOUT,
-      maxRetries: process.env.ELASTICSEARCH_MAX_RETRIES,
+      url: process.env.SEARCH_ENGINE_URL ?? 'http://localhost:9200',
+      indexPrefix: process.env.SEARCH_ENGINE_INDEX_PREFIX,
+      requestTimeout: process.env.SEARCH_ENGINE_REQUEST_TIMEOUT,
+      maxRetries: process.env.SEARCH_ENGINE_MAX_RETRIES,
       searchDefaultPageSize: process.env.SEARCH_DEFAULT_PAGE_SIZE,
       searchMaxPageSize: process.env.SEARCH_MAX_PAGE_SIZE,
       autocompleteCacheTtl: process.env.AUTOCOMPLETE_CACHE_TTL,

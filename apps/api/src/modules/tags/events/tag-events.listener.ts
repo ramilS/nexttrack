@@ -8,7 +8,7 @@ import type { DomainEventMeta } from '@/modules/outbox/domain-event-publisher';
 import { IssueTagAddedEvent, IssueTagRemovedEvent } from './tag.events';
 
 /**
- * Re-indexes the issue in Elasticsearch and records the tag activity when a tag
+ * Re-indexes the issue in OpenSearch and records the tag activity when a tag
  * is linked/unlinked. Without this, tag changes only hit Postgres and the issue's
  * ES document goes stale — so filtering issues by tag (`q=tag:...`) misses them.
  *

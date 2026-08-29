@@ -10,20 +10,20 @@ import {
 } from './support/create-e2e-app';
 
 /**
- * Search integration tests with REAL Elasticsearch.
+ * Search integration tests with a REAL search engine.
  *
  * These tests start an ES 8 Testcontainer and verify that:
  * - Search queries execute without errors (no _id fielddata issue)
  * - Indexing on issue creation works
  * - Sorting and pagination use the `id` field, not `_id`
  */
-describe('Search Integration (real Elasticsearch)', () => {
+describe('Search Integration (real OpenSearch)', () => {
   let ctx: E2eContext;
   let adminToken: string;
   let projectKey: string;
 
   beforeAll(async () => {
-    ctx = await createE2eApp({ withElasticsearch: true });
+    ctx = await createE2eApp({ withSearchEngine: true });
   }, 180_000); // ES container can take up to 60s to start
 
   afterAll(async () => {

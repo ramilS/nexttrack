@@ -2,14 +2,14 @@ import type { ChildProcess } from 'child_process';
 import type {
   StartedPostgreSqlContainer,
   StartedRedisContainer,
-  StartedElasticsearchContainer,
+  StartedOpenSearchContainer,
   StartedTestContainer,
 } from '@repo/test-support/containers';
 
 export interface E2eProcessState {
   pgContainer: StartedPostgreSqlContainer;
   redisContainer: StartedRedisContainer;
-  esContainer: StartedElasticsearchContainer;
+  searchEngineContainer: StartedOpenSearchContainer;
   minioContainer: StartedTestContainer;
   apiProcess: ChildProcess;
   webProcess: ChildProcess;
@@ -18,7 +18,7 @@ export interface E2eProcessState {
 export interface E2eFileState {
   pgContainerId: string;
   redisContainerId: string;
-  esContainerId: string;
+  searchEngineContainerId: string;
   apiPid: number;
   webPid: number;
   apiUrl: string;

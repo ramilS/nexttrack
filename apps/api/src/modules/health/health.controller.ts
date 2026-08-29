@@ -46,12 +46,12 @@ export class HealthController {
   }
 
   @Public()
-  @Get('es')
-  esHealth() {
+  @Get('search-engine')
+  searchEngineHealth() {
     return this.probe(
-      this.healthService.checkElasticsearch(),
-      'elasticsearch',
-      'Elasticsearch',
+      this.healthService.checkSearchEngine(),
+      'searchEngine',
+      'Search engine',
     );
   }
 

@@ -49,7 +49,7 @@ this.logger.error('Webhook delivery failed', err, { webhookId, status });
 - **Security events** — login ok/failed, blocked/deleted-account attempts,
   token reuse, logout-all, invite accept, permission/role changes, SSO link.
   Include `ip` here (the one place raw IP is allowed).
-- **External-system boundaries** — webhook/telegram/email/Elasticsearch/S3
+- **External-system boundaries** — webhook/telegram/email/OpenSearch/S3
   calls: the target id and outcome. These fail independently of our DB and are
   the usual incident root cause.
 - **Event delivery** — outbox enqueue/dispatch, listener side effects, retries,

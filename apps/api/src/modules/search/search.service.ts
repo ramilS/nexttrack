@@ -2,10 +2,13 @@ import { Injectable, Inject } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { GlobalRole } from '@prisma/client';
 import { AppLogger } from '@/common/logging/app-logger';
-import { ElasticsearchService } from './elasticsearch/elasticsearch.service';
-import { EsQueryBuilderService } from './elasticsearch/es-query-builder.service';
-import { elasticsearchConfig } from '@/config';
-import { encodeEsCursor, decodeEsCursor } from '@/common/utils/cursor';
+import {
+  SearchEngineService,
+  type SearchEngineResult,
+} from './engine/search-engine.service';
+import { SearchQueryBuilderService } from './engine/search-query-builder.service';
+import { searchEngineConfig } from '@/config';
+import { encodeSearchCursor, decodeSearchCursor } from '@/common/utils/cursor';
 import { UsersReader } from '@/modules/users/users.reader';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
@@ -28,24 +31,6 @@ import type {
   ValidateResponse,
   WorkflowStatus,
 } from '@repo/shared/schemas';
-
-interface SearchHit {
-  _id: string;
-  _score: number | null;
-  sort?: unknown[];
-  highlight?: {
-    title?: string[];
-    description?: string[];
-    commentBodies?: string[];
-  };
-}
-
-interface EsSearchResponse {
-  hits?: {
-    hits?: SearchHit[];
-    total?: number | { value: number };
-  };
-}
 
 const UNKNOWN_STATUS = {
   name: 'Unknown',
@@ -90,7 +75,7 @@ function toSearchIssue(
   };
 }
 
-function readTotal(total: EsSearchResponse['hits']): number {
+function readTotal(total: SearchEngineResult['hits']): number {
   if (!total) return 0;
   const t = total.total;
   if (typeof t === 'number') return t;
@@ -110,15 +95,15 @@ export class SearchService {
   private readonly logger = new AppLogger(SearchService.name);
 
   constructor(
-    private es: ElasticsearchService,
-    private queryBuilder: EsQueryBuilderService,
+    private engine: SearchEngineService,
+    private queryBuilder: SearchQueryBuilderService,
     private searchRepo: SearchRepository,
     private usersRepo: UsersReader,
     private projectsRepo: ProjectsRepository,
     private membersRepo: ProjectMembersRepository,
     private workflowsRepo: WorkflowsReader,
-    @Inject(elasticsearchConfig.KEY)
-    private config: ConfigType<typeof elasticsearchConfig>,
+    @Inject(searchEngineConfig.KEY)
+    private config: ConfigType<typeof searchEngineConfig>,
   ) {}
 
   async search(
@@ -155,24 +140,24 @@ export class SearchService {
       scopedProjectId: options?.projectId,
     });
 
-    const searchParams: Record<string, unknown> = {
-      index: this.es.issuesIndex,
+    const searchParams: { index: string } & Record<string, unknown> = {
+      index: this.engine.issuesIndex,
       ...esQuery,
       size: pageSize + 1, // Fetch N+1 for hasNextPage detection
       track_total_hits: true,
     };
 
     if (options?.cursor) {
-      const cursorData = decodeEsCursor(options.cursor);
+      const cursorData = decodeSearchCursor(options.cursor);
       searchParams.search_after = cursorData.searchAfter;
     }
 
     const start = Date.now();
-    const esResult = (await this.es.search(searchParams)) as EsSearchResponse;
+    const engineResult = await this.engine.search(searchParams);
     const took = Date.now() - start;
 
-    const hits = esResult.hits?.hits ?? [];
-    const total = readTotal(esResult.hits);
+    const hits = engineResult.hits?.hits ?? [];
+    const total = readTotal(engineResult.hits);
 
     this.logger.debug('Search executed', {
       filters: parsed.filters.length,
@@ -194,7 +179,7 @@ export class SearchService {
 
     const nextCursor =
       hasNextPage && lastHit?.sort
-        ? encodeEsCursor({ searchAfter: lastHit.sort, id: lastHit._id })
+        ? encodeSearchCursor({ searchAfter: lastHit.sort, id: lastHit._id })
         : null;
 
     const issueIds = trimmedHits.map((h) => h._id);

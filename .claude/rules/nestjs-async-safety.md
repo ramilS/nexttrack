@@ -46,7 +46,7 @@ Delivery is **at-least-once**: a listener failure marks the outbox row PENDING w
 
 Rules for listener handlers:
 
-- NEVER swallow errors with a catch-and-log wrapper — rethrow so the retry fires. A swallowed transient failure (ES down, DB hiccup) silently loses the side effect forever.
+- NEVER swallow errors with a catch-and-log wrapper — rethrow so the retry fires. A swallowed transient failure (search engine down, DB hiccup) silently loses the side effect forever.
 - Every DB-writing side effect MUST be idempotent under redelivery:
   - Activities: wrap in `EventIdempotencyService.runOnce(`${event.eventId}:activity`, (tx) => …)` (`@/common/idempotency`) — claims the key in the SAME transaction as the write.
   - Notifications: pass `dedupeKey: `${event.eventId}:notif:${NotificationType.X}`` to `notificationsDispatch.dispatch()` — skips in-app rows, grouped increments AND outgoing email/webhook outbox rows on redelivery.

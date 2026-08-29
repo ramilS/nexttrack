@@ -15,7 +15,7 @@
 - **Sprints** -- sprint planning, backlog grooming, velocity tracking
 - **Custom Fields & Workflows** -- configurable per-project statuses, transitions, and field schemas
 - **Rich Text Editor** -- Tiptap-based editor with mentions, task lists, code blocks, images
-- **Full-Text Search** -- Elasticsearch-powered search with structured query language
+- **Full-Text Search** -- OpenSearch-powered search with structured query language
 - **Time Tracking** -- log work, view time reports with Recharts
 - **Real-Time Updates** -- Socket.IO with Valkey adapter for live collaboration
 - **SSO** -- Google and Microsoft OAuth, plus invite-only email registration
@@ -41,7 +41,7 @@
 | NestJS 11                    | Next.js 16 |
 | PostgreSQL 16 (Prisma 7 ORM) | React 19 |
 | Valkey 9 (ioredis)           | TanStack Query 5 |
-| Elasticsearch 9              | Zustand 5 |
+| OpenSearch 3                 | Zustand 5 |
 | MinIO / S3                   | Tiptap 3 (rich text) |
 | BullMQ (job queues)          | shadcn/ui (base-nova) |
 | Socket.IO (real-time)        | dnd-kit (drag & drop) |
@@ -73,7 +73,7 @@ pnpm install
 cd infra && docker compose up -d
 ```
 
-This starts PostgreSQL, Valkey, Elasticsearch, MinIO, and Mailhog.
+This starts PostgreSQL, Valkey, OpenSearch, MinIO, and Mailhog.
 
 ### 3. Configure environment
 
@@ -107,7 +107,7 @@ cd apps/api && pnpm seed:dev
 Creates 20 users, 5 projects, ~50 issues per project, plus comments, sprints, and time logs. All demo users share password `Password123!`.
 
 > **Heads up:** seeding writes only to Postgres and bypasses the search indexer.
-> The project issue list is Elasticsearch-backed (`GET /search`), so seeded issues
+> The project issue list is OpenSearch-backed (`GET /search`), so seeded issues
 > won't appear in the list until you reindex — see step 8.
 
 ### 7. Start development
@@ -119,9 +119,9 @@ pnpm dev
 
 Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### 8. Reindex Elasticsearch (after seeding)
+### 8. Reindex OpenSearch (after seeding)
 
-The issue list reads from Elasticsearch, and seeding doesn't touch the index, so
+The issue list reads from OpenSearch, and seeding doesn't touch the index, so
 reindex once after `pnpm seed:dev` (the seed output also prints this exact curl):
 
 ```bash
@@ -344,7 +344,7 @@ All variables are documented in `.env.example`. Key groups:
 | Variable | Required | Description |
 |---|---|---|
 | `VALKEY_URL` | Yes | Valkey connection string |
-| `ELASTICSEARCH_URL` | Yes | Elasticsearch endpoint |
+| `SEARCH_ENGINE_URL` | Yes | OpenSearch endpoint |
 | `MINIO_ENDPOINT` | Yes | MinIO/S3 host |
 | `MINIO_ACCESS_KEY` | Yes | S3 access key |
 | `MINIO_SECRET_KEY` | Yes | S3 secret key |

@@ -11,7 +11,7 @@ describe('HealthController', () => {
     readiness: jest.fn(),
     checkPostgres: jest.fn(),
     checkValkey: jest.fn(),
-    checkElasticsearch: jest.fn(),
+    checkSearchEngine: jest.fn(),
   };
 
   beforeEach(async () => {

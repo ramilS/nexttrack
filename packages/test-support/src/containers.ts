@@ -4,22 +4,22 @@ import {
 } from '@testcontainers/postgresql';
 import { RedisContainer, StartedRedisContainer } from '@testcontainers/redis';
 import {
-  ElasticsearchContainer,
-  StartedElasticsearchContainer,
-} from '@testcontainers/elasticsearch';
+  OpenSearchContainer,
+  StartedOpenSearchContainer,
+} from '@testcontainers/opensearch';
 import { GenericContainer, type StartedTestContainer } from 'testcontainers';
 import { TEST_SECRETS } from './index';
 
 export type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 export type { StartedRedisContainer } from '@testcontainers/redis';
-export type { StartedElasticsearchContainer } from '@testcontainers/elasticsearch';
+export type { StartedOpenSearchContainer } from '@testcontainers/opensearch';
 export type { StartedTestContainer } from 'testcontainers';
 
 const TEST_IMAGES = {
   postgres: 'postgres:18-alpine',
   // Must stay org-prefixed (`valkey/valkey:...`) or testcontainers can't pull it.
   redis: 'valkey/valkey:9.1.0-alpine',
-  elasticsearch: 'docker.elastic.co/elasticsearch/elasticsearch:9.4.2',
+  searchEngine: 'opensearchproject/opensearch:3.6.0',
   minio: 'minio/minio:latest',
 } as const;
 
@@ -42,21 +42,24 @@ export function startRedis(): Promise<StartedRedisContainer> {
   return new RedisContainer(TEST_IMAGES.redis).start();
 }
 
-export async function startElasticsearch(): Promise<StartedElasticsearchContainer> {
-  const container = await new ElasticsearchContainer(TEST_IMAGES.elasticsearch)
+export async function startSearchEngine(): Promise<StartedOpenSearchContainer> {
+  const container = await new OpenSearchContainer(TEST_IMAGES.searchEngine)
+    // Security off keeps the endpoint plain http with no admin credentials,
+    // matching how the app connects in dev and CI.
+    .withSecurityEnabled(false)
     .withEnvironment({
-      'discovery.type': 'single-node',
-      'xpack.security.enabled': 'false',
-      // ES 9.x needs ~512m heap to stay responsive under indexing load; 256m
-      // caused GC stalls past the client's 5s requestTimeout → the single node
-      // was marked dead (NoLivingConnectionsError) and indexing jobs failed.
-      // Matches the prod compose heap.
-      ES_JAVA_OPTS: '-Xms512m -Xmx512m',
+      // 512m heap: 256m caused GC stalls past the client's 5s requestTimeout →
+      // the single node was marked dead (NoLivingConnectionsError) and indexing
+      // jobs failed. Matches the prod compose heap.
+      OPENSEARCH_JAVA_OPTS: '-Xms512m -Xmx512m',
+      // The performance-analyzer plugin costs memory this single-node test
+      // cluster has no use for.
+      DISABLE_INSTALL_DEMO_CONFIG: 'true',
     })
     .start();
 
   // The container's wait strategy only checks that the HTTP port answers, but
-  // the cluster briefly rejects index ops after that. If the app's first ES
+  // the cluster briefly rejects index ops after that. If the app's first engine
   // call (onModuleInit's index create) lands in that window it fails, and the
   // client benches the sole node for its ~60s resurrect timeout — every
   // indexing job then fails with NoLivingConnectionsError, far longer than the
@@ -78,11 +81,11 @@ async function waitForClusterReady(baseUrl: string): Promise<void> {
         if (body.status === 'yellow' || body.status === 'green') return;
       }
     } catch {
-      // ES not accepting connections yet — retry below.
+      // Engine not accepting connections yet — retry below.
     }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new Error(`Elasticsearch at ${baseUrl} never reached yellow status`);
+  throw new Error(`OpenSearch at ${baseUrl} never reached yellow status`);
 }
 
 export function startMinio(): Promise<StartedTestContainer> {

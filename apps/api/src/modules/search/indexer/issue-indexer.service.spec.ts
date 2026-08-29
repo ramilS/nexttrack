@@ -2,9 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { IssueIndexerService } from './issue-indexer.service';
 import { SearchRepository, IndexerIssue } from '@/modules/search/search.repository';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
-import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
+import { SearchEngineService } from '@/modules/search/engine/search-engine.service';
 import { IndexerHooksService } from './indexer-hooks.service';
-import { elasticsearchConfig } from '@/config';
+import { searchEngineConfig } from '@/config';
 import { NotFoundError } from '@/common/errors/domain.errors';
 
 const page = (items: IndexerIssue[], nextCursor: string | null = null) => ({
@@ -48,9 +48,9 @@ describe('IssueIndexerService', () => {
         IssueIndexerService,
         { provide: SearchRepository, useValue: searchRepo },
         { provide: ProjectsRepository, useValue: projectsRepo },
-        { provide: ElasticsearchService, useValue: es },
+        { provide: SearchEngineService, useValue: es },
         { provide: IndexerHooksService, useValue: indexerHooks },
-        { provide: elasticsearchConfig.KEY, useValue: { indexerBatchSize: 100 } },
+        { provide: searchEngineConfig.KEY, useValue: { indexerBatchSize: 100 } },
       ],
     }).compile();
 

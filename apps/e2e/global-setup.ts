@@ -1,13 +1,13 @@
 import { FullConfig } from '@playwright/test';
 import { TEST_SECRETS } from '@repo/test-support';
 import {
-  startElasticsearch,
+  startSearchEngine,
   startMinio,
   startPostgres,
   startRedis,
   type StartedPostgreSqlContainer,
   type StartedRedisContainer,
-  type StartedElasticsearchContainer,
+  type StartedOpenSearchContainer,
   type StartedTestContainer,
 } from '@repo/test-support/containers';
 import { execSync, spawn, ChildProcess } from 'child_process';
@@ -85,7 +85,7 @@ function spawnProcess(
 
 let pgContainer: StartedPostgreSqlContainer;
 let redisContainer: StartedRedisContainer;
-let esContainer: StartedElasticsearchContainer;
+let searchEngineContainer: StartedOpenSearchContainer;
 let minioContainer: StartedTestContainer;
 
 export default async function globalSetup(_config: FullConfig): Promise<void> {
@@ -100,20 +100,20 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   console.log('\n[e2e] Starting infrastructure...');
 
   // 1. Start containers in parallel
-  [pgContainer, redisContainer, esContainer, minioContainer] = await Promise.all([
+  [pgContainer, redisContainer, searchEngineContainer, minioContainer] = await Promise.all([
     startPostgres(),
     startRedis(),
-    startElasticsearch(),
+    startSearchEngine(),
     startMinio(),
   ]);
 
   const dbUrl = pgContainer.getConnectionUri();
   const redisUrl = redisContainer.getConnectionUrl();
-  const esUrl = `http://${esContainer.getHost()}:${esContainer.getMappedPort(9200)}`;
+  const searchEngineUrl = `http://${searchEngineContainer.getHost()}:${searchEngineContainer.getMappedPort(9200)}`;
   const minioUrl = `http://${minioContainer.getHost()}:${minioContainer.getMappedPort(9000)}`;
   console.log(`[e2e] PostgreSQL: ${dbUrl}`);
   console.log(`[e2e] Redis: ${redisUrl}`);
-  console.log(`[e2e] Elasticsearch: ${esUrl}`);
+  console.log(`[e2e] OpenSearch: ${searchEngineUrl}`);
   console.log(`[e2e] MinIO: ${minioUrl}`);
 
   // 2. Push Prisma schema
@@ -162,7 +162,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     S3_SECRET_KEY: TEST_SECRETS.s3SecretKey,
     S3_BUCKET: 'test-bucket',
     MIGRATION_API_SECRET: TEST_SECRETS.migrationApiSecret,
-    ELASTICSEARCH_URL: esUrl,
+    SEARCH_ENGINE_URL: searchEngineUrl,
     WS_CORS_ORIGINS: webUrl,
     AUTH_LOCAL_ENABLED: 'true',
     OUTBOX_POLLER_ENABLED: 'true',
@@ -236,8 +236,8 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   ]);
   console.log('[e2e] Both servers are ready!');
 
-  // 8. Reindex Elasticsearch so issue list works
-  console.log('[e2e] Reindexing Elasticsearch...');
+  // 8. Reindex the search engine so issue list works
+  console.log('[e2e] Reindexing the search engine...');
   const loginRes = await fetch(`${apiUrl}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -264,7 +264,7 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   const state: E2eFileState = {
     pgContainerId: pgContainer.getId(),
     redisContainerId: redisContainer.getId(),
-    esContainerId: esContainer.getId(),
+    searchEngineContainerId: searchEngineContainer.getId(),
     apiPid: apiProcess.pid!,
     webPid: webProcess.pid!,
     apiUrl,
@@ -273,5 +273,5 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
   // Store references for teardown (same-process)
-  setProcessState({ pgContainer, redisContainer, esContainer, minioContainer, apiProcess, webProcess });
+  setProcessState({ pgContainer, redisContainer, searchEngineContainer, minioContainer, apiProcess, webProcess });
 }

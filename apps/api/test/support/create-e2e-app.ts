@@ -5,8 +5,8 @@ import { DeliveryChannel, OutboxStatus, Prisma, PrismaClient } from '@prisma/cli
 import { PrismaPg } from '@prisma/adapter-pg';
 import { ALL_PERMISSIONS, Permission } from '@repo/shared';
 import {
-  startElasticsearch,
-  type StartedElasticsearchContainer,
+  startSearchEngine,
+  type StartedOpenSearchContainer,
 } from '@repo/test-support/containers';
 import { AppModule } from '@/app.module';
 import { configureApp } from '@/bootstrap/configure-app';
@@ -14,7 +14,7 @@ import { PrismaService } from '@/prisma/prisma.service';
 import { BackgroundTasks } from '@/common/background/background-tasks.service';
 import { WsAdapter } from '@/common/adapters/ws.adapter';
 import { ValkeyService } from '@/valkey/valkey.service';
-import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
+import { SearchEngineService } from '@/modules/search/engine/search-engine.service';
 import { OutboxPollerProcessor } from '@/modules/outbox/outbox-poller.processor';
 import { DomainEventsProcessor } from '@/modules/outbox/domain-events.processor';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -30,12 +30,12 @@ export interface E2eContext {
   prisma: PrismaClient;
   background: BackgroundTasks;
   pumpDomainEvents: () => Promise<void>;
-  esContainer?: StartedElasticsearchContainer;
+  searchEngineContainer?: StartedOpenSearchContainer;
 }
 
 export interface CreateE2eAppOptions {
   customize?: (builder: TestingModuleBuilder) => TestingModuleBuilder;
-  withElasticsearch?: boolean;
+  withSearchEngine?: boolean;
   withWebSockets?: boolean;
 }
 
@@ -135,7 +135,7 @@ const mockProcessor = {
   markFailed: async () => {},
 };
 
-const mockElasticsearchService = {
+const mockSearchEngineService = {
   onModuleInit: async () => {},
   onModuleDestroy: async () => {},
   issuesIndex: 'test-issues',
@@ -147,11 +147,9 @@ const mockElasticsearchService = {
   createIndex: async () => {},
   deleteIndex: async () => {},
   indexExists: async () => false,
-  // Used by HealthController.esHealth — returning a stub client lets the
-  // health check report 'ok' without requiring a real ES container.
-  getClient: () => ({
-    cluster: { health: async () => ({ status: 'green' }) },
-  }),
+  // Used by HealthController.searchEngineHealth — a resolving ping lets the
+  // health check report 'ok' without requiring a real engine container.
+  ping: async () => {},
 };
 
 export async function createE2eApp(
@@ -170,11 +168,11 @@ export async function createE2eApp(
     );
   }
 
-  // Start Elasticsearch container on-demand (only for search spec)
-  let esContainer: StartedElasticsearchContainer | undefined;
-  if (options.withElasticsearch) {
-    esContainer = await startElasticsearch();
-    process.env.ELASTICSEARCH_URL = `http://${esContainer.getHost()}:${esContainer.getMappedPort(9200)}`;
+  // Start the search-engine container on-demand (only for search spec)
+  let searchEngineContainer: StartedOpenSearchContainer | undefined;
+  if (options.withSearchEngine) {
+    searchEngineContainer = await startSearchEngine();
+    process.env.SEARCH_ENGINE_URL = `http://${searchEngineContainer.getHost()}:${searchEngineContainer.getMappedPort(9200)}`;
   }
 
   // Pool sized with headroom: the app, its burst of background tasks (e.g. a
@@ -200,10 +198,10 @@ export async function createE2eApp(
   // Only mock ES when no real container is available. The indexing processor
   // is mocked alongside it — with real ES it must process real jobs so the
   // search integration spec sees created issues land in the index.
-  if (!options.withElasticsearch) {
+  if (!options.withSearchEngine) {
     builder = builder
-      .overrideProvider(ElasticsearchService)
-      .useValue(mockElasticsearchService)
+      .overrideProvider(SearchEngineService)
+      .useValue(mockSearchEngineService)
       .overrideProvider(IssueIndexingProcessor)
       .useValue(mockProcessor);
   }
@@ -267,7 +265,7 @@ export async function createE2eApp(
     prisma,
     background,
     pumpDomainEvents: pump.flush,
-    esContainer,
+    searchEngineContainer,
   };
 }
 
@@ -289,7 +287,7 @@ export async function teardownE2eApp(ctx: E2eContext | undefined): Promise<void>
     }
     await ctx.app?.close().catch(() => {});
     await ctx.prisma?.$disconnect();
-    await ctx.esContainer?.stop();
+    await ctx.searchEngineContainer?.stop();
   };
 
   // Store as pending so next createE2eApp waits for it

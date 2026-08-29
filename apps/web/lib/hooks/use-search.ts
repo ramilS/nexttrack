@@ -28,7 +28,7 @@ function resultsParams(
 }
 
 /**
- * The issue list is Elasticsearch-backed and the index lags issue creation by
+ * The issue list is OpenSearch-backed and the index lags issue creation by
  * up to one outbox-poll interval. To give the author read-your-writes feedback
  * we map the create response into a search hit and prepend it to this project's
  * *unfiltered* lists — without refetching them, since an immediate refetch would

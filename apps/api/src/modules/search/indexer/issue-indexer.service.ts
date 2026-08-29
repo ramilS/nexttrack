@@ -2,8 +2,8 @@ import { Injectable, Inject } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
 import { CustomFieldType } from '@prisma/client';
 import type { TiptapDoc } from '@repo/shared/schemas';
-import { ElasticsearchService } from '@/modules/search/elasticsearch/elasticsearch.service';
-import { elasticsearchConfig } from '@/config';
+import { SearchEngineService } from '@/modules/search/engine/search-engine.service';
+import { searchEngineConfig } from '@/config';
 import {
   IndexerCustomField,
   IndexerIssue,
@@ -15,10 +15,6 @@ import { AppLogger } from '@/common/logging/app-logger';
 import { NotFoundError } from '@/common/errors/domain.errors';
 import { ErrorCode } from '@repo/shared/error-codes';
 
-interface BulkResponse {
-  items?: { index?: { error?: unknown } }[];
-}
-
 @Injectable()
 export class IssueIndexerService {
   private readonly logger = new AppLogger(IssueIndexerService.name);
@@ -26,10 +22,10 @@ export class IssueIndexerService {
   constructor(
     private searchRepo: SearchRepository,
     private projectsRepo: ProjectsRepository,
-    private es: ElasticsearchService,
+    private engine: SearchEngineService,
     private indexerHooks: IndexerHooksService,
-    @Inject(elasticsearchConfig.KEY)
-    private config: ConfigType<typeof elasticsearchConfig>,
+    @Inject(searchEngineConfig.KEY)
+    private config: ConfigType<typeof searchEngineConfig>,
   ) {}
 
   // Resolve the project key and enqueue a background reindex — returns
@@ -71,8 +67,8 @@ export class IssueIndexerService {
     }
 
     const doc = this.buildDocument(issue);
-    await this.es.index({
-      index: this.es.issuesIndex,
+    await this.engine.index({
+      index: this.engine.issuesIndex,
       id: issueId,
       // Block until the doc is visible to search, so the list refetch that
       // follows a create/update reflects it instead of racing ES's ~1s refresh.
@@ -83,8 +79,8 @@ export class IssueIndexerService {
   }
 
   async deleteFromIndex(issueId: string): Promise<void> {
-    await this.es.delete({
-      index: this.es.issuesIndex,
+    await this.engine.delete({
+      index: this.engine.issuesIndex,
       id: issueId,
       refresh: 'wait_for',
     });
@@ -108,12 +104,12 @@ export class IssueIndexerService {
       if (issues.length === 0) break;
 
       const operations = issues.flatMap((issue) => [
-        { index: { _index: this.es.issuesIndex, _id: issue.id } },
+        { index: { _index: this.engine.issuesIndex, _id: issue.id } },
         this.buildDocument(issue),
       ]);
 
       try {
-        const result = (await this.es.bulk({ operations })) as BulkResponse;
+        const result = await this.engine.bulk({ operations });
         const items = result.items ?? [];
         indexed += items.filter((i) => !i.index?.error).length;
         errors += items.filter((i) => i.index?.error).length;

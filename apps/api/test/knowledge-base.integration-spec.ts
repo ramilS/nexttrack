@@ -71,7 +71,7 @@ describe('Knowledge Base Integration', () => {
     };
   }
 
-  function articlesUrl(idOrSlug?: string) {
+  function articlsearchEngineUrl(idOrSlug?: string) {
     const base = `/projects/${projectKey}/articles`;
     return idOrSlug ? `${base}/${idOrSlug}` : base;
   }
@@ -81,7 +81,7 @@ describe('Knowledge Base Integration', () => {
     overrides?: { slug?: string; parentId?: string },
   ) {
     const res = await authReq()
-      .post(articlesUrl())
+      .post(articlsearchEngineUrl())
       .send({ title, ...overrides })
       .expect(201);
     return res.body.data;
@@ -104,7 +104,7 @@ describe('Knowledge Base Integration', () => {
     await createArticle('First', { slug: 'my-slug' });
 
     await authReq()
-      .post(articlesUrl())
+      .post(articlsearchEngineUrl())
       .send({ title: 'Second', slug: 'my-slug' })
       .expect(409);
   });
@@ -113,7 +113,7 @@ describe('Knowledge Base Integration', () => {
     const article = await createArticle('Test Article', { slug: 'test-article' });
 
     const res = await authReq()
-      .get(articlesUrl('test-article'))
+      .get(articlsearchEngineUrl('test-article'))
       .expect(200);
 
     expect(res.body.data.id).toBe(article.id);
@@ -131,7 +131,7 @@ describe('Knowledge Base Integration', () => {
     await createArticle('Child', { parentId: parent.id });
 
     const res = await authReq()
-      .get(articlesUrl() + '/tree')
+      .get(articlsearchEngineUrl() + '/tree')
       .expect(200);
 
     expect(res.body.data.length).toBeGreaterThanOrEqual(1);
@@ -141,7 +141,7 @@ describe('Knowledge Base Integration', () => {
     const article = await createArticle('Old Title');
 
     const res = await authReq()
-      .patch(articlesUrl(article.id))
+      .patch(articlsearchEngineUrl(article.id))
       .send({ title: 'New Title' })
       .expect(200);
 
@@ -152,7 +152,7 @@ describe('Knowledge Base Integration', () => {
     const article = await createArticle('Draft Article');
 
     const res = await authReq()
-      .post(articlesUrl(article.id) + '/publish')
+      .post(articlsearchEngineUrl(article.id) + '/publish')
       .expect(200);
 
     expect(res.body.data.publishedAt).toBeTruthy();
@@ -160,10 +160,10 @@ describe('Knowledge Base Integration', () => {
 
   it('should reject publishing an already published article', async () => {
     const article = await createArticle('Published');
-    await authReq().post(articlesUrl(article.id) + '/publish').expect(200);
+    await authReq().post(articlsearchEngineUrl(article.id) + '/publish').expect(200);
 
     await authReq()
-      .post(articlesUrl(article.id) + '/publish')
+      .post(articlsearchEngineUrl(article.id) + '/publish')
       .expect(409);
   });
 
@@ -171,7 +171,7 @@ describe('Knowledge Base Integration', () => {
     const article = await createArticle('To Archive');
 
     const res = await authReq()
-      .post(articlesUrl(article.id) + '/archive')
+      .post(articlsearchEngineUrl(article.id) + '/archive')
       .expect(200);
 
     expect(res.body.data.archivedAt).toBeTruthy();
@@ -181,7 +181,7 @@ describe('Knowledge Base Integration', () => {
     const article = await createArticle('To Delete');
 
     await authReq()
-      .delete(articlesUrl(article.id))
+      .delete(articlsearchEngineUrl(article.id))
       .expect(204);
 
     const db = await ctx.prisma.article.findUnique({ where: { id: article.id } });
@@ -193,7 +193,7 @@ describe('Knowledge Base Integration', () => {
     const child = await createArticle('Orphan');
 
     await authReq()
-      .post(articlesUrl(child.id) + '/move')
+      .post(articlsearchEngineUrl(child.id) + '/move')
       .send({ parentId: parent.id })
       .expect(200);
 
@@ -207,7 +207,7 @@ describe('Knowledge Base Integration', () => {
     const article = await createArticle('Self Ref');
 
     const res = await authReq()
-      .post(articlesUrl(article.id) + '/move')
+      .post(articlsearchEngineUrl(article.id) + '/move')
       .send({ parentId: article.id });
 
     // Should reject with 400 or 409
@@ -220,7 +220,7 @@ describe('Knowledge Base Integration', () => {
     const c = await createArticle('C', { parentId: b.id });
 
     const res = await authReq()
-      .post(articlesUrl(a.id) + '/move')
+      .post(articlsearchEngineUrl(a.id) + '/move')
       .send({ parentId: c.id });
 
     expect([400, 409]).toContain(res.status);
@@ -231,7 +231,7 @@ describe('Knowledge Base Integration', () => {
     const child = await createArticle('Child Under', { parentId: parent.id });
 
     await authReq()
-      .delete(articlesUrl(parent.id))
+      .delete(articlsearchEngineUrl(parent.id))
       .expect(204);
 
     // Child should still exist with parentId null (orphaned to root) or be deleted
@@ -248,7 +248,7 @@ describe('Knowledge Base Integration', () => {
     const child = await createArticle('Nested', { parentId: parent.id });
 
     await authReq()
-      .post(articlesUrl(child.id) + '/move')
+      .post(articlsearchEngineUrl(child.id) + '/move')
       .send({ parentId: null })
       .expect(200);
 

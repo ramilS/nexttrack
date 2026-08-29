@@ -1,13 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SearchService } from './search.service';
 import { SearchRepository, SearchHydrationRow } from './search.repository';
-import { ElasticsearchService } from './elasticsearch/elasticsearch.service';
-import { EsQueryBuilderService } from './elasticsearch/es-query-builder.service';
+import { SearchEngineService } from './engine/search-engine.service';
+import { SearchQueryBuilderService } from './engine/search-query-builder.service';
 import { UsersReader } from '@/modules/users/users.reader';
 import { ProjectsRepository } from '@/modules/projects/projects.repository';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
-import { elasticsearchConfig } from '@/config';
+import { searchEngineConfig } from '@/config';
 
 describe('SearchService', () => {
   let service: SearchService;
@@ -115,13 +115,13 @@ describe('SearchService', () => {
       providers: [
         SearchService,
         { provide: SearchRepository, useValue: searchRepo },
-        { provide: ElasticsearchService, useValue: mockEs },
-        { provide: EsQueryBuilderService, useValue: mockQueryBuilder },
+        { provide: SearchEngineService, useValue: mockEs },
+        { provide: SearchQueryBuilderService, useValue: mockQueryBuilder },
         { provide: UsersReader, useValue: usersRepo },
         { provide: ProjectsRepository, useValue: projectsRepo },
         { provide: ProjectMembersRepository, useValue: membersRepo },
         { provide: WorkflowsReader, useValue: workflowsRepo },
-        { provide: elasticsearchConfig.KEY, useValue: mockEsConfig },
+        { provide: searchEngineConfig.KEY, useValue: mockEsConfig },
       ],
     }).compile();
 

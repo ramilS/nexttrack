@@ -42,15 +42,17 @@ services:
       retries: 5
 
   # ── Search ───────────────────────────────────────────────
-  elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
+  opensearch:
+    image: opensearchproject/opensearch:3.6.0
     restart: unless-stopped
     environment:
       discovery.type: single-node
-      xpack.security.enabled: "false"
-      ES_JAVA_OPTS: "-Xms512m -Xmx512m"
+      plugins.security.disabled: "true"
+      # Security is off, so skip the demo TLS/user bootstrap it would install.
+      DISABLE_INSTALL_DEMO_CONFIG: "true"
+      OPENSEARCH_JAVA_OPTS: "-Xms512m -Xmx512m"
     volumes:
-      - es_data:/usr/share/elasticsearch/data
+      - opensearch_data:/usr/share/opensearch/data
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:9200/_cluster/health"]
       interval: 10s
@@ -92,7 +94,7 @@ services:
         condition: service_healthy
       valkey:
         condition: service_healthy
-      elasticsearch:
+      opensearch:
         condition: service_healthy
       minio:
         condition: service_started
@@ -139,7 +141,7 @@ services:
 volumes:
   postgres_data:
   valkey_data:
-  es_data:
+  opensearch_data:
   minio_data:
   letsencrypt:
   certbot_webroot:

@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { loginAs, authHeaders, apiUrl } from '@helpers/auth-request';
 import { PROJECTS } from '@fixtures/test-data';
 
-test.describe('API: Search (Elasticsearch)', () => {
+test.describe('API: Search (OpenSearch)', () => {
   test('search with empty query should not return 500', async ({ request }) => {
     const token = await loginAs(request);
 
