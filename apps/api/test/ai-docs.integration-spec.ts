@@ -187,7 +187,7 @@ describe('AI Docs Integration', () => {
     });
 
     await patchStatus(docIssue.number, done.id);
-    await ctx.pumpDomainEvents();
+    await ctx.settle();
 
     const article = await ctx.prisma.article.findFirst({
       where: { projectId, title: 'Auth Guide' },
@@ -213,7 +213,7 @@ describe('AI Docs Integration', () => {
     });
 
     await patchStatus(docIssue.number, wontFix.id);
-    await ctx.pumpDomainEvents();
+    await ctx.settle();
 
     const proposal = await ctx.prisma.docUpdateProposal.findUnique({
       where: { docIssueId: docIssue.id },
@@ -265,7 +265,7 @@ describe('AI Docs Integration', () => {
     };
 
     await patchStatus(docIssue.number, done.id);
-    await ctx.pumpDomainEvents();
+    await ctx.settle();
 
     const proposal = await ctx.prisma.docUpdateProposal.findUnique({
       where: { docIssueId: docIssue.id },

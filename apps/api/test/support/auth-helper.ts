@@ -67,10 +67,56 @@ export function extractAccessTokenFromCookies(
   return token;
 }
 
+/**
+ * Returns one Set-Cookie entry in the form a `Cookie:` request header wants
+ * (`name=value`, attributes stripped) — for flows that authenticate by sending
+ * the cookie back rather than a Bearer header.
+ */
+export function cookieHeaderFor(
+  setCookieHeader: unknown,
+  name: string,
+): string {
+  const cookies = (Array.isArray(setCookieHeader) ? setCookieHeader : []) as string[];
+  const match = cookies.find((c) => c.startsWith(`${name}=`));
+  if (!match) {
+    throw new Error(`${name} cookie missing from response`);
+  }
+  return match.split(';')[0];
+}
+
 function extractCookieValue(cookies: string[], name: string): string | null {
   for (const cookie of cookies) {
     const match = cookie.match(new RegExp(`^${name}=([^;]+)`));
     if (match) return decodeURIComponent(match[1]);
   }
   return null;
+}
+
+export interface AuthedRequest {
+  get: (url: string) => request.Test;
+  post: (url: string) => request.Test;
+  patch: (url: string) => request.Test;
+  put: (url: string) => request.Test;
+  delete: (url: string) => request.Test;
+}
+
+/**
+ * Bearer-authenticated supertest shortcuts. Specs used to hand-roll this closure
+ * one file at a time — use this instead of declaring another `authReq()`.
+ */
+export function authRequest(
+  app: INestApplication,
+  token: string,
+): AuthedRequest {
+  const withAuth = (test: request.Test) =>
+    test.set('Authorization', `Bearer ${token}`);
+  const server = app.getHttpServer();
+
+  return {
+    get: (url) => withAuth(request(server).get(url)),
+    post: (url) => withAuth(request(server).post(url)),
+    patch: (url) => withAuth(request(server).patch(url)),
+    put: (url) => withAuth(request(server).put(url)),
+    delete: (url) => withAuth(request(server).delete(url)),
+  };
 }

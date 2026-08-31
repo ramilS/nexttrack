@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { DeliveryChannel, NotificationType, OutboxStatus } from '@prisma/client';
 import {
   createE2eApp,
   teardownE2eApp,
@@ -103,22 +104,19 @@ describe('Outbox Integration', () => {
     };
   }
 
-  async function waitForOutboxEvents(
-    minCount: number,
-    maxWaitMs = 3_000,
-    channel?: 'EMAIL' | 'WEBHOOK' | 'TELEGRAM' | 'INTERNAL',
-  ) {
-    const where = channel ? { channel: channel as never } : {};
-    const start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-      const events = await ctx.prisma.outboxEvent.findMany({ where });
-      if (events.length >= minCount) return events;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    return ctx.prisma.outboxEvent.findMany({ where });
+  /**
+   * Settles the event pipeline, then reads the outbox. After `settle()` the
+   * INTERNAL rows have been delivered and marked PROCESSED, while EMAIL /
+   * WEBHOOK / TELEGRAM rows stay PENDING because their processors are mocked.
+   */
+  async function settledOutboxEvents(channel?: DeliveryChannel) {
+    await ctx.settle();
+    return ctx.prisma.outboxEvent.findMany({
+      where: channel ? { channel } : {},
+    });
   }
 
-  it('should create outbox events when notification is dispatched', async () => {
+  it('dispatches the internal events and leaves the outbound ones queued', async () => {
     // Assign issue to member — triggers ISSUE_ASSIGNED notification → outbox
     await authReq()
       .post(`/projects/${projectKey}/issues`)
@@ -130,12 +128,21 @@ describe('Outbox Integration', () => {
       })
       .expect(201);
 
-    const events = await waitForOutboxEvents(1);
-    expect(events.length).toBeGreaterThanOrEqual(1);
+    const events = await settledOutboxEvents();
 
-    // Check at least one event has PENDING status
-    const pendingEvents = events.filter((e) => e.status === 'PENDING');
-    expect(pendingEvents.length).toBeGreaterThanOrEqual(0); // May already be processed by mock
+    // A listener that throws lands here — the row would be FAILED with its error.
+    expect(events.filter((e) => e.status === OutboxStatus.FAILED)).toEqual([]);
+
+    const internal = events.filter((e) => e.channel === DeliveryChannel.INTERNAL);
+    expect(internal.length).toBeGreaterThan(0);
+    expect(
+      internal.every((e) => e.status === OutboxStatus.PROCESSED),
+    ).toBe(true);
+
+    // The email/webhook processors are mocked, so their rows stay queued.
+    const outbound = events.filter((e) => e.channel !== DeliveryChannel.INTERNAL);
+    expect(outbound.length).toBeGreaterThan(0);
+    expect(outbound.every((e) => e.status === OutboxStatus.PENDING)).toBe(true);
   });
 
   it('should persist outbox events with correct aggregate info', async () => {
@@ -149,17 +156,15 @@ describe('Outbox Integration', () => {
       })
       .expect(201);
 
-    const events = await waitForOutboxEvents(1);
+    const events = await settledOutboxEvents();
+    expect(events.length).toBeGreaterThan(0);
 
-    if (events.length > 0) {
-      // Verify structure of outbox events
-      for (const event of events) {
-        expect(event.aggregateType).toBeTruthy();
-        expect(event.aggregateId).toBeTruthy();
-        expect(event.eventType).toBeTruthy();
-        expect(event.channel).toBeTruthy();
-        expect(event.maxAttempts).toBeGreaterThanOrEqual(1);
-      }
+    for (const event of events) {
+      expect(event.aggregateType).toBeTruthy();
+      expect(event.aggregateId).toBeTruthy();
+      expect(event.eventType).toBeTruthy();
+      expect(event.channel).toBeTruthy();
+      expect(event.maxAttempts).toBeGreaterThanOrEqual(1);
     }
   });
 
@@ -174,9 +179,8 @@ describe('Outbox Integration', () => {
       })
       .expect(201);
 
-    const webhookEvents = await waitForOutboxEvents(1, 3_000, 'WEBHOOK');
-    expect(webhookEvents.length).toBeGreaterThan(0);
-    expect(webhookEvents[0].eventType).toBe('ASSIGNEE_CHANGED');
+    const webhookEvents = await settledOutboxEvents(DeliveryChannel.WEBHOOK);
+    expect(webhookEvents.map((e) => e.eventType)).toEqual(['ASSIGNEE_CHANGED']);
   });
 
   it('should create notification records for assigned issues', async () => {
@@ -190,16 +194,14 @@ describe('Outbox Integration', () => {
       })
       .expect(201);
 
-    // Wait for async notification dispatch
-    await new Promise((r) => setTimeout(r, 1_000));
+    await ctx.settle();
 
     const notifications = await ctx.prisma.notification.findMany({
       where: { userId: memberId },
     });
-
-    expect(notifications.length).toBeGreaterThanOrEqual(1);
-    const assignNotification = notifications.find((n) => n.type === 'ISSUE_ASSIGNED');
-    expect(assignNotification).toBeDefined();
+    expect(notifications.map((n) => n.type)).toContain(
+      NotificationType.ISSUE_ASSIGNED,
+    );
   });
 
   it('outbox events should have default maxAttempts', async () => {
@@ -213,13 +215,14 @@ describe('Outbox Integration', () => {
       })
       .expect(201);
 
-    const events = await waitForOutboxEvents(1);
+    const events = await settledOutboxEvents();
+    expect(events.length).toBeGreaterThan(0);
 
-    if (events.length > 0) {
-      for (const event of events) {
-        expect(event.maxAttempts).toBe(5);
-        expect(event.attempts).toBe(0);
-      }
+    for (const event of events) {
+      expect(event.maxAttempts).toBe(5);
+      // `attempts` counts delivery attempts by the (mocked) processors; the
+      // internal rows this harness dispatches never go through that counter.
+      expect(event.attempts).toBe(0);
     }
   });
 });

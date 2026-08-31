@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { AssignStrategy, IssueType, Priority } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -140,23 +141,50 @@ describe('Auto-Assign Integration (full AppModule)', () => {
 
   // ─── Preview ──────────────────────────────────────────────────────
 
-  describe('POST /projects/:key/auto-assign/:ruleId/preview', () => {
-    it('should preview matching issues for a rule', async () => {
-      // Create some issues
-      await authReq().post(`/projects/${projectKey}/issues`).send({ title: 'Bug 1', type: 'BUG' }).expect(201);
-      await authReq().post(`/projects/${projectKey}/issues`).send({ title: 'Task 1', type: 'TASK' }).expect(201);
-
-      const ruleRes = await authReq()
+  describe('POST /projects/:key/auto-assign/preview', () => {
+    // The endpoint previews a rule against hypothetical issue data — the type
+    // and priority a new issue would carry — so no issues need to exist.
+    async function createBugRule(): Promise<string> {
+      const res = await authReq()
         .post(`/projects/${projectKey}/auto-assign`)
-        .send({ name: 'Bug rule', conditions: { issueType: ['BUG'] }, strategy: 'SPECIFIC_USER', assigneeId: adminId })
+        .send({
+          name: 'Bug rule',
+          conditions: { issueType: [IssueType.BUG] },
+          strategy: AssignStrategy.SPECIFIC_USER,
+          assigneeId: adminId,
+        })
         .expect(201);
-      const ruleId = ruleRes.body.data.id;
+      return res.body.data.id;
+    }
 
-      const previewRes = await authReq()
-        .post(`/projects/${projectKey}/auto-assign/${ruleId}/preview`);
+    it('reports the matching rule and the assignee it would pick', async () => {
+      const ruleId = await createBugRule();
 
-      // Should succeed (might return matched issues or summary)
-      expect(previewRes.status).toBeLessThan(500);
+      const res = await authReq()
+        .post(`/projects/${projectKey}/auto-assign/preview`)
+        .send({ type: IssueType.BUG, priority: Priority.MEDIUM })
+        .expect(201);
+
+      expect(res.body.data).toMatchObject({
+        matched: true,
+        rule: { id: ruleId, name: 'Bug rule' },
+      });
+      expect(res.body.data.assignee.id).toBe(adminId);
+    });
+
+    it('reports no match when no rule conditions apply', async () => {
+      await createBugRule();
+
+      const res = await authReq()
+        .post(`/projects/${projectKey}/auto-assign/preview`)
+        .send({ type: IssueType.TASK, priority: Priority.MEDIUM })
+        .expect(201);
+
+      expect(res.body.data).toEqual({
+        matched: false,
+        assignee: null,
+        rule: null,
+      });
     });
   });
 });

@@ -1,7 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { Activity, ActivityType, DeliveryChannel, OutboxStatus } from '@prisma/client';
+import { ActivityType, DeliveryChannel, OutboxStatus } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -115,8 +115,14 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
         .get(`/projects/${projectKey}/gantt?groupBy=ASSIGNEE`)
         .expect(200);
 
-      // Should have groups array when groupBy is specified
-      expect(res.body.data).toBeDefined();
+      // `groups` is present only when grouping is requested, and every item must
+      // be placed in exactly one group.
+      const { items, groups } = res.body.data;
+      expect(Array.isArray(groups)).toBe(true);
+      const groupedIds = groups.flatMap((g: { items: string[] }) => g.items);
+      expect(groupedIds.sort()).toEqual(
+        items.map((i: { id: string }) => i.id).sort(),
+      );
     });
   });
 
@@ -131,7 +137,7 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
 
       const issueNumber = issueRes.body.data.number;
 
-      await ctx.pumpDomainEvents();
+      await ctx.settle();
 
       const activitiesRes = await authReq()
         .get(`/projects/${projectKey}/issues/${issueNumber}/activities`)
@@ -164,7 +170,7 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
         .send({ statusId: inProgressStatus!.id })
         .expect(200);
 
-      await ctx.pumpDomainEvents();
+      await ctx.settle();
 
       const activitiesRes = await authReq()
         .get(`/projects/${projectKey}/issues/1/activities`)
@@ -186,7 +192,7 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
         .send({ priority: 'CRITICAL' })
         .expect(200);
 
-      await ctx.pumpDomainEvents();
+      await ctx.settle();
 
       const activitiesRes = await authReq()
         .get(`/projects/${projectKey}/issues/1/activities`)
@@ -205,20 +211,20 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
 
       await authReq().delete(`/projects/${projectKey}/issues/1`).expect(204);
 
-      // Check DB directly since the issue endpoint returns 404 (event listener runs async)
-      const project = await ctx.prisma.project.findFirst({ where: { key: projectKey } });
-      let activities: Activity[] = [];
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        activities = await ctx.prisma.activity.findMany({
-          where: {
-            issue: { number: 1, projectId: project!.id },
-            type: 'ISSUE_DELETED',
-          },
-        });
-        if (activities.length > 0) break;
-      }
-      expect(activities.length).toBe(1);
+      // Check the DB directly — the issue endpoint now 404s, and the activity
+      // is written by an event listener, so settle first.
+      await ctx.settle();
+
+      const project = await ctx.prisma.project.findFirstOrThrow({
+        where: { key: projectKey },
+      });
+      const activities = await ctx.prisma.activity.findMany({
+        where: {
+          issue: { number: 1, projectId: project.id },
+          type: ActivityType.ISSUE_DELETED,
+        },
+      });
+      expect(activities).toHaveLength(1);
     });
 
     it('should filter activities by type', async () => {
@@ -232,7 +238,7 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
         .send({ priority: 'HIGH' })
         .expect(200);
 
-      await ctx.pumpDomainEvents();
+      await ctx.settle();
 
       // Filter to only show PRIORITY_CHANGE
       const res = await authReq()
@@ -252,7 +258,7 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
         .send({ title: 'Redelivery Test' })
         .expect(201);
 
-      await ctx.pumpDomainEvents();
+      await ctx.settle();
 
       // Simulate redelivery: flip the processed event back to PENDING so the
       // pump emits it again with the same eventId.
@@ -262,7 +268,7 @@ describe('Gantt & Activities Integration (full AppModule)', () => {
       });
       expect(reset.count).toBe(1);
 
-      await ctx.pumpDomainEvents();
+      await ctx.settle();
 
       const project = await ctx.prisma.project.findFirst({ where: { key: projectKey } });
       const activities = await ctx.prisma.activity.findMany({

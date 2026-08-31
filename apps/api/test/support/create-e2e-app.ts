@@ -3,7 +3,7 @@ import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { DeliveryChannel, OutboxStatus, Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { ALL_PERMISSIONS, Permission } from '@repo/shared';
+import { SYSTEM_ROLES } from '@repo/shared';
 import {
   startSearchEngine,
   type StartedOpenSearchContainer,
@@ -24,13 +24,31 @@ import { TelegramDeliveryProcessor } from '@/modules/telegram/telegram-delivery.
 import { NotificationJobsProcessor } from '@/modules/notifications/notification-jobs.processor';
 import { IssueIndexingProcessor } from '@/modules/search/indexer/issue-indexing.processor';
 import { IndexerHooksService } from '@/modules/search/indexer/indexer-hooks.service';
+import { SEARCH_INDEXING_QUEUE } from '@/modules/search/indexer/indexing-queue';
 import { AttachmentsStorageService } from '@/modules/attachments/attachments-storage.service';
+import { getQueueToken } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
+import { workerDatabaseUrl, workerValkeyUrl } from './test-env';
 
 export interface E2eContext {
   app: INestApplication;
   prisma: PrismaClient;
+  /** The app's background-task tracker — `teardownE2eApp` drains it. */
   background: BackgroundTasks;
-  pumpDomainEvents: () => Promise<void>;
+  /**
+   * Waits until every domain event published so far has been delivered to its
+   * listeners AND every background write those listeners scheduled has landed.
+   * Use this instead of sleeping before asserting on an activity, notification,
+   * watcher or outbox row — it is deterministic, and it returns as soon as the
+   * work is done rather than after a guessed interval.
+   */
+  settle: () => Promise<void>;
+  /**
+   * `settle()` plus a wait for the `search-indexing` queue to drain. Only
+   * meaningful with `withSearchEngine: true`; with the mocked engine the queue
+   * is never fed, so this degrades to `settle()`.
+   */
+  settleSearchIndex: () => Promise<void>;
   searchEngineContainer?: StartedOpenSearchContainer;
 }
 
@@ -44,30 +62,35 @@ export interface CreateE2eAppOptions {
 let pendingTeardown: Promise<void> | undefined;
 
 // The active app's background-task tracker. Safe as a module-level singleton
-// because integration suites run with `maxWorkers: 1` (one app at a time).
-// `truncateTables` drains it before truncating so a late event-listener write
-// can never land in the next test's freshly-truncated schema.
+// because a Jest worker runs one spec file at a time, and each spec file owns
+// one app. `truncateTables` drains it before truncating so a late
+// event-listener write can never land in the next test's freshly-truncated
+// schema.
 let currentBackground: BackgroundTasks | undefined;
 
 // In production INTERNAL outbox events flow poller -> domain-events queue ->
-// DomainEventsProcessor -> EventEmitter2. The harness mocks the poller, so a
-// lightweight pump dispatches PENDING INTERNAL rows straight to the app's
-// EventEmitter2 — existing poll-until-side-effect tests keep working.
-interface DomainEventPump {
-  flush: () => Promise<void>;
-  stop: () => void;
+// DomainEventsProcessor -> EventEmitter2. The harness mocks the poller, so this
+// dispatcher plays that role — but only when a test asks for it, via
+// `ctx.settle()`. It deliberately does NOT run on a timer: a background
+// interval made delivery non-deterministic (tests compensated with sleeps),
+// queried `outbox_events` twenty times a second for the whole run, and raced
+// the `TRUNCATE` in `beforeEach`.
+interface DomainEventDispatcher {
+  /** Delivers all PENDING INTERNAL rows; returns how many were dispatched. */
+  flush: () => Promise<number>;
 }
 
-let currentPump: DomainEventPump | undefined;
+const DISPATCH_BATCH_SIZE = 100;
 
-function startDomainEventPump(
+function createDomainEventDispatcher(
   app: INestApplication,
   prisma: PrismaClient,
-): DomainEventPump {
+): DomainEventDispatcher {
   const emitter = app.get(EventEmitter2);
-  let chain: Promise<void> = Promise.resolve();
+  // Serialize concurrent flushes so two callers can't dispatch the same row.
+  let chain: Promise<number> = Promise.resolve(0);
 
-  const flushOnce = async (): Promise<void> => {
+  const flushBatch = async (): Promise<number> => {
     let rows;
     try {
       rows = await prisma.outboxEvent.findMany({
@@ -76,11 +99,11 @@ function startDomainEventPump(
           channel: DeliveryChannel.INTERNAL,
         },
         orderBy: { createdAt: 'asc' },
-        take: 100,
+        take: DISPATCH_BATCH_SIZE,
       });
     } catch {
-      // Table may be mid-truncate between tests — skip this tick.
-      return;
+      // Table may be mid-truncate — nothing to dispatch this round.
+      return 0;
     }
 
     for (const row of rows) {
@@ -105,16 +128,112 @@ function startDomainEventPump(
           .catch(() => {});
       }
     }
+
+    return rows.length;
   };
 
-  const flush = () => {
-    chain = chain.then(flushOnce);
-    return chain;
+  // A listener can publish further events, so keep going until the table is dry.
+  const flushAll = async (): Promise<number> => {
+    let total = 0;
+    for (;;) {
+      const dispatched = await flushBatch();
+      total += dispatched;
+      if (dispatched < DISPATCH_BATCH_SIZE) return total;
+    }
   };
 
-  const interval = setInterval(() => void flush(), 50);
-  interval.unref();
-  return { flush, stop: () => clearInterval(interval) };
+  return {
+    flush: () => {
+      const result = chain.then(flushAll);
+      // Keep the ordering guarantee without letting one rejection poison every
+      // later flush.
+      chain = result.catch(() => 0);
+      return result;
+    },
+  };
+}
+
+// How many dispatch/drain rounds `settle()` will run before giving up. Each
+// round can uncover new work (a listener publishes an event; a drained
+// background task publishes another), so one round is not enough — but a
+// handler that re-publishes forever must not hang the hook either.
+const MAX_SETTLE_ROUNDS = 10;
+
+/**
+ * Deterministic quiescence barrier. Alternates "deliver every pending domain
+ * event" with "wait for every tracked background write", until a round finds
+ * nothing left to do — a listener can publish further events, and a drained
+ * background task can publish some too.
+ */
+async function settleApp(
+  dispatcher: DomainEventDispatcher | undefined,
+  background: BackgroundTasks | undefined,
+): Promise<void> {
+  for (let round = 0; round < MAX_SETTLE_ROUNDS; round++) {
+    let dispatched = 0;
+    try {
+      dispatched = (await dispatcher?.flush()) ?? 0;
+    } catch (err) {
+      console.warn(`[settle] dispatching domain events failed: ${String(err)}`);
+      return;
+    }
+
+    if (!(await drainBackground(background))) return;
+    if (dispatched === 0) return;
+  }
+  console.warn(
+    `[settle] still producing work after ${MAX_SETTLE_ROUNDS} rounds; proceeding`,
+  );
+}
+
+/**
+ * Waits for tracked fire-and-forget work (event-listener writes, dispatch,
+ * indexing) to finish. Returns false if the drain timed out, so callers can
+ * stop looping instead of stacking 15s waits.
+ */
+async function drainBackground(
+  background: BackgroundTasks | undefined,
+): Promise<boolean> {
+  if (!background) return true;
+  const drained = await background.whenIdle(DRAIN_TIMEOUT_MS);
+  if (!drained) {
+    console.warn('[settle] background drain timed out; proceeding');
+  }
+  return drained;
+}
+
+// Upper bound on waiting for the search-indexing queue to empty. Each job is a
+// `refresh: 'wait_for'` round-trip to the engine, so a handful of documents is
+// fast; the cap only exists so a wedged worker fails the test rather than the
+// whole run.
+const SEARCH_INDEX_TIMEOUT_MS = 30_000;
+const SEARCH_INDEX_POLL_MS = 50;
+
+async function waitForQueueDrained(
+  queue: Queue,
+  timeoutMs: number,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const counts = await queue.getJobCounts(
+      'waiting',
+      'active',
+      'delayed',
+      'paused',
+    );
+    const outstanding =
+      (counts.waiting ?? 0) +
+      (counts.active ?? 0) +
+      (counts.delayed ?? 0) +
+      (counts.paused ?? 0);
+    if (outstanding === 0) return;
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `search-indexing queue did not drain within ${timeoutMs}ms (${outstanding} job(s) outstanding)`,
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, SEARCH_INDEX_POLL_MS));
+  }
 }
 
 // Upper bound on draining background work. Generous (the common case finishes
@@ -155,12 +274,23 @@ async function closeAppWithin(
   }
 }
 
-const mockStorageService = {
+/**
+ * Keys are checked against the real class, values are not: a mock must never be
+ * able to keep answering a method that was renamed or deleted, but forcing it to
+ * fabricate the real return types (an S3 `WriteResponseBase`, an engine
+ * `BulkResult`) would buy nothing.
+ */
+type MockOf<T> = Partial<Record<keyof T, unknown>>;
+
+// The names here matter: `getSignedDownloadUrl` and `fileExists` used to be
+// mocked, but the service calls them `getPresignedUrl` and `exists` — so the
+// download and existence paths were hitting `undefined`, not a mock.
+const mockStorageService: MockOf<AttachmentsStorageService> = {
   onModuleInit: async () => {},
   uploadBuffer: async () => {},
-  getSignedDownloadUrl: async () => 'https://mock-s3/file',
+  getPresignedUrl: async () => 'https://mock-s3/file',
   deleteFile: async () => {},
-  fileExists: async () => false,
+  exists: async () => false,
 };
 
 const mockProcessor = {
@@ -175,24 +305,23 @@ const mockProcessor = {
 // Postgres, not Redis — so the whole run's backlog lands on the ONE spec that
 // does start a real worker, which then drains hundreds of stale ids (each a
 // `refresh: 'wait_for'` round-trip) before it reaches its own documents.
-const mockIndexerHooks = {
+const mockIndexerHooks: MockOf<IndexerHooksService> = {
   onIssueChanged: async () => {},
   onIssueDeleted: async () => {},
   enqueueProjectReindex: async () => {},
 };
 
-const mockSearchEngineService = {
+// Every key below is a real method on `SearchEngineService`. It used to declare
+// four more — createIndex, deleteIndex, indexExists, update — that the service
+// does not have; `MockOf` is what now makes that impossible.
+const mockSearchEngineService: MockOf<SearchEngineService> = {
   onModuleInit: async () => {},
   onModuleDestroy: async () => {},
   issuesIndex: 'test-issues',
   search: async () => ({ hits: { hits: [], total: { value: 0 } } }),
   index: async () => {},
-  update: async () => {},
   delete: async () => {},
   bulk: async () => ({ errors: false }),
-  createIndex: async () => {},
-  deleteIndex: async () => {},
-  indexExists: async () => false,
   // Used by HealthController.searchEngineHealth — a resolving ping lets the
   // health check report 'ok' without requiring a real engine container.
   ping: async () => {},
@@ -207,12 +336,13 @@ export async function createE2eApp(
     pendingTeardown = undefined;
   }
 
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    throw new Error(
-      'DATABASE_URL is not set. Ensure globalSetup has run (jest --config test/jest-integration.json).',
-    );
-  }
+  // Each Jest worker gets its own database and its own Valkey logical database:
+  // specs `TRUNCATE` between cases, so sharing either across workers would have
+  // them clearing each other's fixtures. Set before `compile()` — `valkeyConfig`
+  // reads the env var at factory time.
+  const dbUrl = workerDatabaseUrl();
+  process.env.DATABASE_URL = dbUrl;
+  process.env.VALKEY_URL = workerValkeyUrl();
 
   // Start the search-engine container on-demand (only for search spec)
   let searchEngineContainer: StartedOpenSearchContainer | undefined;
@@ -225,8 +355,8 @@ export async function createE2eApp(
   // sprint-close fanning out many `issue.updated` → dispatch transactions), and
   // the test's own queries all share this pool. At max:5 a background burst can
   // starve `truncateTables` (which needs ACCESS EXCLUSIVE on every table),
-  // stalling `beforeEach` to its 60s Jest-hook timeout. Only one app runs at a
-  // time (`maxWorkers:1`) and Postgres allows 200 connections, so this is safe.
+  // stalling `beforeEach` to its 60s Jest-hook timeout. One app per worker and
+  // `max_connections=200` on the container leave ample headroom at this size.
   const adapter = new PrismaPg({
     connectionString: dbUrl,
     max: 25,
@@ -289,7 +419,13 @@ export async function createE2eApp(
     app.useWebSocketAdapter(new WsAdapter(app, ['*'], redisClient));
   }
 
-  // Disable throttling by monkey-patching the guard prototype
+  // Disable throttling. `AppModule` already collapses the named throttlers to a
+  // single `{ ttl: 0, limit: 0 }` bucket under NODE_ENV=test, but the route-level
+  // `@Throttle({ short: … })` decorators on /auth/* would still bind if that
+  // bucket were ever renamed — and the login limit is 5/5min, which any spec
+  // that logs in per test would exhaust. Patching the base prototype covers the
+  // real guard too: `ApiKeyAwareThrottlerGuard` extends `ThrottlerGuard` and does
+  // not override `canActivate`, so it inherits this.
   ThrottlerGuard.prototype.canActivate = async () => true;
 
   await app.init();
@@ -305,14 +441,22 @@ export async function createE2eApp(
   const background = app.get(BackgroundTasks);
   currentBackground = background;
 
-  const pump = startDomainEventPump(app, prisma);
-  currentPump = pump;
+  const dispatcher = createDomainEventDispatcher(app, prisma);
+
+  const settle = () => settleApp(dispatcher, background);
 
   return {
     app,
     prisma,
     background,
-    pumpDomainEvents: pump.flush,
+    settle,
+    settleSearchIndex: async () => {
+      await settle();
+      // Resolved here rather than at app creation so a spec that never touches
+      // search can't be broken by the queue token failing to resolve.
+      const queue = app.get<Queue>(getQueueToken(SEARCH_INDEXING_QUEUE));
+      await waitForQueueDrained(queue, SEARCH_INDEX_TIMEOUT_MS);
+    },
     searchEngineContainer,
   };
 }
@@ -321,16 +465,14 @@ export async function teardownE2eApp(ctx: E2eContext | undefined): Promise<void>
   if (!ctx) return;
 
   const doTeardown = async () => {
-    // Deterministically drain in-flight event-listener / dispatch work before
-    // closing, so no orphaned write outlives the app (the old fixed-`setTimeout`
-    // sleeps only mitigated this probabilistically). Bounded so a stuck handler
-    // can't hang teardown. `app.close()` then runs `BackgroundTasks.onModuleDestroy`,
-    // a second (also bounded) drain covering work scheduled during shutdown.
+    // Drain in-flight fire-and-forget work before closing, so no orphaned write
+    // outlives the app. Drain only — do NOT dispatch: an event the spec never
+    // settled has no listener work in flight, so there is nothing to orphan, and
+    // delivering it now would schedule writes into an app that is about to
+    // close. `app.close()` then runs `BackgroundTasks.onModuleDestroy`, a second
+    // (also bounded) drain covering work scheduled during shutdown.
     try {
-      await currentPump?.flush().catch(() => {});
-      currentPump?.stop();
-      currentPump = undefined;
-      await ctx.background?.whenIdle(DRAIN_TIMEOUT_MS).catch(() => {});
+      await drainBackground(ctx.background);
       if (currentBackground === ctx.background) {
         currentBackground = undefined;
       }
@@ -348,35 +490,45 @@ export async function teardownE2eApp(ctx: E2eContext | undefined): Promise<void>
   await pendingTeardown;
 }
 
-export async function truncateTables(prisma: PrismaClient): Promise<void> {
-  // Drain the active app's fire-and-forget work (event listeners writing
-  // Activity/Notification rows, dispatch, indexing) before truncating, so a
-  // late write from the previous test can't FK-violate against — or repopulate
-  // — the table we're about to clear. Deterministic replacement for the old
-  // teardown sleeps. Bounded so a cascading/stuck handler can't hang the hook;
-  // on timeout we proceed and lean on the TRUNCATE deadlock-retry below.
-  await currentPump?.flush().catch(() => {});
-  if (currentBackground) {
-    const drained = await currentBackground.whenIdle(DRAIN_TIMEOUT_MS);
-    if (!drained) {
-      console.warn('[truncateTables] background drain timed out; proceeding');
-    }
-  }
+// The public schema does not change during a run, so look the table list up
+// once per worker process instead of on every `beforeEach`.
+let cachedTruncateSql: string | undefined;
+
+async function truncateStatement(
+  prisma: PrismaClient,
+): Promise<string | undefined> {
+  if (cachedTruncateSql !== undefined) return cachedTruncateSql;
 
   const tables = await prisma.$queryRaw<{ tablename: string }[]>`
     SELECT tablename FROM pg_tables WHERE schemaname = 'public'
     AND tablename != '_prisma_migrations'
   `;
+  if (tables.length === 0) return undefined;
 
-  if (tables.length === 0) return;
-
-  // Truncate all tables in a single statement to avoid deadlocks.
-  // Retry on 40P01 (deadlock_detected): when integration suites run in
-  // parallel and async event-listener writes overlap with TRUNCATE,
-  // Postgres can elect either side as the deadlock victim.
+  // One statement for every table: TRUNCATE takes ACCESS EXCLUSIVE on each, and
+  // acquiring them all at once is what keeps concurrent writers from
+  // interleaving into a deadlock.
   const tableNames = tables.map((t) => `"public"."${t.tablename}"`).join(', ');
-  const sql = `TRUNCATE TABLE ${tableNames} CASCADE`;
+  cachedTruncateSql = `TRUNCATE TABLE ${tableNames} CASCADE`;
+  return cachedTruncateSql;
+}
 
+export async function truncateTables(prisma: PrismaClient): Promise<void> {
+  // Drain the previous test's in-flight fire-and-forget work (Activity /
+  // Notification rows, dispatch, indexing) before truncating, so a late write
+  // can't FK-violate against — or repopulate — the table we're about to clear.
+  // Undelivered outbox rows need no dispatching: the TRUNCATE removes them, and
+  // delivering another test's events here would be pure waste. Bounded, so a
+  // cascading handler can't hang the hook; the TRUNCATE deadlock-retry below
+  // covers the case where we proceed anyway.
+  await drainBackground(currentBackground);
+
+  const sql = await truncateStatement(prisma);
+  if (!sql) return;
+
+  // Retry on 40P01 (deadlock_detected): an async event-listener write that
+  // slipped past the drain can overlap the TRUNCATE, and Postgres may elect
+  // either side as the victim.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       await prisma.$executeRawUnsafe(sql);
@@ -391,65 +543,19 @@ export async function truncateTables(prisma: PrismaClient): Promise<void> {
 }
 
 /**
- * Seeds the system roles that are normally created by `prisma/seed.ts`.
- * Must be called after `truncateTables()` in integration tests, because
- * project creation assigns the creator roleId '...0001' (Project Admin).
+ * Seeds the same system roles `prisma/seed.ts` writes, from the same shared
+ * definitions — a test can never pass against a role table production would
+ * not produce. Must be called after `truncateTables()`, because project
+ * creation assigns the creator the Project Admin role id.
  */
 export async function seedSystemRoles(prisma: PrismaClient): Promise<void> {
   await prisma.role.createMany({
-    data: [
-      {
-        id: '00000000-0000-0000-0000-000000000001',
-        name: 'Project Admin',
-        description: 'Full access to all project features and settings',
-        permissions: ALL_PERMISSIONS as Prisma.InputJsonValue,
-        isSystem: true,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000002',
-        name: 'Developer',
-        description: 'Full issue management, comments, articles, tags, boards, and time tracking',
-        permissions: [
-          Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.ISSUE_UPDATE,
-          Permission.ISSUE_DELETE, Permission.ISSUE_MOVE, Permission.ISSUE_LINK_MANAGE,
-          Permission.COMMENT_CREATE, Permission.COMMENT_EDIT_OWN,
-          Permission.ARTICLE_READ, Permission.ARTICLE_CREATE, Permission.ARTICLE_UPDATE,
-          Permission.TAG_MANAGE, Permission.BOARD_MANAGE,
-          Permission.SPRINT_MANAGE, Permission.TIME_LOG_OWN,
-        ] as Prisma.InputJsonValue,
-        isSystem: true,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000003',
-        name: 'QA',
-        description: 'Same as Developer plus can delete issues',
-        permissions: [
-          Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.ISSUE_UPDATE,
-          Permission.ISSUE_DELETE, Permission.ISSUE_MOVE, Permission.ISSUE_LINK_MANAGE,
-          Permission.COMMENT_CREATE, Permission.COMMENT_EDIT_OWN,
-          Permission.ARTICLE_READ, Permission.ARTICLE_CREATE, Permission.ARTICLE_UPDATE,
-          Permission.SPRINT_MANAGE, Permission.TIME_LOG_OWN,
-        ] as Prisma.InputJsonValue,
-        isSystem: true,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000004',
-        name: 'Reporter',
-        description: 'Can create issues and comments, read articles, and log own time',
-        permissions: [
-          Permission.ISSUE_READ, Permission.ISSUE_CREATE,
-          Permission.COMMENT_CREATE, Permission.COMMENT_EDIT_OWN,
-          Permission.ARTICLE_READ, Permission.TIME_LOG_OWN,
-        ] as Prisma.InputJsonValue,
-        isSystem: true,
-      },
-      {
-        id: '00000000-0000-0000-0000-000000000005',
-        name: 'Observer',
-        description: 'Read-only access to issues and articles',
-        permissions: [Permission.ISSUE_READ, Permission.ARTICLE_READ] as Prisma.InputJsonValue,
-        isSystem: true,
-      },
-    ],
+    data: SYSTEM_ROLES.map((role) => ({
+      id: role.id,
+      name: role.name,
+      description: role.description,
+      permissions: [...role.permissions] as Prisma.InputJsonValue,
+      isSystem: true,
+    })),
   });
 }

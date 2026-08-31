@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ActivityType } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -192,13 +193,16 @@ describe('Issue Links Integration', () => {
       .send({ type: 'BLOCKS', targetIssueId: i2.id })
       .expect(201);
 
-    // Activity is recorded via fire-and-forget — wait briefly for async completion
-    await new Promise((r) => setTimeout(r, 500));
+    // The activity pair is recorded via fire-and-forget — settle drains it.
+    await ctx.settle();
 
     const activities = await ctx.prisma.activity.findMany({
-      where: { type: 'LINK_ADD' },
+      where: { type: ActivityType.LINK_ADD },
+      select: { issueId: true },
     });
-
-    expect(activities.length).toBeGreaterThanOrEqual(1);
+    // One activity per side of the link, each carrying the inverse direction.
+    expect(new Set(activities.map((a) => a.issueId))).toEqual(
+      new Set([i1.id, i2.id]),
+    );
   });
 });

@@ -1,4 +1,7 @@
-import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
+import {
+  cookieHeaderFor,
+  extractAccessTokenFromCookies,
+} from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { Prisma } from '@prisma/client';
@@ -167,14 +170,6 @@ describe('Auth Integration (full AppModule)', () => {
   // --- Refresh ---
 
   describe('POST /auth/refresh', () => {
-    function refreshCookie(setCookieHeader: unknown): string {
-      const cookies = (Array.isArray(setCookieHeader) ? setCookieHeader : []) as string[];
-      const match = cookies.find((c) => c.startsWith('refresh_token='));
-      if (!match) throw new Error('refresh_token cookie missing');
-      // Pass the whole "name=value" segment back as a Cookie header
-      return match.split(';')[0];
-    }
-
     it('should rotate refresh token and revoke the old one', async () => {
       await seedUser();
       const loginRes = await request(ctx.app.getHttpServer())
@@ -182,7 +177,7 @@ describe('Auth Integration (full AppModule)', () => {
         .send({ email: 'test@test.local', password: 'password123' })
         .expect(200);
 
-      const oldRefresh = refreshCookie(loginRes.headers['set-cookie']);
+      const oldRefresh = cookieHeaderFor(loginRes.headers['set-cookie'], 'refresh_token');
 
       const refreshRes = await request(ctx.app.getHttpServer())
         .post('/auth/refresh')
@@ -207,7 +202,7 @@ describe('Auth Integration (full AppModule)', () => {
         .post('/auth/login')
         .send({ email: 'test@test.local', password: 'password123' })
         .expect(200);
-      const oldRefresh = refreshCookie(loginRes.headers['set-cookie']);
+      const oldRefresh = cookieHeaderFor(loginRes.headers['set-cookie'], 'refresh_token');
 
       // First refresh — succeeds and rotates
       await request(ctx.app.getHttpServer())
@@ -240,7 +235,7 @@ describe('Auth Integration (full AppModule)', () => {
         .post('/auth/login')
         .send({ email: 'test@test.local', password: 'password123' })
         .expect(200);
-      const oldRefresh = refreshCookie(loginRes.headers['set-cookie']);
+      const oldRefresh = cookieHeaderFor(loginRes.headers['set-cookie'], 'refresh_token');
 
       const [resA, resB] = await Promise.all([
         request(ctx.app.getHttpServer())
@@ -279,9 +274,7 @@ describe('Auth Integration (full AppModule)', () => {
         .send({ email: 'test@test.local', password: 'password123' })
         .expect(200);
 
-      const aRefresh = ((a.headers['set-cookie'] as unknown as string[]) ?? [])
-        .find((c) => c.startsWith('refresh_token='))!
-        .split(';')[0];
+      const aRefresh = cookieHeaderFor(a.headers['set-cookie'], 'refresh_token');
       const aAccess = extractAccessTokenFromCookies(a.headers['set-cookie']);
 
       await request(ctx.app.getHttpServer())
@@ -305,9 +298,12 @@ describe('Auth Integration (full AppModule)', () => {
         .get('/auth/methods')
         .expect(200);
 
-      expect(res.body.data).toBeDefined();
-      // At minimum, password method should be available
-      expect(Array.isArray(res.body.data) || typeof res.body.data === 'object').toBe(true);
+      // The key set and the empty SSO list are determined; `local.enabled`
+      // follows `AUTH_LOCAL_ENABLED`, which a developer's environment may set.
+      expect(res.body.data).toEqual({
+        local: { enabled: expect.any(Boolean) },
+        sso: [],
+      });
     });
   });
 

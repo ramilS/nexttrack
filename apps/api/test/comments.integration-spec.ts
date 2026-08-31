@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ActivityType } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -220,18 +221,12 @@ describe('Comments Integration', () => {
       .send({ body: tiptapDoc('Activity test') })
       .expect(201);
 
-    // Event listener runs async — poll until recorded
-    let activities: Awaited<
-      ReturnType<typeof ctx.prisma.activity.findMany>
-    > = [];
-    for (let i = 0; i < 10; i++) {
-      await new Promise((r) => setTimeout(r, 200));
-      activities = await ctx.prisma.activity.findMany({
-        where: { issueId, type: 'COMMENT_ADD' },
-      });
-      if (activities.length > 0) break;
-    }
+    // The activity is written by an event listener — settle before asserting.
+    await ctx.settle();
 
-    expect(activities.length).toBeGreaterThanOrEqual(1);
+    const activities = await ctx.prisma.activity.findMany({
+      where: { issueId, type: ActivityType.COMMENT_ADD },
+    });
+    expect(activities).toHaveLength(1);
   });
 });

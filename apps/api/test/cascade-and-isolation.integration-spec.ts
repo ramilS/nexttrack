@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ErrorCode } from '@repo/shared/error-codes';
 import {
   E2eContext,
   createE2eApp,
@@ -162,10 +163,14 @@ describe('Cascade & Isolation Integration', () => {
       await authReq().post('/projects').send({ key: 'OPEN', name: 'Has Open' }).expect(201);
       await authReq().post('/projects/OPEN/issues').send({ title: 'Open Issue' }).expect(201);
 
-      // Try to delete — should fail
-      const res = await authReq().delete('/projects/OPEN');
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+      const res = await authReq().delete('/projects/OPEN').expect(409);
+      expect(res.body.error.code).toBe(ErrorCode.PROJECT_HAS_OPEN_ISSUES);
+      expect(res.body.error.details).toMatchObject({ openIssuesCount: 1 });
+
+      const project = await ctx.prisma.project.findFirstOrThrow({
+        where: { key: 'OPEN' },
+      });
+      expect(project.deletedAt).toBeNull();
     });
   });
 
@@ -194,9 +199,11 @@ describe('Cascade & Isolation Integration', () => {
       const meRes = await authReq().get('/users/me').expect(200);
       const myId = meRes.body.data.id;
 
-      const deleteRes = await authReq().delete(`/users/${myId}`);
-      expect(deleteRes.status).toBeGreaterThanOrEqual(400);
-      expect(deleteRes.status).toBeLessThan(500);
+      const deleteRes = await authReq().delete(`/users/${myId}`).expect(400);
+      expect(deleteRes.body.error.code).toBe(ErrorCode.CANNOT_MODIFY_SELF);
+
+      const me = await ctx.prisma.user.findUniqueOrThrow({ where: { id: myId } });
+      expect(me.deletedAt).toBeNull();
     });
   });
 
@@ -232,22 +239,17 @@ describe('Cascade & Isolation Integration', () => {
     });
 
     it('userA should not see issues from PRJB', async () => {
-      const res = await authReq(userAToken).get('/projects/PRJB/issues?page=1&perPage=50');
-      // Should be 403 (no access) or empty list
-      if (res.status === 200) {
-        expect(res.body.items ?? []).toHaveLength(0);
-      } else {
-        expect(res.status).toBe(403);
-      }
+      const res = await authReq(userAToken)
+        .get('/projects/PRJB/issues?page=1&perPage=50')
+        .expect(403);
+      expect(res.body.error.code).toBe(ErrorCode.NOT_PROJECT_MEMBER);
     });
 
     it('userB should not see issues from PRJA', async () => {
-      const res = await authReq(userBToken).get('/projects/PRJA/issues?page=1&perPage=50');
-      if (res.status === 200) {
-        expect(res.body.items ?? []).toHaveLength(0);
-      } else {
-        expect(res.status).toBe(403);
-      }
+      const res = await authReq(userBToken)
+        .get('/projects/PRJA/issues?page=1&perPage=50')
+        .expect(403);
+      expect(res.body.error.code).toBe(ErrorCode.NOT_PROJECT_MEMBER);
     });
 
     it('userA should not be able to create issues in PRJB', async () => {

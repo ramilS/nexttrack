@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ErrorCode } from '@repo/shared/error-codes';
 import {
   E2eContext,
   createE2eApp,
@@ -291,8 +292,9 @@ describe('Webhooks Integration (full AppModule)', () => {
 
       const res = await authReq(outsiderToken)
         .post(`/projects/${projectKey}/webhooks`)
-        .send(validWebhook);
-      expect([403, 404]).toContain(res.status);
+        .send(validWebhook)
+        .expect(403);
+      expect(res.body.error.code).toBe(ErrorCode.NOT_PROJECT_MEMBER);
     });
   });
 });

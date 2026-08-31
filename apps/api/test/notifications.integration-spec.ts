@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ErrorCode } from '@repo/shared/error-codes';
 import { NotificationType, Prisma } from '@prisma/client';
 import {
   E2eContext,
@@ -183,9 +184,15 @@ describe('Notifications Integration (full AppModule)', () => {
       });
       const n = await seedNotification({ userId: other.id });
 
-      const res = await authReq().delete(`/notifications/${n.id}`);
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+      // Scoped lookup: another user's notification simply does not exist for
+      // this caller, so the endpoint 404s rather than leaking its existence.
+      const res = await authReq().delete(`/notifications/${n.id}`).expect(404);
+      expect(res.body.error.code).toBe(ErrorCode.NOTIFICATION_NOT_FOUND);
+
+      const stillThere = await ctx.prisma.notification.findUnique({
+        where: { id: n.id },
+      });
+      expect(stillThere).not.toBeNull();
     });
   });
 
@@ -261,19 +268,13 @@ describe('Notifications Integration (full AppModule)', () => {
         .send({ assigneeId: assignee.id })
         .expect(200);
 
-      // Dispatch is fire-and-forget — poll for the notification (up to 3s)
-      let notificationCount = 0;
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        notificationCount = await ctx.prisma.notification.count({
-          where: { userId: assignee.id, type: NotificationType.ISSUE_ASSIGNED },
-        });
-        if (notificationCount > 0) break;
-      }
+      // Dispatch is fire-and-forget — settle drains it deterministically.
+      await ctx.settle();
 
-      // Notification dispatch is async; verify it was created
-      // If the dispatch service is available, we expect at least 1 notification
-      expect(notificationCount).toBeGreaterThanOrEqual(1);
+      const notificationCount = await ctx.prisma.notification.count({
+        where: { userId: assignee.id, type: NotificationType.ISSUE_ASSIGNED },
+      });
+      expect(notificationCount).toBe(1);
     });
   });
 });

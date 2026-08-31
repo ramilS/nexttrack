@@ -1,5 +1,5 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
-import { Prisma } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import {
@@ -137,22 +137,6 @@ describe('Mentions in Comments Integration', () => {
     };
   }
 
-  async function waitForNotification(
-    userId: string,
-    maxWaitMs = 3_000,
-  ): Promise<Awaited<ReturnType<typeof ctx.prisma.notification.findFirst>>> {
-    const start = Date.now();
-    while (Date.now() - start < maxWaitMs) {
-      const notification = await ctx.prisma.notification.findFirst({
-        where: { userId: userId },
-        orderBy: { createdAt: 'desc' },
-      });
-      if (notification) return notification;
-      await new Promise((r) => setTimeout(r, 200));
-    }
-    return null;
-  }
-
   it('should create MENTION notification when comment contains @mention', async () => {
     // Admin creates a comment mentioning member
     await authReq(adminToken)
@@ -160,10 +144,14 @@ describe('Mentions in Comments Integration', () => {
       .send({ body: tiptapWithMention('Hey check this', memberId, 'Member') })
       .expect(201);
 
-    // Wait for async notification dispatch
-    const notification = await waitForNotification(memberId);
+    await ctx.settle();
+
+    // Filter by type: the same comment also makes the mentioned user a watcher,
+    // so an unfiltered `findFirst` could pick up a COMMENT_ADDED row instead.
+    const notification = await ctx.prisma.notification.findFirst({
+      where: { userId: memberId, type: NotificationType.MENTION },
+    });
     expect(notification).not.toBeNull();
-    expect(notification!.type).toBe('MENTION');
   });
 
   it('should add mentioned user as watcher when mentioned in comment', async () => {
@@ -173,8 +161,7 @@ describe('Mentions in Comments Integration', () => {
       .send({ body: tiptapWithMention('FYI', memberId, 'Member') })
       .expect(201);
 
-    // Wait for async operations
-    await new Promise((r) => setTimeout(r, 500));
+    await ctx.settle();
 
     // Check member is now a watcher
     const watcher = await ctx.prisma.issueWatcher.findFirst({
@@ -190,11 +177,11 @@ describe('Mentions in Comments Integration', () => {
       .send({ body: tiptapWithMention('Note to self', adminId, 'Admin') })
       .expect(201);
 
-    await new Promise((r) => setTimeout(r, 1_000));
+    await ctx.settle();
 
     // No notification should be created for admin
     const notification = await ctx.prisma.notification.findFirst({
-      where: { userId: adminId, type: 'MENTION' },
+      where: { userId: adminId, type: NotificationType.MENTION },
     });
     expect(notification).toBeNull();
   });
@@ -205,11 +192,11 @@ describe('Mentions in Comments Integration', () => {
       .send({ body: tiptapDoc('Just a regular comment') })
       .expect(201);
 
-    await new Promise((r) => setTimeout(r, 500));
+    await ctx.settle();
 
     // No MENTION notification
     const notification = await ctx.prisma.notification.findFirst({
-      where: { userId: memberId, type: 'MENTION' },
+      where: { userId: memberId, type: NotificationType.MENTION },
     });
     expect(notification).toBeNull();
   });
@@ -258,10 +245,14 @@ describe('Mentions in Comments Integration', () => {
       .send({ body })
       .expect(201);
 
-    // Both should get notifications
-    const memberNotif = await waitForNotification(memberId);
-    const thirdNotif = await waitForNotification(third.id);
-    expect(memberNotif).not.toBeNull();
-    expect(thirdNotif).not.toBeNull();
+    await ctx.settle();
+
+    const notified = await ctx.prisma.notification.findMany({
+      where: { type: NotificationType.MENTION },
+      select: { userId: true },
+    });
+    expect(new Set(notified.map((n) => n.userId))).toEqual(
+      new Set([memberId, third.id]),
+    );
   });
 });

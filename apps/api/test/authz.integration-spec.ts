@@ -1,13 +1,13 @@
-import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
+import { authRequest, loginAs, type AuthedRequest } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { Prisma } from '@prisma/client';
-import { ALL_PERMISSIONS, Permission } from '@repo/shared';
+import { SYSTEM_ROLE_IDS } from '@repo/shared';
 import {
   E2eContext,
   createE2eApp,
   teardownE2eApp,
   truncateTables,
+  seedSystemRoles,
 } from './support/create-e2e-app';
 
 /**
@@ -16,6 +16,12 @@ import {
  * Verifies that authenticated users who are NOT members of a project
  * receive 403 Forbidden when accessing that project's resources,
  * while actual project members succeed.
+ *
+ * The fixture (three users, two projects, an issue, a tag and a board) is built
+ * ONCE for the whole file rather than per test. Every case here either asserts a
+ * rejection — which mutates nothing — or performs an idempotent, self-contained
+ * mutation whose outcome no other case reads, so per-test truncation would cost
+ * ~10 HTTP round trips per assertion and buy no isolation.
  */
 describe('Project-Level Authorization (full AppModule)', () => {
   let ctx: E2eContext;
@@ -31,137 +37,85 @@ describe('Project-Level Authorization (full AppModule)', () => {
   let alphaBoardId: string;
   let alphaTagId: string;
 
-  const ROLE_IDS = {
-    PROJECT_ADMIN: '00000000-0000-0000-0000-000000000001',
-    DEVELOPER: '00000000-0000-0000-0000-000000000002',
-  };
-
   beforeAll(async () => {
     ctx = await createE2eApp();
+
+    await truncateTables(ctx.prisma);
+    await seedSystemRoles(ctx.prisma);
+
+    const passwordHash = await bcrypt.hash('password1', 4);
+    const [, userA, userB] = await Promise.all([
+      ctx.prisma.user.create({
+        data: { email: 'admin@test.local', name: 'Admin', passwordHash, hasPassword: true, role: 'ADMIN' },
+      }),
+      ctx.prisma.user.create({
+        data: { email: 'usera@test.local', name: 'User A', passwordHash, hasPassword: true, role: 'USER' },
+      }),
+      ctx.prisma.user.create({
+        data: { email: 'userb@test.local', name: 'User B', passwordHash, hasPassword: true, role: 'USER' },
+      }),
+    ]);
+    userAId = userA.id;
+    userBId = userB.id;
+
+    const [adminLogin, userALogin, userBLogin] = await Promise.all([
+      loginAs(ctx.app, 'admin@test.local', 'password1'),
+      loginAs(ctx.app, 'usera@test.local', 'password1'),
+      loginAs(ctx.app, 'userb@test.local', 'password1'),
+    ]);
+    adminToken = adminLogin.accessToken;
+    userAToken = userALogin.accessToken;
+    userBToken = userBLogin.accessToken;
+
+    const asAdmin = authRequest(ctx.app, adminToken);
+
+    // Project Alpha — admin is auto-added as Project Admin.
+    const alphaRes = await asAdmin
+      .post('/projects')
+      .send({ key: 'ALPHA', name: 'Project Alpha' })
+      .expect(201);
+    alphaProjectId = alphaRes.body.data.id;
+
+    // User A is a Developer in Alpha; User B belongs to a project, just not Alpha.
+    const betaRes = await asAdmin
+      .post('/projects')
+      .send({ key: 'BETA', name: 'Project Beta' })
+      .expect(201);
+
+    await ctx.prisma.projectMember.createMany({
+      data: [
+        { userId: userAId, projectId: alphaProjectId, roleId: SYSTEM_ROLE_IDS.DEVELOPER },
+        { userId: userBId, projectId: betaRes.body.data.id, roleId: SYSTEM_ROLE_IDS.DEVELOPER },
+      ],
+    });
+
+    const [issueRes, tagRes, boardRes] = await Promise.all([
+      asAdmin
+        .post('/projects/ALPHA/issues')
+        .send({ title: 'Alpha Issue', type: 'TASK', priority: 'MEDIUM' })
+        .expect(201),
+      asAdmin
+        .post('/projects/ALPHA/tags')
+        .send({ name: 'bug', color: '#ff0000' })
+        .expect(201),
+      asAdmin
+        .post('/projects/ALPHA/boards')
+        .send({ name: 'Alpha Sprint Board', type: 'SCRUM' })
+        .expect(201),
+    ]);
+    alphaIssueId = issueRes.body.data.id;
+    alphaTagId = tagRes.body.data.id;
+    alphaBoardId = boardRes.body.data.id;
   }, 60_000);
 
   afterAll(async () => {
     await teardownE2eApp(ctx);
   });
 
-  beforeEach(async () => {
-    await truncateTables(ctx.prisma);
-
-    // --- Seed system roles ---
-    await ctx.prisma.role.createMany({
-      data: [
-        {
-          id: ROLE_IDS.PROJECT_ADMIN,
-          name: 'Project Admin',
-          description: 'Full access',
-          permissions: ALL_PERMISSIONS as Prisma.InputJsonValue,
-          isSystem: true,
-        },
-        {
-          id: ROLE_IDS.DEVELOPER,
-          name: 'Developer',
-          description: 'Developer access',
-          permissions: [
-            Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.ISSUE_UPDATE,
-            Permission.ISSUE_DELETE, Permission.ISSUE_MOVE, Permission.ISSUE_LINK_MANAGE,
-            Permission.COMMENT_CREATE, Permission.COMMENT_EDIT_OWN,
-            Permission.ARTICLE_READ, Permission.ARTICLE_CREATE, Permission.ARTICLE_UPDATE,
-            Permission.TAG_MANAGE, Permission.BOARD_MANAGE,
-            Permission.SPRINT_MANAGE, Permission.TIME_LOG_OWN,
-          ] as Prisma.InputJsonValue,
-          isSystem: true,
-        },
-      ],
-    });
-
-    // --- Seed users ---
-    const hash = await bcrypt.hash('password1', 4);
-
-    await ctx.prisma.user.create({
-      data: { email: 'admin@test.local', name: 'Admin', passwordHash: hash, hasPassword: true, role: 'ADMIN' },
-    });
-
-    const userA = await ctx.prisma.user.create({
-      data: { email: 'usera@test.local', name: 'User A', passwordHash: hash, hasPassword: true, role: 'USER' },
-    });
-    userAId = userA.id;
-
-    const userB = await ctx.prisma.user.create({
-      data: { email: 'userb@test.local', name: 'User B', passwordHash: hash, hasPassword: true, role: 'USER' },
-    });
-    userBId = userB.id;
-
-    // --- Login all users ---
-    const [adminLogin, userALogin, userBLogin] = await Promise.all([
-      request(ctx.app.getHttpServer()).post('/auth/login').send({ email: 'admin@test.local', password: 'password1' }),
-      request(ctx.app.getHttpServer()).post('/auth/login').send({ email: 'usera@test.local', password: 'password1' }),
-      request(ctx.app.getHttpServer()).post('/auth/login').send({ email: 'userb@test.local', password: 'password1' }),
-    ]);
-    adminToken = extractAccessTokenFromCookies(adminLogin.headers["set-cookie"]);
-    userAToken = extractAccessTokenFromCookies(userALogin.headers["set-cookie"]);
-    userBToken = extractAccessTokenFromCookies(userBLogin.headers["set-cookie"]);
-
-    // --- Create Project Alpha via API (admin is auto-added as Project Admin) ---
-    const alphaRes = await request(ctx.app.getHttpServer())
-      .post('/projects')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ key: 'ALPHA', name: 'Project Alpha' })
-      .expect(201);
-    alphaProjectId = alphaRes.body.data.id;
-
-    // --- Add User A as Developer in Project Alpha (via Prisma — faster & reliable) ---
-    await ctx.prisma.projectMember.create({
-      data: { userId: userAId, projectId: alphaProjectId, roleId: ROLE_IDS.DEVELOPER },
-    });
-
-    // --- Create Project Beta and add User B (User B has a project, just not Alpha) ---
-    const betaRes = await request(ctx.app.getHttpServer())
-      .post('/projects')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ key: 'BETA', name: 'Project Beta' })
-      .expect(201);
-    await ctx.prisma.projectMember.create({
-      data: { userId: userBId, projectId: betaRes.body.data.id, roleId: ROLE_IDS.DEVELOPER },
-    });
-
-    // --- Create issue in Project Alpha ---
-    const issueRes = await request(ctx.app.getHttpServer())
-      .post('/projects/ALPHA/issues')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ title: 'Alpha Issue', type: 'TASK', priority: 'MEDIUM' })
-      .expect(201);
-    alphaIssueId = issueRes.body.data.id;
-
-    // --- Create tag in Project Alpha ---
-    const tagRes = await request(ctx.app.getHttpServer())
-      .post('/projects/ALPHA/tags')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'bug', color: '#ff0000' })
-      .expect(201);
-    alphaTagId = tagRes.body.data.id;
-
-    // --- Create a SCRUM board in Project Alpha ---
-    const boardRes = await request(ctx.app.getHttpServer())
-      .post('/projects/ALPHA/boards')
-      .set('Authorization', `Bearer ${adminToken}`)
-      .send({ name: 'Alpha Sprint Board', type: 'SCRUM' })
-      .expect(201);
-    alphaBoardId = boardRes.body.data.id;
-  });
-
   // ── Helpers ──
 
-  function reqAs(token: string) {
-    return {
-      get: (url: string) =>
-        request(ctx.app.getHttpServer()).get(url).set('Authorization', `Bearer ${token}`),
-      post: (url: string) =>
-        request(ctx.app.getHttpServer()).post(url).set('Authorization', `Bearer ${token}`),
-      patch: (url: string) =>
-        request(ctx.app.getHttpServer()).patch(url).set('Authorization', `Bearer ${token}`),
-      delete: (url: string) =>
-        request(ctx.app.getHttpServer()).delete(url).set('Authorization', `Bearer ${token}`),
-    };
+  function reqAs(token: string): AuthedRequest {
+    return authRequest(ctx.app, token);
   }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -514,7 +468,7 @@ describe('Project-Level Authorization (full AppModule)', () => {
       it('User A POST /projects/:key/members → 403', async () => {
         await reqAs(userAToken)
           .post('/projects/ALPHA/members')
-          .send({ userId: userBId, roleId: ROLE_IDS.DEVELOPER })
+          .send({ userId: userBId, roleId: SYSTEM_ROLE_IDS.DEVELOPER })
           .expect(403);
       });
     });

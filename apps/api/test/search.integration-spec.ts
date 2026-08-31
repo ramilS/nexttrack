@@ -1,5 +1,4 @@
-import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
-import request from 'supertest';
+import { authRequest, loginAs, type AuthedRequest } from '@test/support/auth-helper';
 import * as bcrypt from 'bcrypt';
 import {
   E2eContext,
@@ -10,21 +9,33 @@ import {
 } from './support/create-e2e-app';
 
 /**
- * Search integration tests with a REAL search engine.
+ * Search integration tests against a REAL OpenSearch container. They cover the
+ * parts a mocked engine cannot: that the query DSL is accepted, that indexing
+ * on mutation actually lands, and that cursor pagination sorts on `id` rather
+ * than `_id` (which is not sortable and used to 500).
  *
- * These tests start an ES 8 Testcontainer and verify that:
- * - Search queries execute without errors (no _id fielddata issue)
- * - Indexing on issue creation works
- * - Sorting and pagination use the `id` field, not `_id`
+ * Indexing is asynchronous, but not unpredictable: `ctx.settleSearchIndex()`
+ * delivers the domain events and then waits for the `search-indexing` queue to
+ * drain. The indexer writes with `refresh: 'wait_for'`, so a drained queue
+ * means the documents are searchable — no sleeping required.
+ *
+ * NOTE: `truncateTables` clears Postgres but NOT the engine index, so documents
+ * from earlier cases in this file stay searchable. Two habits keep the
+ * assertions exact anyway: every case gets its OWN project key (issue numbers
+ * restart at 1 after each truncate, so a shared key would put several different
+ * issues at `SRCH-1` in the index), and every query that asserts an exact result
+ * set is project-scoped.
  */
 describe('Search Integration (real OpenSearch)', () => {
   let ctx: E2eContext;
-  let adminToken: string;
+  let api: AuthedRequest;
   let projectKey: string;
+  let projectId: string;
+  let caseNumber = 0;
 
   beforeAll(async () => {
     ctx = await createE2eApp({ withSearchEngine: true });
-  }, 180_000); // ES container can take up to 60s to start
+  }, 180_000); // the engine container can take up to 60s to start
 
   afterAll(async () => {
     await teardownE2eApp(ctx);
@@ -34,184 +45,142 @@ describe('Search Integration (real OpenSearch)', () => {
     await truncateTables(ctx.prisma);
     await seedSystemRoles(ctx.prisma);
 
-    const hash = await bcrypt.hash('adminpass1', 4);
     await ctx.prisma.user.create({
       data: {
         email: 'admin@test.local',
         name: 'Admin User',
-        passwordHash: hash,
+        passwordHash: await bcrypt.hash('adminpass1', 4),
         hasPassword: true,
         role: 'ADMIN',
       },
     });
 
-    const loginRes = await request(ctx.app.getHttpServer())
-      .post('/auth/login')
-      .send({ email: 'admin@test.local', password: 'adminpass1' })
-      .expect(200);
-    adminToken = extractAccessTokenFromCookies(loginRes.headers["set-cookie"]);
+    const { accessToken } = await loginAs(ctx.app, 'admin@test.local', 'adminpass1');
+    api = authRequest(ctx.app, accessToken);
 
-    projectKey = 'SRCH';
-    await authReq().post('/projects').send({ key: projectKey, name: 'Search Test Project' }).expect(201);
+    // A fresh key per case — see the note above the describe.
+    caseNumber += 1;
+    projectKey = `SRCH${caseNumber}`;
+    const projectRes = await api
+      .post('/projects')
+      .send({ key: projectKey, name: `Search Test Project ${caseNumber}` })
+      .expect(201);
+    projectId = projectRes.body.data.id;
   });
 
-  function authReq() {
-    return {
-      post: (url: string) =>
-        request(ctx.app.getHttpServer()).post(url).set('Authorization', `Bearer ${adminToken}`),
-      get: (url: string) =>
-        request(ctx.app.getHttpServer()).get(url).set('Authorization', `Bearer ${adminToken}`),
-    };
+  async function createIssue(title: string): Promise<{ id: string; number: number }> {
+    const res = await api
+      .post(`/projects/${projectKey}/issues`)
+      .send({ title })
+      .expect(201);
+    return { id: res.body.data.id, number: res.body.data.number };
   }
 
-  it('should not return 500 on empty query (no _id fielddata error)', async () => {
-    const res = await authReq()
-      .get(`/search?q=&pageSize=25`);
+  interface SearchItem {
+    issue: { id: string; title: string; project: { key: string } };
+  }
 
-    // Should succeed or return validation error — never 500
-    expect(res.status).toBeLessThan(500);
+  async function search(query: string): Promise<{
+    items: SearchItem[];
+    meta: { total: number; nextCursor: string | null; hasNextPage: boolean };
+  }> {
+    const res = await api.get(`/search?${query}`).expect(200);
+    return { items: res.body.items ?? [], meta: res.body.meta };
+  }
+
+  it('answers an empty query instead of failing on the unsortable _id field', async () => {
+    const { items, meta } = await search(`q=&projectId=${projectId}&pageSize=25`);
+
+    expect(items).toEqual([]);
+    expect(meta.total).toBe(0);
   });
 
-  it('should index and find created issues', async () => {
-    // Create issues
-    await authReq()
-      .post(`/projects/${projectKey}/issues`)
-      .send({ title: 'Login redirect bug fix' })
-      .expect(201);
-    await authReq()
-      .post(`/projects/${projectKey}/issues`)
-      .send({ title: 'Dashboard performance improvement' })
-      .expect(201);
+  it('indexes created issues and finds them by a word in the title', async () => {
+    await createIssue('Login redirect bug fix');
+    await createIssue('Dashboard performance improvement');
 
-    // ES indexing is async — poll until indexed (up to 10s)
-    let items: Array<{ issue: { title: string } }> = [];
-    for (let attempt = 0; attempt < 5; attempt++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const res = await authReq().get('/search?q=login&pageSize=10');
-      expect(res.status).toBeLessThan(500);
-      if (res.status === 200) {
-        items = res.body.items ?? [];
-        if (items.length > 0) break;
-      }
-    }
+    await ctx.settleSearchIndex();
 
-    expect(items.length).toBeGreaterThanOrEqual(1);
-    expect(
-      items.some((i) => i.issue.title.toLowerCase().includes('login')),
-    ).toBe(true);
+    const { items } = await search(`q=login&projectId=${projectId}&pageSize=10`);
+    expect(items.map((i) => i.issue.title)).toEqual(['Login redirect bug fix']);
   });
 
-  it('should find an issue by its exact key (SRCH-N) and by bare number when project-scoped', async () => {
-    const createRes = await authReq()
-      .post(`/projects/${projectKey}/issues`)
-      .send({ title: 'Find me by key' })
-      .expect(201);
-    const issueId: string = createRes.body.data.id;
-    const number: number = createRes.body.data.number;
+  it('finds an issue by its exact key, and by bare number when project-scoped', async () => {
+    const issue = await createIssue('Find me by key');
 
-    const project = await ctx.prisma.project.findFirst({ where: { key: projectKey } });
+    await ctx.settleSearchIndex();
 
-    // Exact key search, e.g. "SRCH-1" — works in any scope.
-    const byKey = `q=${encodeURIComponent(`${projectKey}-${number}`)}&pageSize=10`;
-    let keyItems: Array<{ issue: { id: string } }> = [];
-    for (let attempt = 0; attempt < 8; attempt++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const res = await authReq().get(`/search?${byKey}`);
-      expect(res.status).toBeLessThan(500);
-      if (res.status === 200) {
-        keyItems = res.body.items ?? [];
-        if (keyItems.length > 0) break;
-      }
-    }
-    // The by-key loop above also serves as the indexing barrier for the issue.
-    expect(keyItems.length).toBeGreaterThan(0);
-    expect(keyItems[0]?.issue.id).toBe(issueId);
+    // Exact key search, e.g. "SRCH3-1" — works in any scope, which is why this
+    // one query is deliberately NOT project-scoped.
+    const byKey = await search(
+      `q=${encodeURIComponent(`${projectKey}-${issue.number}`)}&pageSize=10`,
+    );
+    expect(byKey.items.map((i) => i.issue.id)).toEqual([issue.id]);
 
-    // Bare number search "1" resolves to the issue only when project-scoped.
-    const byNumber = `q=${number}&projectId=${project!.id}&pageSize=10`;
-    const numRes = await authReq().get(`/search?${byNumber}`);
-    expect(numRes.status).toBe(200);
-    expect(numRes.body.items[0]?.issue.id).toBe(issueId);
+    // A bare number resolves to the issue only when the search is project-scoped.
+    const byNumber = await search(
+      `q=${issue.number}&projectId=${projectId}&pageSize=10`,
+    );
+    expect(byNumber.items.map((i) => i.issue.id)).toEqual([issue.id]);
   });
 
-  it('should re-index and find an issue after a tag is assigned (regression: tag search)', async () => {
-    const issueRes = await authReq()
-      .post(`/projects/${projectKey}/issues`)
-      .send({ title: 'Issue to be tagged' })
-      .expect(201);
-    const issueId = issueRes.body.data.id;
+  it('re-indexes an issue when a tag is assigned so tag: finds it', async () => {
+    const issue = await createIssue('Issue to be tagged');
 
-    const tagRes = await authReq()
+    const tagRes = await api
       .post(`/projects/${projectKey}/tags`)
       .send({ name: 'regression', color: '#ff0000' })
       .expect(201);
-    const tagId = tagRes.body.data.id;
 
-    // Assign the tag via the dedicated issue-tags endpoint (the path the sidebar uses)
-    await authReq()
-      .post(`/issues/${issueId}/tags`)
-      .send({ tagId })
+    // Assign via the dedicated issue-tags endpoint — the path the sidebar uses.
+    await api
+      .post(`/issues/${issue.id}/tags`)
+      .send({ tagId: tagRes.body.data.id })
       .expect(200);
 
-    // The tag link must propagate to ES (outbox → domain-events → indexer) so the
-    // issue becomes findable by tag filter. Poll until the re-index lands.
-    const tagQuery = `q=${encodeURIComponent('tag:regression')}&pageSize=10`;
-    let items: Array<{ issue: { id: string } }> = [];
-    for (let attempt = 0; attempt < 8; attempt++) {
-      await new Promise((r) => setTimeout(r, 2000));
-      const res = await authReq().get(`/search?${tagQuery}`);
-      expect(res.status).toBeLessThan(500);
-      if (res.status === 200) {
-        items = res.body.items ?? [];
-        if (items.some((i) => i.issue.id === issueId)) break;
-      }
-    }
+    // The tag link must propagate to the engine (outbox → domain events →
+    // indexer) before the issue is findable by tag.
+    await ctx.settleSearchIndex();
 
-    expect(items.some((i) => i.issue.id === issueId)).toBe(true);
+    const { items } = await search(
+      `q=${encodeURIComponent('tag:regression')}&projectId=${projectId}&pageSize=10`,
+    );
+    expect(items.map((i) => i.issue.id)).toEqual([issue.id]);
   });
 
-  it('should handle search with project filter', async () => {
-    await authReq()
-      .post(`/projects/${projectKey}/issues`)
-      .send({ title: 'Searchable issue in project' })
-      .expect(201);
+  it('scopes results to the requested project', async () => {
+    const issue = await createIssue('Searchable issue in project');
 
-    await new Promise((r) => setTimeout(r, 2000));
+    await ctx.settleSearchIndex();
 
-    const project = await ctx.prisma.project.findFirst({ where: { key: projectKey } });
-
-    const res = await authReq()
-      .get(`/search?q=searchable&projectId=${project!.id}&pageSize=10`);
-
-    expect(res.status).toBeLessThan(500);
+    const { items, meta } = await search(
+      `q=searchable&projectId=${projectId}&pageSize=10`,
+    );
+    expect(meta.total).toBe(1);
+    expect(items[0].issue.id).toBe(issue.id);
+    expect(items[0].issue.project.key).toBe(projectKey);
   });
 
-  it('should support cursor pagination without _id errors', async () => {
-    // Create enough issues for pagination
+  it('pages with a cursor without hitting the _id sort tiebreaker', async () => {
     for (let i = 0; i < 5; i++) {
-      await authReq()
-        .post(`/projects/${projectKey}/issues`)
-        .send({ title: `Paginated issue ${i + 1}` })
-        .expect(201);
+      await createIssue(`Paginated issue ${i + 1}`);
     }
 
-    await new Promise((r) => setTimeout(r, 2000));
+    await ctx.settleSearchIndex();
 
-    // First page with small pageSize
-    const page1 = await authReq()
-      .get('/search?q=paginated&pageSize=2');
+    const page1 = await search(`q=paginated&projectId=${projectId}&pageSize=2`);
+    expect(page1.items).toHaveLength(2);
+    expect(page1.meta.total).toBe(5);
+    expect(page1.meta.hasNextPage).toBe(true);
+    expect(page1.meta.nextCursor).toBeTruthy();
 
-    expect(page1.status).toBeLessThan(500);
+    // The second page is where sorting on `_id` used to fail.
+    const page2 = await search(
+      `q=paginated&projectId=${projectId}&pageSize=2&cursor=${encodeURIComponent(page1.meta.nextCursor!)}`,
+    );
+    expect(page2.items).toHaveLength(2);
 
-    if (page1.status === 200) {
-      const cursor = page1.body.meta?.nextCursor;
-      if (cursor) {
-        // Second page — this is where _id sort tiebreaker was failing
-        const page2 = await authReq()
-          .get(`/search?q=paginated&pageSize=2&cursor=${encodeURIComponent(cursor)}`);
-
-        expect(page2.status).toBeLessThan(500);
-      }
-    }
+    const firstPageIds = page1.items.map((i) => i.issue.id);
+    expect(page2.items.every((i) => !firstPageIds.includes(i.issue.id))).toBe(true);
   });
 });

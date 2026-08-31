@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ErrorCode } from '@repo/shared/error-codes';
 import {
   E2eContext,
   createE2eApp,
@@ -89,9 +90,11 @@ describe('Teams Integration (full AppModule)', () => {
 
     it('should reject duplicate team name within project', async () => {
       await authReq().post(`/projects/${projectKey}/teams`).send({ name: 'Frontend' }).expect(201);
-      const res = await authReq().post(`/projects/${projectKey}/teams`).send({ name: 'Frontend' });
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+      const res = await authReq()
+        .post(`/projects/${projectKey}/teams`)
+        .send({ name: 'Frontend' })
+        .expect(409);
+      expect(res.body.error.code).toBe(ErrorCode.TEAM_NAME_TAKEN);
     });
 
     it('should create team with lead', async () => {
@@ -173,9 +176,12 @@ describe('Teams Integration (full AppModule)', () => {
 
       const res = await authReq()
         .post(`/projects/${projectKey}/teams/${teamId}/members`)
-        .send({ userIds: [outsider.id] });
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+        .send({ userIds: [outsider.id] })
+        .expect(400);
+      expect(res.body.error.code).toBe(ErrorCode.NOT_PROJECT_MEMBER);
+
+      const members = await ctx.prisma.teamMember.findMany({ where: { teamId } });
+      expect(members).toEqual([]);
     });
   });
 

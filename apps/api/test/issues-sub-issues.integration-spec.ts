@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ErrorCode } from '@repo/shared/error-codes';
 import {
   E2eContext,
   createE2eApp,
@@ -127,8 +128,8 @@ describe('Issues Sub-Issues Integration (full AppModule)', () => {
         .patch(`/projects/${projectKey}/issues/${issue.number}`)
         .send({ parentId: issue.id });
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe(ErrorCode.CIRCULAR_PARENT);
     });
 
     it('should reject circular parent chain (A→B→A)', async () => {
@@ -143,8 +144,8 @@ describe('Issues Sub-Issues Integration (full AppModule)', () => {
         .patch(`/projects/${projectKey}/issues/${issueA.number}`)
         .send({ parentId: issueB.id });
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe(ErrorCode.CIRCULAR_PARENT);
     });
 
     it('should reject deep circular chain (A→B→C→A)', async () => {
@@ -160,8 +161,8 @@ describe('Issues Sub-Issues Integration (full AppModule)', () => {
         .patch(`/projects/${projectKey}/issues/${a.number}`)
         .send({ parentId: c.id });
 
-      expect(res.status).toBeGreaterThanOrEqual(400);
-      expect(res.status).toBeLessThan(500);
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe(ErrorCode.CIRCULAR_PARENT);
     });
   });
 });

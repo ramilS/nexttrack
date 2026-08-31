@@ -5,7 +5,7 @@
   "testRegex": ".integration-spec.ts$",
   "globalSetup": "./support/global-setup.ts",
   "globalTeardown": "./support/global-teardown.ts",
-  "maxWorkers": 1,
+  "maxWorkers": 4,
   "workerIdleMemoryLimit": "1500MB",
   "transform": {
     "^.+\\.(t|j)s$": ["ts-jest", {

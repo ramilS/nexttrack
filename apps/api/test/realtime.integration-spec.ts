@@ -25,6 +25,11 @@ interface TypingUpdatePayload {
   isTyping: boolean;
 }
 
+// `join:issue` has no ack, and two sockets' async handlers can complete in
+// either order, so there is nothing to await before a broadcast is expected to
+// reach the other client. This is the one place a fixed wait is the right tool.
+const ROOM_JOIN_SETTLE_MS = 500;
+
 describe('Realtime/WebSocket Integration', () => {
   let ctx: E2eContext;
   let adminToken: string;
@@ -128,6 +133,64 @@ describe('Realtime/WebSocket Integration', () => {
     });
   }
 
+  /**
+   * Asserts the server did NOT reject the last emit. A guard rejection arrives
+   * as an `exception` event, so the only way to observe its absence is to give
+   * the server a window to send one — the mirror of the NOT_PROJECT_MEMBER
+   * tests below, which is what makes the "allowed" case meaningful.
+   */
+  async function expectNoException(
+    client: ClientSocket,
+    windowMs = 500,
+  ): Promise<void> {
+    const exception = await new Promise<ExceptionPayload | null>((resolve) => {
+      client.once('exception', (data: ExceptionPayload) => resolve(data));
+      setTimeout(() => resolve(null), windowMs);
+    });
+    expect(exception).toBeNull();
+    expect(client.connected).toBe(true);
+  }
+
+  /** One `presence:check` round trip. */
+  async function isOnline(client: ClientSocket, userId: string): Promise<boolean> {
+    const data = await new Promise<PresenceStatusPayload>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error('Timeout waiting for: presence:status')),
+        2_000,
+      );
+      client.once('presence:status', (payload: PresenceStatusPayload) => {
+        clearTimeout(timer);
+        resolve(payload);
+      });
+      client.emit('presence:check', { userIds: [userId] });
+    });
+    return data.onlineUsers.includes(userId);
+  }
+
+  /**
+   * Presence is written to Redis by the connect/disconnect handlers, which the
+   * client cannot await. Polling the real `presence:check` round trip returns as
+   * soon as the write lands instead of after a guessed sleep, and fails with a
+   * useful message if it never does.
+   */
+  async function waitForPresence(
+    client: ClientSocket,
+    userId: string,
+    online: boolean,
+    timeoutMs = 5_000,
+  ): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      if ((await isOnline(client, userId)) === online) return;
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `user ${userId} never became ${online ? 'online' : 'offline'} within ${timeoutMs}ms`,
+        );
+      }
+      await new Promise((r) => setTimeout(r, 25));
+    }
+  }
+
   async function createMemberAndLogin(email: string, password: string) {
     const hash = await bcrypt.hash(password, 4);
     const user = await ctx.prisma.user.create({
@@ -182,8 +245,7 @@ describe('Realtime/WebSocket Integration', () => {
     it('should join project room when member', async () => {
       const client = await connectClient(adminToken);
       client.emit('join:project', { projectId });
-      await new Promise((r) => setTimeout(r, 300));
-      expect(client.connected).toBe(true);
+      await expectNoException(client);
     });
 
     it('should reject join project room when not member', async () => {
@@ -204,15 +266,13 @@ describe('Realtime/WebSocket Integration', () => {
         setTimeout(() => resolve(null), 2_000);
       });
 
-      expect(error).not.toBeNull();
-      expect(error!.message).toContain('NOT_PROJECT_MEMBER');
+      expect(error?.message).toContain('NOT_PROJECT_MEMBER');
     });
 
     it('should join issue room when member of issue project', async () => {
       const client = await connectClient(adminToken);
       client.emit('join:issue', { issueId });
-      await new Promise((r) => setTimeout(r, 300));
-      expect(client.connected).toBe(true);
+      await expectNoException(client);
     });
   });
 
@@ -221,31 +281,24 @@ describe('Realtime/WebSocket Integration', () => {
   describe('Presence', () => {
     it('should report user as online after connection', async () => {
       const client = await connectClient(adminToken);
-      await new Promise((r) => setTimeout(r, 300));
 
-      const presenceData = await new Promise<PresenceStatusPayload>((resolve) => {
-        client.on('presence:status', (data) => resolve(data));
-        client.emit('presence:check', { userIds: [adminId] });
-      });
-
-      expect(presenceData.onlineUsers).toContain(adminId);
+      await waitForPresence(client, adminId, true);
+      expect(await isOnline(client, adminId)).toBe(true);
     });
 
     it('should report user as offline after disconnect', async () => {
-      const client1 = await connectClient(adminToken);
-      client1.disconnect();
-      await new Promise((r) => setTimeout(r, 500));
-
+      const admin = await connectClient(adminToken);
       const { token: checkerToken } = await createMemberAndLogin('checker@test.local', 'Checker1pass!');
-      const client2 = await connectClient(checkerToken);
-      await new Promise((r) => setTimeout(r, 300));
+      const checker = await connectClient(checkerToken);
 
-      const presenceData = await new Promise<PresenceStatusPayload>((resolve) => {
-        client2.on('presence:status', (data) => resolve(data));
-        client2.emit('presence:check', { userIds: [adminId] });
-      });
+      // Assert the transition, not just the end state: an always-offline bug
+      // would otherwise pass this test.
+      await waitForPresence(checker, adminId, true);
 
-      expect(presenceData.onlineUsers).not.toContain(adminId);
+      admin.disconnect();
+
+      await waitForPresence(checker, adminId, false);
+      expect(await isOnline(checker, adminId)).toBe(false);
     });
   });
 
@@ -260,7 +313,7 @@ describe('Realtime/WebSocket Integration', () => {
 
       clientA.emit('join:issue', { issueId });
       clientB.emit('join:issue', { issueId });
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, ROOM_JOIN_SETTLE_MS));
 
       const typingPromise = waitForEvent<TypingUpdatePayload>(clientB, 'typing:update');
       clientA.emit('typing:start', { issueId });
@@ -279,7 +332,7 @@ describe('Realtime/WebSocket Integration', () => {
 
       clientA.emit('join:issue', { issueId });
       clientB.emit('join:issue', { issueId });
-      await new Promise((r) => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, ROOM_JOIN_SETTLE_MS));
 
       const typingPromise = waitForEvent<TypingUpdatePayload>(clientB, 'typing:update');
       clientA.emit('typing:stop', { issueId });
@@ -305,8 +358,7 @@ describe('Realtime/WebSocket Integration', () => {
         setTimeout(() => resolve(null), 2_000);
       });
 
-      expect(error).not.toBeNull();
-      expect(error!.message).toContain('NOT_PROJECT_MEMBER');
+      expect(error?.message).toContain('NOT_PROJECT_MEMBER');
     });
   });
 
@@ -324,7 +376,21 @@ describe('Realtime/WebSocket Integration', () => {
         reconnection: false,
       });
       clients.push(client);
-      await new Promise((r) => setTimeout(r, 700));
+
+      // Fails loudly if the server neither rejects the handshake nor drops the
+      // socket — a fixed sleep here would pass even if nothing happened at all.
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(
+          () => reject(new Error('blocked user was neither rejected nor disconnected')),
+          5_000,
+        );
+        const settled = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+        client.on('connect_error', settled);
+        client.on('disconnect', settled);
+      });
 
       expect(client.connected).toBe(false);
     });

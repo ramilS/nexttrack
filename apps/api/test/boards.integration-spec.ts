@@ -196,7 +196,7 @@ describe('Boards Integration — autoCloseOnDone', () => {
 
     // The move now routes through issue.updated, so the parent's auto-transition
     // activity is recorded by the listener — drain the outbox before asserting.
-    await ctx.pumpDomainEvents();
+    await ctx.settle();
 
     // Check that an activity was recorded for the parent auto-transition
     const activities = await ctx.prisma.activity.findMany({

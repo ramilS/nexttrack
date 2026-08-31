@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { ErrorCode } from '@repo/shared/error-codes';
 import {
   E2eContext,
   createE2eApp,
@@ -77,20 +78,22 @@ describe('Attachments Integration (full AppModule)', () => {
 
   describe('POST /issues/:issueId/attachments', () => {
     it('should upload a file and create attachment record', async () => {
+      // Only the S3 client is mocked (`uploadBuffer` returns void in production
+      // too), so the whole endpoint path is exercised and 201 is the contract.
       const res = await request(ctx.app.getHttpServer())
         .post(`/issues/${issueId}/attachments`)
         .set('Authorization', `Bearer ${adminToken}`)
-        .attach('files', Buffer.from('hello world'), 'test.txt');
+        .attach('files', Buffer.from('hello world'), 'test.txt')
+        .expect(201);
 
-      // Storage is mocked, but the endpoint should process the upload
-      // May return 201 (success) or 500 if mock doesn't handle Buffer
-      if (res.status === 201) {
-        const attachments = res.body.data ?? res.body;
-        expect(attachments.length).toBeGreaterThanOrEqual(1);
-        expect(attachments[0].filename).toBe('test.txt');
-      }
-      // If mock doesn't fully support it, just verify no crash
-      expect(res.status).toBeLessThan(500);
+      expect(res.body.data).toHaveLength(1);
+      expect(res.body.data[0]).toMatchObject({
+        filename: 'test.txt',
+        size: 'hello world'.length,
+      });
+
+      const stored = await ctx.prisma.attachment.findMany({ where: { issueId } });
+      expect(stored.map((a) => a.filename)).toEqual(['test.txt']);
     });
   });
 
@@ -121,8 +124,9 @@ describe('Attachments Integration (full AppModule)', () => {
         .expect(200);
 
       const res = await authReq(extractAccessTokenFromCookies(loginRes.headers["set-cookie"]))
-        .get(`/issues/${issueId}/attachments`);
-      expect([403, 404]).toContain(res.status);
+        .get(`/issues/${issueId}/attachments`)
+        .expect(403);
+      expect(res.body.error.code).toBe(ErrorCode.NOT_PROJECT_MEMBER);
     });
   });
 

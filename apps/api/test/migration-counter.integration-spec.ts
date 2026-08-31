@@ -15,31 +15,42 @@ import {
 
 const MIGRATION_SECRET = TEST_SECRETS.migrationApiSecret;
 
+/**
+ * One app for the whole file. `allowBackdatedRecords` is the only thing the
+ * three groups below disagree on, and `MigrationService` reads it off the
+ * injected config object at call time — so flipping this mutable object per
+ * group is enough, and saves two full `AppModule` boots.
+ */
+const migrationOptions = {
+  apiSecret: MIGRATION_SECRET,
+  allowBackdatedRecords: true,
+};
+
+let ctx: E2eContext;
+
+beforeAll(async () => {
+  ctx = await createE2eApp({
+    customize: (builder) =>
+      builder.overrideProvider(migrationConfig.KEY).useValue(migrationOptions),
+  });
+}, 60_000);
+
+afterAll(async () => {
+  await teardownE2eApp(ctx);
+});
+
 describe('Migration Issue Counter (Integration)', () => {
-  let ctx: E2eContext;
   let adminToken: string;
   let adminId: string;
   let projectId: string;
   let projectKey: string;
   let statusId: string;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     // Backdating enabled so the attachment/date-carrying tests here can preserve
     // original timestamps (rejection-when-disabled has its own describe).
-    ctx = await createE2eApp({
-      customize: (builder) =>
-        builder.overrideProvider(migrationConfig.KEY).useValue({
-          apiSecret: MIGRATION_SECRET,
-          allowBackdatedRecords: true,
-        }),
-    });
-  }, 60_000);
+    migrationOptions.allowBackdatedRecords = true;
 
-  afterAll(async () => {
-    await teardownE2eApp(ctx);
-  });
-
-  beforeEach(async () => {
     await truncateTables(ctx.prisma);
     await seedSystemRoles(ctx.prisma);
 
@@ -442,30 +453,17 @@ describe('Migration Issue Counter (Integration)', () => {
 });
 
 describe('Migration Backdating Gate (Integration)', () => {
-  let ctx: E2eContext;
   let adminToken: string;
   let adminId: string;
   let projectKey: string;
   let statusId: string;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     // Pin backdating OFF explicitly — do NOT rely on the ambient env being
     // unset (a developer's root .env may set MIGRATION_ALLOW_BACKDATED_RECORDS
     // for a real migration run, which the harness would otherwise inherit).
-    ctx = await createE2eApp({
-      customize: (builder) =>
-        builder.overrideProvider(migrationConfig.KEY).useValue({
-          apiSecret: MIGRATION_SECRET,
-          allowBackdatedRecords: false,
-        }),
-    });
-  }, 60_000);
+    migrationOptions.allowBackdatedRecords = false;
 
-  afterAll(async () => {
-    await teardownE2eApp(ctx);
-  });
-
-  beforeEach(async () => {
     await truncateTables(ctx.prisma);
     await seedSystemRoles(ctx.prisma);
 
@@ -704,27 +702,14 @@ describe('Migration Backdating Gate (Integration)', () => {
 });
 
 describe('Migration Backdating Gate — allowed (Integration)', () => {
-  let ctx: E2eContext;
   let adminToken: string;
   let adminId: string;
   let projectKey: string;
   let statusId: string;
 
-  beforeAll(async () => {
-    ctx = await createE2eApp({
-      customize: (builder) =>
-        builder.overrideProvider(migrationConfig.KEY).useValue({
-          apiSecret: MIGRATION_SECRET,
-          allowBackdatedRecords: true,
-        }),
-    });
-  }, 60_000);
-
-  afterAll(async () => {
-    await teardownE2eApp(ctx);
-  });
-
   beforeEach(async () => {
+    migrationOptions.allowBackdatedRecords = true;
+
     await truncateTables(ctx.prisma);
     await seedSystemRoles(ctx.prisma);
 

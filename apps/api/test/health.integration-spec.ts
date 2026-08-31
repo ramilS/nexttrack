@@ -61,12 +61,14 @@ describe('Health Integration (full AppModule)', () => {
   });
 
   describe('GET /health/search-engine', () => {
-    it('should return 200 or 503 for ES (depends on test container availability)', async () => {
-      const res = await request(ctx.app.getHttpServer()).get('/health/search-engine');
-      expect([200, 503]).toContain(res.status);
-      if (res.status === 200) {
-        expect(res.body.data).toEqual({ status: 'ok', service: 'searchEngine' });
-      }
+    it('should report the search engine as ok', async () => {
+      // This harness runs with the mocked engine, whose `ping()` resolves — so
+      // 200 is the contract here, not a coin flip on container availability.
+      const res = await request(ctx.app.getHttpServer())
+        .get('/health/search-engine')
+        .expect(200);
+
+      expect(res.body.data).toEqual({ status: 'ok', service: 'searchEngine' });
     });
   });
 });

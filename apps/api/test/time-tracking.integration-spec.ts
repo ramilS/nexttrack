@@ -1,6 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
+import { TimeLogSource } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -335,14 +336,11 @@ describe('Time Tracking Integration', () => {
         .expect(409);
     });
 
-    it('should stop timer and create time log with TIMER source', async () => {
+    it('should stop timer and log a TIMER entry, rounding up to one minute', async () => {
       await authReq()
         .post('/time-tracking/timer/start')
         .send({ issueId })
         .expect(201);
-
-      // Wait a bit so duration > 0
-      await new Promise((r) => setTimeout(r, 1_100));
 
       await authReq()
         .post('/time-tracking/timer/stop')
@@ -355,10 +353,12 @@ describe('Time Tracking Integration', () => {
 
       // Time log should exist with TIMER source
       const logs = await ctx.prisma.timeLog.findMany({
-        where: { issueId, source: 'TIMER' },
+        where: { issueId, source: TimeLogSource.TIMER },
       });
       expect(logs).toHaveLength(1);
-      expect(logs[0].duration).toBeGreaterThanOrEqual(1);
+      // `stopTimer` floors the duration at one minute, so a timer stopped in
+      // milliseconds still records exactly 1 — no need to sleep for a minute.
+      expect(logs[0].duration).toBe(1);
     });
   });
 });

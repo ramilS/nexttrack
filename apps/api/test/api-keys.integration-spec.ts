@@ -1,9 +1,10 @@
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { Prisma } from '@prisma/client';
-import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
+import {
+  cookieHeaderFor,
+  extractAccessTokenFromCookies,
+} from '@test/support/auth-helper';
 import { ApiKeysService } from '@/modules/api-keys/api-keys.service';
-import { INTEGRATION_ROLE } from '@/modules/api-keys/integration-role';
 import {
   E2eContext,
   createE2eApp,
@@ -24,18 +25,6 @@ import {
  */
 const DEVELOPER_ROLE_ID = '00000000-0000-0000-0000-000000000002';
 
-/**
- * Pulls the `access_token=...` segment out of a Set-Cookie header, for tests
- * that authenticate via `.set('Cookie', ...)` instead of an Authorization
- * header.
- */
-function accessTokenCookie(setCookieHeader: unknown): string {
-  const cookies = (Array.isArray(setCookieHeader) ? setCookieHeader : []) as string[];
-  const match = cookies.find((c) => c.startsWith('access_token='));
-  if (!match) throw new Error('access_token cookie missing');
-  return match.split(';')[0];
-}
-
 describe('API-key issue creation — dedupKey (full AppModule)', () => {
   let ctx: E2eContext;
   let projectKey: string;
@@ -55,19 +44,6 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
     await truncateTables(ctx.prisma);
     await seedSystemRoles(ctx.prisma);
 
-    // seedSystemRoles() predates the API-key feature and doesn't include the
-    // Integration role — the service-principal's ProjectMember FK needs the
-    // row to exist before ApiKeysService.issue() can create it.
-    await ctx.prisma.role.create({
-      data: {
-        id: INTEGRATION_ROLE.id,
-        name: INTEGRATION_ROLE.name,
-        description: INTEGRATION_ROLE.description,
-        permissions: [...INTEGRATION_ROLE.permissions] as Prisma.InputJsonValue,
-        isSystem: INTEGRATION_ROLE.isSystem,
-      },
-    });
-
     const hash = await bcrypt.hash('adminpass1', 4);
     const admin = await ctx.prisma.user.create({
       data: {
@@ -84,7 +60,7 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
       .send({ email: 'admin@test.local', password: 'adminpass1' })
       .expect(200);
     const adminToken = extractAccessTokenFromCookies(loginRes.headers['set-cookie']);
-    adminCookie = accessTokenCookie(loginRes.headers['set-cookie']);
+    adminCookie = cookieHeaderFor(loginRes.headers['set-cookie'], 'access_token');
 
     projectKey = 'DDK';
     const projectRes = await request(ctx.app.getHttpServer())
@@ -122,7 +98,7 @@ describe('API-key issue creation — dedupKey (full AppModule)', () => {
       .post('/auth/login')
       .send({ email: 'developer@test.local', password: 'adminpass1' })
       .expect(200);
-    developerCookie = accessTokenCookie(developerLoginRes.headers['set-cookie']);
+    developerCookie = cookieHeaderFor(developerLoginRes.headers['set-cookie'], 'access_token');
   });
 
   it('creates once, then returns the same issue for a repeated dedupKey', async () => {

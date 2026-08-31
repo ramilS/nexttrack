@@ -1,7 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { WidgetType } from '@prisma/client';
+import { ActivityType, IssueType, Priority, WidgetType } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -56,7 +56,11 @@ describe('Dashboard Widgets Integration (full AppModule)', () => {
     for (let i = 0; i < 3; i++) {
       await authReq()
         .post(`/projects/${projectKey}/issues`)
-        .send({ title: `Widget Issue ${i + 1}`, priority: i === 0 ? 'HIGH' : 'MEDIUM', type: i === 0 ? 'BUG' : 'TASK' })
+        .send({
+          title: `Widget Issue ${i + 1}`,
+          priority: i === 0 ? Priority.HIGH : Priority.MEDIUM,
+          type: i === 0 ? IssueType.BUG : IssueType.TASK,
+        })
         .expect(201);
     }
 
@@ -145,47 +149,38 @@ describe('Dashboard Widgets Integration (full AppModule)', () => {
   // ─── Widget Data Correctness ──────────────────────────────────────
 
   describe('Widget data retrieval', () => {
-    it('MY_ISSUES should return issues for current user', async () => {
+    /** The `beforeEach` fixture creates exactly these three issues. */
+    function countsByName(items: Array<{ name: string; count: number }>) {
+      return Object.fromEntries(items.map((i) => [i.name, i.count]));
+    }
+
+    it('MY_ISSUES should return issues reported by or assigned to the caller', async () => {
       const { data } = await addWidgetAndGetData(WidgetType.MY_ISSUES, 'My Issues');
-      expect(data.items).toBeDefined();
-      expect(data.items.length).toBeGreaterThanOrEqual(1);
+      // The admin reported all three fixture issues.
+      expect(data.items).toHaveLength(3);
     });
 
     it('ASSIGNED_TO_ME should return empty when no assignments', async () => {
       const { data } = await addWidgetAndGetData(WidgetType.ASSIGNED_TO_ME, 'Assigned');
-      expect(data.items).toBeDefined();
-      // Admin created the issues but isn't assigned
-      // (depends on auto-assign logic — may be 0 or N)
+      // The fixture issues are created without an assignee, and this project has
+      // no auto-assign rule — so the widget must be empty, not merely defined.
+      expect(data.items).toEqual([]);
     });
 
     it('ISSUES_BY_PRIORITY should return correct priority distribution', async () => {
       const { data } = await addWidgetAndGetData(WidgetType.ISSUES_BY_PRIORITY, 'By Priority');
-      expect(data.items).toBeDefined();
-      expect(data.items.length).toBeGreaterThanOrEqual(1);
-
-      const highItem = data.items.find(
-        (i: { name?: string }) => i.name === 'HIGH',
-      );
-      const mediumItem = data.items.find(
-        (i: { name?: string }) => i.name === 'MEDIUM',
-      );
-      if (highItem) expect(highItem.count).toBeGreaterThanOrEqual(1);
-      if (mediumItem) expect(mediumItem.count).toBeGreaterThanOrEqual(1);
+      expect(countsByName(data.items)).toEqual({
+        [Priority.HIGH]: 1,
+        [Priority.MEDIUM]: 2,
+      });
     });
 
     it('ISSUES_BY_TYPE should return correct type distribution', async () => {
       const { data } = await addWidgetAndGetData(WidgetType.ISSUES_BY_TYPE, 'By Type');
-      expect(data.items).toBeDefined();
-      expect(data.items.length).toBeGreaterThanOrEqual(1);
-
-      const bugItem = data.items.find(
-        (i: { name?: string }) => i.name === 'BUG',
-      );
-      const taskItem = data.items.find(
-        (i: { name?: string }) => i.name === 'TASK',
-      );
-      if (bugItem) expect(bugItem.count).toBeGreaterThanOrEqual(1);
-      if (taskItem) expect(taskItem.count).toBeGreaterThanOrEqual(1);
+      expect(countsByName(data.items)).toEqual({
+        [IssueType.BUG]: 1,
+        [IssueType.TASK]: 2,
+      });
     });
 
     it('ISSUES_BY_STATUS should return correct status counts', async () => {
@@ -228,12 +223,16 @@ describe('Dashboard Widgets Integration (full AppModule)', () => {
     });
 
     it('RECENT_ACTIVITY should show recent activity entries', async () => {
-      await ctx.pumpDomainEvents();
+      // Activities are written by the issue.created listener.
+      await ctx.settle();
 
       const { data } = await addWidgetAndGetData(WidgetType.RECENT_ACTIVITY, 'Activity');
-      expect(data.items).toBeDefined();
-      // Creating 3 issues generates at least 3 ISSUE_CREATED activities
-      expect(data.items.length).toBeGreaterThanOrEqual(1);
+      // One ISSUE_CREATED per fixture issue; the widget's own cap is 15.
+      expect(
+        data.items.filter(
+          (i: { type: string }) => i.type === ActivityType.ISSUE_CREATED,
+        ),
+      ).toHaveLength(3);
     });
   });
 });

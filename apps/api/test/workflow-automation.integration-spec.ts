@@ -1,7 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { Issue, WorkflowRuleExecution } from '@prisma/client';
+import { IssueType, Priority } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -83,13 +83,17 @@ describe('Workflow Automation Integration (full AppModule)', () => {
     };
   }
 
+  // `type` is a LIST field in ConditionEvaluator — it reads `values` with
+  // `op: 'in' | 'not_in'`, and ignores a `{ op: 'eq', value }` condition
+  // entirely (returning "matches"). The default below therefore uses the shape
+  // the evaluator actually implements, so a rule built from it discriminates.
   function makeRule(overrides: Record<string, unknown> = {}) {
     return {
       workflowId,
       name: 'Auto-assign bugs',
       trigger: 'ON_CREATE',
-      conditions: { field: 'type', op: 'eq', value: 'BUG' },
-      actions: [{ type: 'SET_PRIORITY', priority: 'HIGH' }],
+      conditions: { field: 'type', op: 'in', values: [IssueType.BUG] },
+      actions: [{ type: 'SET_PRIORITY', priority: Priority.HIGH }],
       ...overrides,
     };
   }
@@ -226,12 +230,24 @@ describe('Workflow Automation Integration (full AppModule)', () => {
       const statuses = readStatuses(project!.workflows[0]!.statuses);
       const statusId = statuses[0]!.id;
 
-      const testRes = await authReq()
+      // The default rule matches type=BUG, so a dry run must report a match and
+      // echo back the actions it would have taken — without touching any issue.
+      const matching = await authReq()
         .post(`/projects/${projectKey}/workflow-rules/${ruleId}/test`)
-        .send({ issue: { type: 'BUG', priority: 'MEDIUM', statusId } })
+        .send({ issue: { type: IssueType.BUG, priority: Priority.MEDIUM, statusId } })
         .expect(200);
 
-      expect(testRes.body.data).toBeDefined();
+      expect(matching.body.data).toEqual({
+        matches: true,
+        actions: [{ type: 'SET_PRIORITY', priority: Priority.HIGH }],
+      });
+
+      const notMatching = await authReq()
+        .post(`/projects/${projectKey}/workflow-rules/${ruleId}/test`)
+        .send({ issue: { type: IssueType.TASK, priority: Priority.MEDIUM, statusId } })
+        .expect(200);
+
+      expect(notMatching.body.data).toEqual({ matches: false, actions: [] });
     });
   });
 
@@ -256,14 +272,13 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'Bug Report', type: 'BUG', priority: 'LOW' })
         .expect(201);
 
-      // Wait for async rule execution
-      await new Promise((r) => setTimeout(r, 1_000));
+      // Rules run inside the issue.created listener — settle delivers it.
+      await ctx.settle();
 
-      // Check that priority was changed to URGENT
-      const issue = await ctx.prisma.issue.findUnique({
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
         where: { id: issueRes.body.data.id },
       });
-      expect(issue!.priority).toBe('CRITICAL');
+      expect(issue.priority).toBe(Priority.CRITICAL);
     });
 
     it('should not execute rule when conditions do not match', async () => {
@@ -282,12 +297,12 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'Task', type: 'TASK', priority: 'LOW' })
         .expect(201);
 
-      await new Promise((r) => setTimeout(r, 500));
+      await ctx.settle();
 
-      const issue = await ctx.prisma.issue.findUnique({
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
         where: { id: issueRes.body.data.id },
       });
-      expect(issue!.priority).toBe('LOW');
+      expect(issue.priority).toBe(Priority.LOW);
     });
 
     it('should not execute disabled rules', async () => {
@@ -310,12 +325,12 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'Bug', type: 'BUG', priority: 'LOW' })
         .expect(201);
 
-      await new Promise((r) => setTimeout(r, 500));
+      await ctx.settle();
 
-      const issue = await ctx.prisma.issue.findUnique({
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
         where: { id: issueRes.body.data.id },
       });
-      expect(issue!.priority).toBe('LOW');
+      expect(issue.priority).toBe(Priority.LOW);
     });
 
     it('should record execution in WorkflowRuleExecution table', async () => {
@@ -333,12 +348,12 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'Execution Tracking Bug', type: 'BUG', priority: 'LOW' })
         .expect(201);
 
-      await new Promise((r) => setTimeout(r, 1_000));
+      await ctx.settle();
 
       const executions = await ctx.prisma.workflowRuleExecution.findMany({
         where: { ruleId: ruleRes.body.data.id },
       });
-      expect(executions.length).toBeGreaterThanOrEqual(1);
+      expect(executions).toHaveLength(1);
       expect(executions[0].success).toBe(true);
     });
   });
@@ -373,15 +388,12 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ statusId: inProgress.id })
         .expect(200);
 
-      let issue: Issue | null = null;
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        issue = await ctx.prisma.issue.findUnique({
-          where: { id: issueRes.body.data.id },
-        });
-        if (issue?.priority === 'HIGH') break;
-      }
-      expect(issue!.priority).toBe('HIGH');
+      await ctx.settle();
+
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
+        where: { id: issueRes.body.data.id },
+      });
+      expect(issue.priority).toBe(Priority.HIGH);
     });
 
     it('should not execute ON_CREATE rules on status change', async () => {
@@ -406,21 +418,21 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'No trigger', priority: 'LOW' })
         .expect(201);
 
-      // Wait for any ON_CREATE rule to settle (statusId won't match)
-      await new Promise((r) => setTimeout(r, 500));
+      // Let the ON_CREATE rule run (its conditions won't match) before the patch.
+      await ctx.settle();
 
       await authReq()
         .patch(`/projects/${projectKey}/issues/${issueRes.body.data.number}`)
         .send({ statusId: inProgress.id })
         .expect(200);
 
-      await new Promise((r) => setTimeout(r, 500));
+      await ctx.settle();
 
-      const issue = await ctx.prisma.issue.findUnique({
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
         where: { id: issueRes.body.data.id },
       });
       // The ON_CREATE rule should not re-fire on status change
-      expect(issue!.priority).toBe('LOW');
+      expect(issue.priority).toBe(Priority.LOW);
 
       const executions = await ctx.prisma.workflowRuleExecution.findMany({
         where: { ruleId: ruleRes.body.data.id },
@@ -449,16 +461,13 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'Multi-action bug', type: 'BUG', priority: 'LOW' })
         .expect(201);
 
-      let issue: Issue | null = null;
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        issue = await ctx.prisma.issue.findUnique({
-          where: { id: issueRes.body.data.id },
-        });
-        if (issue?.priority === 'CRITICAL' && issue?.type === 'TASK') break;
-      }
-      expect(issue!.priority).toBe('CRITICAL');
-      expect(issue!.type).toBe('TASK');
+      await ctx.settle();
+
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
+        where: { id: issueRes.body.data.id },
+      });
+      expect(issue.priority).toBe(Priority.CRITICAL);
+      expect(issue.type).toBe(IssueType.TASK);
     });
 
     it('should set assignee to trigger user via TRIGGER_USER sentinel', async () => {
@@ -477,17 +486,16 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ title: 'Self-assign bug', type: 'BUG' })
         .expect(201);
 
-      const admin = await ctx.prisma.user.findFirst({ where: { email: 'admin@test.local' } });
+      const admin = await ctx.prisma.user.findFirstOrThrow({
+        where: { email: 'admin@test.local' },
+      });
 
-      let issue: Issue | null = null;
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        issue = await ctx.prisma.issue.findUnique({
-          where: { id: issueRes.body.data.id },
-        });
-        if (issue?.assigneeId === admin!.id) break;
-      }
-      expect(issue!.assigneeId).toBe(admin!.id);
+      await ctx.settle();
+
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
+        where: { id: issueRes.body.data.id },
+      });
+      expect(issue.assigneeId).toBe(admin.id);
     });
   });
 
@@ -511,15 +519,7 @@ describe('Workflow Automation Integration (full AppModule)', () => {
           .expect(201);
       }
 
-      // Wait for executions to land
-      let executions: WorkflowRuleExecution[] = [];
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        executions = await ctx.prisma.workflowRuleExecution.findMany({
-          where: { ruleId: ruleRes.body.data.id },
-        });
-        if (executions.length >= 2) break;
-      }
+      await ctx.settle();
 
       const res = await authReq()
         .get(`/projects/${projectKey}/workflow-rules/${ruleRes.body.data.id}/executions`)
@@ -589,10 +589,10 @@ describe('Workflow Automation Integration (full AppModule)', () => {
 
       expect(res.body.error.message).toContain('assignee');
 
-      const issue = await ctx.prisma.issue.findUnique({
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
         where: { id: issueRes.body.data.id },
       });
-      expect(issue!.statusId).not.toBe(done.id);
+      expect(issue.statusId).not.toBe(done.id);
     });
 
     it('should allow transition when BLOCK_TRANSITION conditions do not match', async () => {
@@ -625,10 +625,10 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .send({ statusId: done.id })
         .expect(200);
 
-      const issue = await ctx.prisma.issue.findUnique({
+      const issue = await ctx.prisma.issue.findUniqueOrThrow({
         where: { id: issueRes.body.data.id },
       });
-      expect(issue!.statusId).toBe(done.id);
+      expect(issue.statusId).toBe(done.id);
     });
 
     it('should not block when rule is disabled', async () => {

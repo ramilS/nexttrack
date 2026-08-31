@@ -1,7 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { Prisma } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -13,6 +13,7 @@ import {
 describe('Issues Integration (full AppModule)', () => {
   let ctx: E2eContext;
   let adminToken: string;
+  let adminId: string;
   let projectKey: string;
 
   beforeAll(async () => {
@@ -29,7 +30,7 @@ describe('Issues Integration (full AppModule)', () => {
 
     // Seed admin user
     const hash = await bcrypt.hash('adminpass1', 4);
-    await ctx.prisma.user.create({
+    const admin = await ctx.prisma.user.create({
       data: {
         email: 'admin@test.local',
         name: 'Admin User',
@@ -38,6 +39,7 @@ describe('Issues Integration (full AppModule)', () => {
         role: 'ADMIN',
       },
     });
+    adminId = admin.id;
 
     const loginRes = await request(ctx.app.getHttpServer())
       .post('/auth/login')
@@ -299,17 +301,12 @@ describe('Issues Integration (full AppModule)', () => {
         })
         .expect(201);
 
-      // Poll for MENTION notification (fire-and-forget dispatch)
-      let notificationCount = 0;
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        notificationCount = await ctx.prisma.notification.count({
-          where: { userId: mentionedUser.id, type: 'MENTION' },
-        });
-        if (notificationCount > 0) break;
-      }
+      await ctx.settle();
 
-      expect(notificationCount).toBeGreaterThanOrEqual(1);
+      const notificationCount = await ctx.prisma.notification.count({
+        where: { userId: mentionedUser.id, type: NotificationType.MENTION },
+      });
+      expect(notificationCount).toBe(1);
     });
 
     it('should add mentioned user as watcher on create', async () => {
@@ -338,20 +335,17 @@ describe('Issues Integration (full AppModule)', () => {
         .send({ title: 'Watcher test', description: descriptionWithMention })
         .expect(201);
 
-      // Verify mentioned user was added as watcher (event listener runs async)
-      const proj = await ctx.prisma.project.findFirst({ where: { key: projectKey } });
-      const issue = await ctx.prisma.issue.findFirst({
-        where: { number: issueRes.body.data.number, projectId: proj!.id },
+      // The watcher is added by an event listener — settle before asserting.
+      await ctx.settle();
+
+      const proj = await ctx.prisma.project.findFirstOrThrow({ where: { key: projectKey } });
+      const issue = await ctx.prisma.issue.findFirstOrThrow({
+        where: { number: issueRes.body.data.number, projectId: proj.id },
       });
 
-      let watcher = null;
-      for (let i = 0; i < 10; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        watcher = await ctx.prisma.issueWatcher.findUnique({
-          where: { issueId_userId: { issueId: issue!.id, userId: mentionedUser.id } },
-        });
-        if (watcher) break;
-      }
+      const watcher = await ctx.prisma.issueWatcher.findUnique({
+        where: { issueId_userId: { issueId: issue.id, userId: mentionedUser.id } },
+      });
       expect(watcher).not.toBeNull();
     });
 
@@ -407,11 +401,12 @@ describe('Issues Integration (full AppModule)', () => {
         .send({ title: 'Mention update test', description: initialDescription })
         .expect(201);
 
-      // Wait for initial notification to settle
-      await new Promise((r) => setTimeout(r, 500));
-
-      // Clear notifications so we can check only new ones
-      await ctx.prisma.notification.deleteMany({ where: { type: 'MENTION' } });
+      // Let the create-time notification land, then clear so the assertions
+      // below can only see notifications produced by the update.
+      await ctx.settle();
+      await ctx.prisma.notification.deleteMany({
+        where: { type: NotificationType.MENTION },
+      });
 
       // Update description adding user3 mention (user2 still present)
       const updatedDescription = {
@@ -431,22 +426,15 @@ describe('Issues Integration (full AppModule)', () => {
         .send({ description: updatedDescription })
         .expect(200);
 
-      // Poll for MENTION notification for user3 only
-      let user3Notifications = 0;
-      let user2Notifications = 0;
-      for (let i = 0; i < 15; i++) {
-        await new Promise((r) => setTimeout(r, 200));
-        user3Notifications = await ctx.prisma.notification.count({
-          where: { userId: user3.id, type: 'MENTION' },
-        });
-        user2Notifications = await ctx.prisma.notification.count({
-          where: { userId: user2.id, type: 'MENTION' },
-        });
-        if (user3Notifications > 0) break;
-      }
+      await ctx.settle();
 
-      expect(user3Notifications).toBeGreaterThanOrEqual(1);
-      expect(user2Notifications).toBe(0); // user2 was already mentioned — no duplicate
+      const notifiedUserIds = await ctx.prisma.notification.findMany({
+        where: { type: NotificationType.MENTION },
+        select: { userId: true },
+      });
+      // Only the newly mentioned user is notified — user2 was already mentioned
+      // before the update and must not be notified again.
+      expect(notifiedUserIds.map((n) => n.userId)).toEqual([user3.id]);
     });
   });
 
@@ -454,15 +442,30 @@ describe('Issues Integration (full AppModule)', () => {
     it('should add and remove watcher', async () => {
       await authReq()
         .post(`/projects/${projectKey}/issues`)
-        .send({ title: 'Watchable' });
+        .send({ title: 'Watchable' })
+        .expect(201);
 
-      // Creator is auto-added as watcher, so add another watcher
-      // For now just verify the endpoint works
-      const watchersRes = await authReq()
-        .get(`/projects/${projectKey}/issues/1/watchers`)
-        .expect(200);
+      // The reporter is watched by the create itself; settle so that any
+      // listener-side watcher additions have also happened before asserting the
+      // exact set.
+      await ctx.settle();
 
-      expect(Array.isArray(watchersRes.body.data)).toBe(true);
+      const watcherIds = async (): Promise<string[]> => {
+        const res = await authReq()
+          .get(`/projects/${projectKey}/issues/1/watchers`)
+          .expect(200);
+        return res.body.data.map((u: { id: string }) => u.id);
+      };
+
+      expect(await watcherIds()).toEqual([adminId]);
+
+      // The endpoints add/remove the *caller*, so the admin can unwatch…
+      await authReq().delete(`/projects/${projectKey}/issues/1/watchers`).expect(204);
+      expect(await watcherIds()).toEqual([]);
+
+      // …and watch again.
+      await authReq().post(`/projects/${projectKey}/issues/1/watchers`).expect(204);
+      expect(await watcherIds()).toEqual([adminId]);
     });
   });
 
