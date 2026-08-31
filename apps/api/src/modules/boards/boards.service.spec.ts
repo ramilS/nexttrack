@@ -4,6 +4,7 @@ import { BoardType, SwimlaneBy } from "@prisma/client";
 import { BoardsService } from "./boards.service";
 import { BoardsRepository, BoardEntity } from "./boards.repository";
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
+import { ProjectAccessService } from '@/modules/projects/project-access.service';
 import { ProjectEntity } from "@/modules/projects/projects.repository";
 import type { Workflow } from "@repo/shared/schemas";
 
@@ -13,6 +14,7 @@ describe("BoardsService", () => {
   let service: BoardsService;
   let boardsRepo: Mocked<BoardsRepository>;
   let workflowsRepo: Mocked<WorkflowsReader>;
+  let projectAccess: Mocked<ProjectAccessService>;
 
   const projectId = "proj-1";
   const boardId = "board-1";
@@ -120,21 +122,60 @@ describe("BoardsService", () => {
       setIsDefault: jest.fn().mockResolvedValue(undefined),
       setDefaultAtomic: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
+      findSummariesByProjects: jest.fn().mockResolvedValue([]),
     } as unknown as Mocked<BoardsRepository>;
 
     workflowsRepo = {
       findDefault: jest.fn().mockResolvedValue(workflow),
     } as unknown as Mocked<WorkflowsReader>;
 
+    projectAccess = {
+      findAccessibleProjectIds: jest.fn().mockResolvedValue([]),
+    } as unknown as Mocked<ProjectAccessService>;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         BoardsService,
         { provide: BoardsRepository, useValue: boardsRepo },
         { provide: WorkflowsReader, useValue: workflowsRepo },
+        { provide: ProjectAccessService, useValue: projectAccess },
       ],
     }).compile();
 
     service = module.get(BoardsService);
+  });
+
+  describe("findAllVisible", () => {
+    const summary = {
+      id: boardId,
+      name: "Default Board",
+      type: BoardType.KANBAN,
+      project: { id: projectId, key: "PRJ", name: "Project" },
+    };
+
+    it("lists boards of every project the user can access", async () => {
+      projectAccess.findAccessibleProjectIds.mockResolvedValue([
+        projectId,
+        "proj-2",
+      ]);
+      boardsRepo.findSummariesByProjects.mockResolvedValue([summary]);
+
+      const result = await service.findAllVisible(userId);
+
+      expect(projectAccess.findAccessibleProjectIds).toHaveBeenCalledWith(userId);
+      expect(boardsRepo.findSummariesByProjects).toHaveBeenCalledWith([
+        projectId,
+        "proj-2",
+      ]);
+      expect(result).toEqual([summary]);
+    });
+
+    it("returns nothing when the user can access no project", async () => {
+      projectAccess.findAccessibleProjectIds.mockResolvedValue([]);
+
+      await expect(service.findAllVisible(userId)).resolves.toEqual([]);
+      expect(boardsRepo.findSummariesByProjects).toHaveBeenCalledWith([]);
+    });
   });
 
   describe("findOne", () => {

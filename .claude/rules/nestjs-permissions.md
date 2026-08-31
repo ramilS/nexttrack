@@ -75,9 +75,47 @@ Context guards MUST run before `PermissionGuard` so `req.project` is populated:
 @UseGuards(JwtAuthGuard, PermissionGuard, IssueContextGuard)
 ```
 
+## Cross-Project Reads — the one exception
+
+A route that spans MORE than one project has no single `req.project` to
+authorize against, so `@ProjectAuth()` cannot apply: its
+`ProjectContextInterceptor` resolves exactly one project from `:key`. Those
+routes (cross-project search, `GET /boards` behind the board switcher) are
+gated on **membership** instead, via `ProjectAccessService.findAccessibleProjectIds`
+(`modules/projects/project-access.service.ts`, exported by the `@Global()`
+`ProjectsModule`): admins get every non-deleted project, everyone else gets the
+projects they are a member of.
+
+```typescript
+// Correct — cross-project read: authenticate, then scope the query to the
+// caller's projects. Returns identities only.
+@Controller('boards')
+@UseGuards(JwtAuthGuard, RolesGuard)
+export class BoardListController {
+  @Get()
+  findAllVisible(@CurrentUser('id') userId: string) {
+    return this.boardsService.findAllVisible(userId); // → ProjectAccessService
+  }
+}
+
+// Wrong — hand-rolled membership lookup inlined in a service, drifting from
+// the admin-bypass rule the other cross-project endpoints follow
+const ids = await this.membersRepo.findProjectIdsForUser(userId);
+```
+
+Conditions for taking this exception:
+
+- The route genuinely spans projects. One project → `@ProjectAuth()`, no debate.
+- It returns **identities only** (id, name, key) — never issue content, board
+  columns, or anything a per-project permission would have gated. Opening the
+  entity still goes through the project-scoped, permission-checked route.
+- It is a READ. A cross-project mutation does not get this exception.
+- Access is decided by `ProjectAccessService`, never by an inlined membership
+  query — that is the single place the admin bypass lives.
+
 ## Rules
 
-- EVERY controller that accesses project data MUST use `@ProjectAuth()`, `@IssueAuth()`, or `@BoardAuth()`
+- EVERY controller that accesses project data MUST use `@ProjectAuth()`, `@IssueAuth()`, or `@BoardAuth()` — unless it is a cross-project read, see the exception above
 - EVERY mutating endpoint MUST have `@RequirePermission()` with the appropriate permission
 - Read endpoints MUST require at minimum `Permission.ISSUE_READ` or `Permission.ARTICLE_READ`
 - Use `@Roles(GlobalRole.ADMIN)` for admin-only routes (role management, system settings)

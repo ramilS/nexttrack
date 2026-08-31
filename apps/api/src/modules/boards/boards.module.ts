@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BoardsController } from './boards.controller';
+import { BoardListController } from './board-list.controller';
 import { BoardsService } from './boards.service';
 import { BoardDataService } from './board-data.service';
 import { BoardIssueMoveService } from './board-issue-move.service';
@@ -17,7 +18,7 @@ import { OutboxModule } from '@/modules/outbox/outbox.module';
     IssuesModule,
     OutboxModule,
   ],
-  controllers: [BoardsController],
+  controllers: [BoardsController, BoardListController],
   providers: [BoardsService, BoardDataService, BoardIssueMoveService, BoardAnalyticsService, BoardsRepository],
   exports: [BoardsService, BoardDataService, BoardIssueMoveService, BoardAnalyticsService, BoardsRepository],
 })

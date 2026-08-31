@@ -3,9 +3,7 @@ import { SearchService } from './search.service';
 import { SearchRepository, SearchHydrationRow } from './search.repository';
 import { SearchEngineService } from './engine/search-engine.service';
 import { SearchQueryBuilderService } from './engine/search-query-builder.service';
-import { UsersReader } from '@/modules/users/users.reader';
-import { ProjectsRepository } from '@/modules/projects/projects.repository';
-import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
+import { ProjectAccessService } from '@/modules/projects/project-access.service';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { searchEngineConfig } from '@/config';
 
@@ -14,9 +12,7 @@ describe('SearchService', () => {
   let searchRepo: {
     findManyForSearchHydration: jest.Mock;
   };
-  let usersRepo: { findRoleById: jest.Mock };
-  let projectsRepo: { findAllActiveIds: jest.Mock };
-  let membersRepo: { findProjectIdsForUser: jest.Mock };
+  let projectAccess: { findAccessibleProjectIds: jest.Mock };
   let workflowsRepo: { findDefaultStatusesByProjects: jest.Mock };
 
   const mockEs = {
@@ -93,8 +89,7 @@ describe('SearchService', () => {
   };
 
   function mockAdminSearchDeps() {
-    usersRepo.findRoleById.mockResolvedValue('ADMIN');
-    projectsRepo.findAllActiveIds.mockResolvedValue(['proj-1', 'proj-2']);
+    projectAccess.findAccessibleProjectIds.mockResolvedValue(['proj-1', 'proj-2']);
     workflowsRepo.findDefaultStatusesByProjects.mockResolvedValue(
       new Map([['proj-1', mockStatuses]]),
     );
@@ -104,9 +99,7 @@ describe('SearchService', () => {
     searchRepo = {
       findManyForSearchHydration: jest.fn().mockResolvedValue([]),
     };
-    usersRepo = { findRoleById: jest.fn().mockResolvedValue(null) };
-    projectsRepo = { findAllActiveIds: jest.fn().mockResolvedValue([]) };
-    membersRepo = { findProjectIdsForUser: jest.fn().mockResolvedValue([]) };
+    projectAccess = { findAccessibleProjectIds: jest.fn().mockResolvedValue([]) };
     workflowsRepo = {
       findDefaultStatusesByProjects: jest.fn().mockResolvedValue(new Map()),
     };
@@ -117,9 +110,7 @@ describe('SearchService', () => {
         { provide: SearchRepository, useValue: searchRepo },
         { provide: SearchEngineService, useValue: mockEs },
         { provide: SearchQueryBuilderService, useValue: mockQueryBuilder },
-        { provide: UsersReader, useValue: usersRepo },
-        { provide: ProjectsRepository, useValue: projectsRepo },
-        { provide: ProjectMembersRepository, useValue: membersRepo },
+        { provide: ProjectAccessService, useValue: projectAccess },
         { provide: WorkflowsReader, useValue: workflowsRepo },
         { provide: searchEngineConfig.KEY, useValue: mockEsConfig },
       ],
@@ -134,8 +125,7 @@ describe('SearchService', () => {
   // ─── Empty results when no accessible projects ────────────────
 
   it('should return empty result when user has no accessible projects', async () => {
-    usersRepo.findRoleById.mockResolvedValue('USER');
-    membersRepo.findProjectIdsForUser.mockResolvedValue([]);
+    projectAccess.findAccessibleProjectIds.mockResolvedValue([]);
 
     const result = await service.search('test', 'user-1');
 
@@ -154,7 +144,10 @@ describe('SearchService', () => {
 
     await service.search('test', 'admin-user');
 
-    expect(projectsRepo.findAllActiveIds).toHaveBeenCalled();
+    expect(projectAccess.findAccessibleProjectIds).toHaveBeenCalledWith(
+      'admin-user',
+      undefined,
+    );
     expect(mockQueryBuilder.build).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
@@ -166,8 +159,7 @@ describe('SearchService', () => {
   // ─── Non-admin gets only member projects ──────────────────────
 
   it('should return only member projects for non-admin user', async () => {
-    usersRepo.findRoleById.mockResolvedValue('USER');
-    membersRepo.findProjectIdsForUser.mockResolvedValue(['proj-1']);
+    projectAccess.findAccessibleProjectIds.mockResolvedValue(['proj-1']);
     workflowsRepo.findDefaultStatusesByProjects.mockResolvedValue(
       new Map([['proj-1', mockStatuses]]),
     );
@@ -176,7 +168,10 @@ describe('SearchService', () => {
 
     await service.search('test', 'user-1');
 
-    expect(membersRepo.findProjectIdsForUser).toHaveBeenCalledWith('user-1', undefined);
+    expect(projectAccess.findAccessibleProjectIds).toHaveBeenCalledWith(
+      'user-1',
+      undefined,
+    );
     expect(mockQueryBuilder.build).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({

@@ -1,6 +1,5 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { ConfigType } from '@nestjs/config';
-import { GlobalRole } from '@prisma/client';
 import { AppLogger } from '@/common/logging/app-logger';
 import {
   SearchEngineService,
@@ -9,10 +8,8 @@ import {
 import { SearchQueryBuilderService } from './engine/search-query-builder.service';
 import { searchEngineConfig } from '@/config';
 import { encodeSearchCursor, decodeSearchCursor } from '@/common/utils/cursor';
-import { UsersReader } from '@/modules/users/users.reader';
-import { ProjectsRepository } from '@/modules/projects/projects.repository';
-import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
+import { ProjectAccessService } from '@/modules/projects/project-access.service';
 import {
   SearchHydrationRow,
   SearchRepository,
@@ -98,9 +95,7 @@ export class SearchService {
     private engine: SearchEngineService,
     private queryBuilder: SearchQueryBuilderService,
     private searchRepo: SearchRepository,
-    private usersRepo: UsersReader,
-    private projectsRepo: ProjectsRepository,
-    private membersRepo: ProjectMembersRepository,
+    private projectAccess: ProjectAccessService,
     private workflowsRepo: WorkflowsReader,
     @Inject(searchEngineConfig.KEY)
     private config: ConfigType<typeof searchEngineConfig>,
@@ -120,7 +115,7 @@ export class SearchService {
       this.config.searchMaxPageSize,
     );
 
-    const accessibleProjectIds = await this.getAccessibleProjectIds(
+    const accessibleProjectIds = await this.projectAccess.findAccessibleProjectIds(
       userId,
       options?.projectId,
     );
@@ -239,20 +234,6 @@ export class SearchService {
       valid: parsed.errors.length === 0,
       errors: toParseErrors(parsed.errors),
     };
-  }
-
-  private async getAccessibleProjectIds(
-    userId: string,
-    restrictToProjectId?: string,
-  ): Promise<string[]> {
-    const role = await this.usersRepo.findRoleById(userId);
-
-    if (role === GlobalRole.ADMIN) {
-      if (restrictToProjectId) return [restrictToProjectId];
-      return this.projectsRepo.findAllActiveIds();
-    }
-
-    return this.membersRepo.findProjectIdsForUser(userId, restrictToProjectId);
   }
 
   private emptyResult(

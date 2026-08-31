@@ -107,6 +107,24 @@ export const boardSchema = z.object({
 export type Board = z.infer<typeof boardSchema>;
 
 /**
+ * A board as it appears in the cross-project board switcher: identity, the
+ * project it belongs to, and nothing the picker does not render. Deliberately
+ * NOT `boardSchema` — the switcher must not pull every board's `columns` blob
+ * across the wire just to draw a list of names.
+ */
+export const boardSummarySchema = z.object({
+  id: z.guid(),
+  name: z.string(),
+  type: boardTypeSchema,
+  project: z.object({
+    id: z.guid(),
+    key: z.string(),
+    name: z.string(),
+  }),
+});
+export type BoardSummary = z.infer<typeof boardSummarySchema>;
+
+/**
  * An issue rendered as a card on a board or in a backlog. Subset of full
  * `Issue` — only fields the card UI needs. Backend builds this via
  * `toBoardIssueCard`. Used by board data, backlog, and sprint detail.

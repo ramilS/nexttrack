@@ -33,7 +33,28 @@ vi.mock('@/lib/stores/create-board.store', () => ({
 }));
 
 vi.mock('@/components/shared/page-header', () => ({
-  PageHeader: ({ title }: { title: string }) => <h1>{title}</h1>,
+  PageHeader: ({ title, actions }: { title: string; actions?: React.ReactNode }) => (
+    <div>
+      <h1>{title}</h1>
+      {actions}
+    </div>
+  ),
+}));
+
+vi.mock('@/components/boards/board-switcher', () => ({
+  BoardSwitcher: (props: {
+    projectKey: string;
+    currentBoardId: string | undefined;
+    currentBoardName: string | undefined;
+  }) => (
+    <div
+      data-testid="board-switcher"
+      data-project-key={props.projectKey}
+      data-board-id={props.currentBoardId ?? ''}
+    >
+      {props.currentBoardName ?? ''}
+    </div>
+  ),
 }));
 
 vi.mock('@/components/boards/kanban-board', () => ({
@@ -147,20 +168,32 @@ describe('BoardPage — board exists', () => {
   });
 });
 
-describe('BoardPage — multiple boards', () => {
-  it('hides the board switcher with a single board', () => {
-    mockBoards = [buildBoard({ id: 'b1' })];
+describe('BoardPage — board switcher', () => {
+  // The switcher spans every project the user belongs to, so it stays mounted
+  // even when this project has one board (or none) — unlike the per-project
+  // dropdown it replaced, which only appeared from the second board on.
+  it('renders the switcher when the project has a single board', () => {
+    mockBoards = [buildBoard({ id: 'b1', name: 'Engineering' })];
     render(<BoardPage />);
-    expect(screen.queryAllByTestId('swimlane-select')).toHaveLength(1);
+    expect(screen.getByTestId('board-switcher')).toHaveTextContent('Engineering');
   });
 
-  it('shows a board switcher when the project has more than one board', () => {
+  it('renders the switcher when the project has no board at all', () => {
+    mockBoards = [];
+    render(<BoardPage />);
+    expect(screen.getByTestId('board-switcher')).toBeInTheDocument();
+  });
+
+  it('passes the resolved board and project down to the switcher', () => {
     mockBoards = [
       buildBoard({ id: 'b1', name: 'Engineering', isDefault: true }),
       buildBoard({ id: 'b2', name: 'Design', isDefault: false }),
     ];
     render(<BoardPage />);
-    // Both the swimlane select and the board switcher use the mocked Select.
-    expect(screen.getAllByTestId('swimlane-select')).toHaveLength(2);
+
+    const switcher = screen.getByTestId('board-switcher');
+    expect(switcher).toHaveAttribute('data-project-key', 'PROJ');
+    expect(switcher).toHaveAttribute('data-board-id', 'b1');
+    expect(switcher).toHaveTextContent('Engineering');
   });
 });

@@ -43,6 +43,14 @@ active key (`removeMember` throws `SERVICE_MEMBER_HAS_ACTIVE_KEY` — revoke the
 key first). The write-capable `ApiKeysRepository` stays
 module-private — no cross-module writer needs it.
 
+`ProjectAccessService` (projects, exported by the `@Global()` `ProjectsModule`)
+is a reader in spirit but not in name: it answers "which projects may this user
+read?" for endpoints that span several of them (search, the board switcher). It
+composes `UsersReader` + `ProjectsRepository` + `ProjectMembersRepository` so
+the admin bypass lives in ONE place. Cross-project consumers inject it; nobody
+re-derives the membership query. See `nestjs-permissions.md` for when a route is
+allowed to be authorized this way at all.
+
 ## Repositories still exported cross-module (writer allow-list)
 
 | Repository | Cross-module writers (reason) |

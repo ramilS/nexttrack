@@ -69,3 +69,8 @@ class ResizeObserverMock {
 Object.defineProperty(window, 'ResizeObserver', {
   value: ResizeObserverMock,
 });
+
+// Mock scrollIntoView — jsdom does not implement it, and cmdk (command palette,
+// board switcher) plus SuggestionPopup call it on mount to keep the highlighted
+// item visible.
+Element.prototype.scrollIntoView = vi.fn();

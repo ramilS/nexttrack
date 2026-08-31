@@ -19,6 +19,7 @@ import { SprintBoardHeader } from '@/components/boards/sprint-board-header';
 import { BacklogPanel } from '@/components/boards/backlog-panel';
 import { BoardSettingsDialog } from '@/components/boards/board-settings-dialog';
 import { BoardAnalytics } from '@/components/boards/board-analytics';
+import { BoardSwitcher } from '@/components/boards/board-switcher';
 import { useBoards } from '@/lib/hooks/use-boards';
 import { useSprints } from '@/lib/hooks/use-sprints';
 import { useKeyboardShortcut } from '@/lib/hooks/use-keyboard-shortcut';
@@ -98,11 +99,21 @@ function BoardPageContent() {
   return (
     <div className="flex h-full flex-col">
       <div className="px-4 pt-4 pb-1">
-        <PageHeader title={`${key} Board`} />
+        <PageHeader
+          title={`${key} Board`}
+          actions={
+            <BoardSwitcher
+              projectKey={key}
+              currentBoardId={selectedBoard?.id}
+              currentBoardName={selectedBoard?.name}
+              onSelectInProject={handleBoardChange}
+            />
+          }
+        />
       </div>
 
       <Tabs defaultValue="board" className="flex-1 flex flex-col min-h-0">
-        <div className="px-4 flex items-center justify-between gap-3">
+        <div className="px-4">
           <TabsList variant="line">
             <TabsTrigger value="board">Board</TabsTrigger>
             <TabsTrigger value="analytics">
@@ -110,22 +121,6 @@ function BoardPageContent() {
               Analytics
             </TabsTrigger>
           </TabsList>
-          {boards && boards.length > 1 && (
-            <Select value={selectedBoard?.id ?? ''} onValueChange={(v) => v && handleBoardChange(v)}>
-              <SelectTrigger className="h-8 w-auto text-xs font-medium">
-                <SelectValue placeholder="Select board...">
-                  {(value: string | null) => boards.find((b) => b.id === value)?.name ?? 'Select board...'}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                {boards.map((b) => (
-                  <SelectItem key={b.id} value={b.id} label={b.name}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
         </div>
 
         <TabsContent value="board" className="flex-1 flex flex-col min-h-0">

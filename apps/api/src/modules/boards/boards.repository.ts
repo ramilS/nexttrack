@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { BoardType, Prisma, SwimlaneBy } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { asJson } from '@/prisma/json';
-import type { Board, BoardColumn } from '@repo/shared/schemas';
+import type { Board, BoardColumn, BoardSummary } from '@repo/shared/schemas';
 
 export type { BoardType, SwimlaneBy };
 
@@ -147,6 +147,35 @@ export class BoardsRepository {
       orderBy: { createdAt: 'asc' },
     });
     return rows.map((r) => toBoard(toEntity(r)));
+  }
+
+  /**
+   * Boards of every given project, shaped for the cross-project switcher.
+   *
+   * Intentionally unpaginated: the caller passes only the projects the user
+   * belongs to, so the row count is bounded by that membership, and the picker
+   * needs the whole list at once to search and group it client-side.
+   */
+  async findSummariesByProjects(projectIds: string[]): Promise<BoardSummary[]> {
+    if (projectIds.length === 0) return [];
+
+    const rows = await this.prisma.agileBoard.findMany({
+      where: { projectId: { in: projectIds } },
+      select: {
+        id: true,
+        name: true,
+        type: true,
+        project: { select: { id: true, key: true, name: true } },
+      },
+      orderBy: [{ project: { key: 'asc' } }, { createdAt: 'asc' }],
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      type: row.type,
+      project: row.project,
+    }));
   }
 
   async findEntityInProject(

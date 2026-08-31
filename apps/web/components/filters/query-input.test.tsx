@@ -12,8 +12,6 @@ vi.mock('@/lib/hooks/use-search', () => ({
 
 beforeEach(() => {
   mockSuggestions = undefined;
-  // jsdom doesn't implement scrollIntoView, which SuggestionPopup calls on mount.
-  Element.prototype.scrollIntoView = vi.fn();
 });
 
 /**

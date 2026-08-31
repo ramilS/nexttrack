@@ -3,6 +3,7 @@ import type { PaginatedResponse, CursorPaginatedResponse } from '@repo/shared';
 import type {
   Board,
   BoardColumn,
+  BoardSummary,
   BoardColumnData,
   BoardData,
   BoardIssueCard,
@@ -31,6 +32,7 @@ import type {
 export type {
   Board,
   BoardColumn,
+  BoardSummary,
   BoardColumnData,
   BoardIssueCard,
   BoardSwimlaneData,
@@ -57,6 +59,9 @@ export type BoardDataResponse = BoardData;
 export const boardsApi = {
   list: (projectKey: string) =>
     apiClient.get<Board[]>(`/projects/${projectKey}/boards`),
+
+  /** Every board the current user can open, across all their projects. */
+  listVisible: () => apiClient.get<BoardSummary[]>('/boards'),
 
   get: (projectKey: string, boardId: string) =>
     apiClient.get<Board>(`/projects/${projectKey}/boards/${boardId}`),

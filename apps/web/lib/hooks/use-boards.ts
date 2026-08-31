@@ -9,6 +9,7 @@ import { issueViews } from './query-invalidation';
 
 export const boardKeys = {
   all: ['boards'] as const,
+  visible: () => [...boardKeys.all, 'visible'] as const,
   list: (projectKey: string) => [...boardKeys.all, 'list', projectKey] as const,
   detail: (projectKey: string, boardId: string) => [...boardKeys.all, 'detail', projectKey, boardId] as const,
   dataPrefix: (projectKey: string, boardId: string) =>
@@ -22,6 +23,18 @@ export function useBoards(projectKey: string) {
     queryKey: boardKeys.list(projectKey),
     queryFn: () => boardsApi.list(projectKey).then((r) => r.data),
     enabled: !!projectKey,
+  });
+}
+
+/**
+ * Boards from every project the user belongs to — backs the board switcher.
+ * Cheap enough to keep fresh across navigations, so it stays under the same
+ * `boardKeys.all` prefix that create/delete already invalidate.
+ */
+export function useVisibleBoards() {
+  return useQuery({
+    queryKey: boardKeys.visible(),
+    queryFn: () => boardsApi.listVisible().then((r) => r.data),
   });
 }
 

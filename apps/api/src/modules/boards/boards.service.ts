@@ -6,6 +6,7 @@ import { BoardType, SwimlaneBy } from "@prisma/client";
 import type {
   Board,
   BoardColumn,
+  BoardSummary,
   CreateBoardParsed,
   UpdateBoardInput,
   UpdateColumnsInput,
@@ -14,6 +15,7 @@ import type {
 } from "@repo/shared/schemas";
 import { BoardsRepository, BoardEntity, toBoard } from "./boards.repository";
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
+import { ProjectAccessService } from '@/modules/projects/project-access.service';
 import { ProjectEntity } from "@/modules/projects/projects.repository";
 import { randomUUID } from "crypto";
 
@@ -40,10 +42,22 @@ export class BoardsService {
   constructor(
     private boardsRepo: BoardsRepository,
     private workflowsRepo: WorkflowsReader,
+    private projectAccess: ProjectAccessService,
   ) {}
 
   async findAll(projectId: string): Promise<Board[]> {
     return this.boardsRepo.findAllByProject(projectId);
+  }
+
+  /**
+   * Every board the user may open, across all their projects — the source for
+   * the board switcher. Project-scoped reads stay on `findAll`; this one is
+   * gated by membership only, so the per-project permission check still runs
+   * when the user actually navigates to the board.
+   */
+  async findAllVisible(userId: string): Promise<BoardSummary[]> {
+    const projectIds = await this.projectAccess.findAccessibleProjectIds(userId);
+    return this.boardsRepo.findSummariesByProjects(projectIds);
   }
 
   async findOne(projectId: string, boardId: string): Promise<Board> {

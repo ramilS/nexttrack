@@ -46,8 +46,6 @@ vi.mock('@/lib/stores/create-sprint.store', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // jsdom doesn't implement scrollIntoView, which cmdk calls on mount.
-  Element.prototype.scrollIntoView = vi.fn();
   useCreateIssueStore.setState({ isOpen: false, projectKey: null, defaults: null });
   useCreateBoardStore.setState({ isOpen: false, projectKey: null });
   act(() => useCommandContextStore.getState().clearContext());

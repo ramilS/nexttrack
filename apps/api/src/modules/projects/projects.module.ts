@@ -4,6 +4,7 @@ import { ProjectsService } from './projects.service';
 import { ProjectsMembersService } from './projects-members.service';
 import { ProjectsRepository } from './projects.repository';
 import { ProjectMembersRepository } from './project-members.repository';
+import { ProjectAccessService } from './project-access.service';
 import { RolesModule } from '@/modules/roles/roles.module';
 import { UsersModule } from '@/modules/users/users.module';
 
@@ -16,11 +17,13 @@ import { UsersModule } from '@/modules/users/users.module';
     ProjectsMembersService,
     ProjectsRepository,
     ProjectMembersRepository,
+    ProjectAccessService,
   ],
   exports: [
     ProjectsService,
     ProjectsRepository,
     ProjectMembersRepository,
+    ProjectAccessService,
   ],
 })
 export class ProjectsModule {}

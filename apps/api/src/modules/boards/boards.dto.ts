@@ -7,6 +7,7 @@ import {
   moveIssueSchema,
   boardQuerySchema,
   boardSchema,
+  boardSummarySchema,
   boardDataSchema,
   cfdResponseSchema,
   velocityResponseSchema,
@@ -37,6 +38,7 @@ export class CfdQueryDto extends createZodDto(cfdQuerySchema) {}
 export class VelocityQueryDto extends createZodDto(velocityQuerySchema) {}
 
 export class BoardDto extends createZodDto(boardSchema) {}
+export class BoardSummaryDto extends createZodDto(boardSummarySchema) {}
 export class BoardDataDto extends createZodDto(boardDataSchema) {}
 export class CfdResponseDto extends createZodDto(cfdResponseSchema) {}
 export class VelocityResponseDto extends createZodDto(velocityResponseSchema) {}
