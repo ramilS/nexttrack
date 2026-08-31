@@ -23,6 +23,7 @@ import { WebhookDeliveryProcessor } from '@/modules/webhooks/webhook-delivery.pr
 import { TelegramDeliveryProcessor } from '@/modules/telegram/telegram-delivery.processor';
 import { NotificationJobsProcessor } from '@/modules/notifications/notification-jobs.processor';
 import { IssueIndexingProcessor } from '@/modules/search/indexer/issue-indexing.processor';
+import { IndexerHooksService } from '@/modules/search/indexer/indexer-hooks.service';
 import { AttachmentsStorageService } from '@/modules/attachments/attachments-storage.service';
 
 export interface E2eContext {
@@ -121,6 +122,39 @@ function startDomainEventPump(
 // can't hit its 60s timeout waiting for an unbounded drain.
 const DRAIN_TIMEOUT_MS = 15_000;
 
+// Upper bound on `app.close()`. Closing awaits every module's shutdown hook —
+// a BullMQ worker mid-job, an engine client with an in-flight request. Left
+// unbounded, one stuck hook burns the whole Jest hook budget and everything
+// after it in teardown never runs: the app holds its Prisma pool and workers,
+// and the engine container keeps running, for every remaining spec of the run.
+// That is how a single slow teardown turned into a 4 GB heap and a hard OOM.
+const CLOSE_TIMEOUT_MS = 20_000;
+
+async function closeAppWithin(
+  app: INestApplication | undefined,
+  ms: number,
+): Promise<void> {
+  if (!app) return;
+
+  let timer: NodeJS.Timeout | undefined;
+  // A failure to close is not worth failing an otherwise-green spec over —
+  // the `finally` below releases the resources that actually matter.
+  const closed = app
+    .close()
+    .catch(() => {})
+    .then(() => true);
+  const timedOut = new Promise<false>((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+    timer.unref();
+  });
+
+  const finished = await Promise.race([closed, timedOut]);
+  clearTimeout(timer);
+  if (!finished) {
+    console.warn('[teardownE2eApp] app.close() timed out; proceeding');
+  }
+}
+
 const mockStorageService = {
   onModuleInit: async () => {},
   uploadBuffer: async () => {},
@@ -133,6 +167,18 @@ const mockProcessor = {
   process: async () => {},
   markProcessed: async () => {},
   markFailed: async () => {},
+};
+
+// Mocked alongside the indexing processor: with no engine there is no worker
+// to consume `search-indexing` jobs, but the real hook would still enqueue one
+// per issue mutation. Those jobs outlive the spec — `truncateTables` clears
+// Postgres, not Redis — so the whole run's backlog lands on the ONE spec that
+// does start a real worker, which then drains hundreds of stale ids (each a
+// `refresh: 'wait_for'` round-trip) before it reaches its own documents.
+const mockIndexerHooks = {
+  onIssueChanged: async () => {},
+  onIssueDeleted: async () => {},
+  enqueueProjectReindex: async () => {},
 };
 
 const mockSearchEngineService = {
@@ -203,7 +249,9 @@ export async function createE2eApp(
       .overrideProvider(SearchEngineService)
       .useValue(mockSearchEngineService)
       .overrideProvider(IssueIndexingProcessor)
-      .useValue(mockProcessor);
+      .useValue(mockProcessor)
+      .overrideProvider(IndexerHooksService)
+      .useValue(mockIndexerHooks);
   }
 
   builder = builder
@@ -278,16 +326,21 @@ export async function teardownE2eApp(ctx: E2eContext | undefined): Promise<void>
     // sleeps only mitigated this probabilistically). Bounded so a stuck handler
     // can't hang teardown. `app.close()` then runs `BackgroundTasks.onModuleDestroy`,
     // a second (also bounded) drain covering work scheduled during shutdown.
-    await currentPump?.flush().catch(() => {});
-    currentPump?.stop();
-    currentPump = undefined;
-    await ctx.background?.whenIdle(DRAIN_TIMEOUT_MS).catch(() => {});
-    if (currentBackground === ctx.background) {
-      currentBackground = undefined;
+    try {
+      await currentPump?.flush().catch(() => {});
+      currentPump?.stop();
+      currentPump = undefined;
+      await ctx.background?.whenIdle(DRAIN_TIMEOUT_MS).catch(() => {});
+      if (currentBackground === ctx.background) {
+        currentBackground = undefined;
+      }
+      await closeAppWithin(ctx.app, CLOSE_TIMEOUT_MS);
+    } finally {
+      // Releasing these is what keeps a failed teardown local to its own spec,
+      // so they run even when the steps above threw or timed out.
+      await ctx.prisma?.$disconnect().catch(() => {});
+      await ctx.searchEngineContainer?.stop().catch(() => {});
     }
-    await ctx.app?.close().catch(() => {});
-    await ctx.prisma?.$disconnect();
-    await ctx.searchEngineContainer?.stop();
   };
 
   // Store as pending so next createE2eApp waits for it

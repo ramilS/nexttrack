@@ -1,11 +1,25 @@
 import type { Config } from 'jest';
 
+// ts-jest advisory TS151002: it asks for `isolatedModules: true` because a
+// hybrid module kind (our `module: node16`, which `moduleResolution: node16`
+// requires for the `@repo/shared/*` subpath imports to resolve) makes ts-jest
+// rewrite the module kind. That rewrite happens ONLY on its ESM code path
+// (`fixupCompilerOptionsForModuleKind`); a CommonJS suite like ours gets
+// `module: CommonJS`, which is what Jest needs, so the warning does not apply.
+// The remedy it names is not available either: `isolatedModules` and
+// `emitDecoratorMetadata` cannot both be on without rewriting every
+// decorated-signature import as `import type` (200 x TS1272).
+// Revisit if these suites ever run as ESM (`useESM: true`) — then the warning
+// becomes real and this suppression must go. Mirrored in
+// `test/jest-integration.json`, which is JSON and cannot carry this note.
+const TS_JEST_HYBRID_MODULE_ADVISORY = 151002;
+
 const config: Config = {
   moduleFileExtensions: ['js', 'json', 'ts'],
   rootDir: 'src',
   testRegex: '.*\\.spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.(t|j)s$': ['ts-jest', { diagnostics: { ignoreCodes: [TS_JEST_HYBRID_MODULE_ADVISORY] } }],
   },
   collectCoverageFrom: ['**/*.(t|j)s', '!**/node_modules/**', '!**/*.module.ts', '!main.ts'],
   coverageDirectory: '../coverage',

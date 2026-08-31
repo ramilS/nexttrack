@@ -6,10 +6,14 @@
   "globalSetup": "./support/global-setup.ts",
   "globalTeardown": "./support/global-teardown.ts",
   "maxWorkers": 1,
+  "workerIdleMemoryLimit": "1500MB",
   "transform": {
     "^.+\\.(t|j)s$": ["ts-jest", {
       "tsconfig": {
         "esModuleInterop": true
+      },
+      "diagnostics": {
+        "ignoreCodes": [151002]
       }
     }]
   },
