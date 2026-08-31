@@ -7,9 +7,9 @@ Issue tracking & project management platform (YouTrack-style). Turborepo monorep
 ```bash
 pnpm install
 cd infra && docker compose up -d postgres valkey minio opensearch
-cd ../apps/api && pnpm prisma migrate deploy
+cd ../apps/api && pnpm prisma migrate deploy   # first run only — `pnpm dev` migrates from here on
 pnpm seed:dev          # demo data (Postgres only — see reindex note below)
-cd ../.. && pnpm dev   # web :3000, api :3001
+cd ../.. && pnpm dev   # applies pending migrations, then web :3000, api :3001
 ```
 
 Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN_EMAIL` + `PASSWORD` constants, both env-overridable) — read the current values there rather than trusting a copy pasted here.
@@ -31,7 +31,7 @@ Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN
 
 | Task | Command |
 |---|---|
-| Run dev stack | `pnpm dev` (from repo root, runs api+web+shared via turbo) |
+| Run dev stack | `pnpm dev` (from repo root — runs `prisma migrate dev` first, then api+web+shared via turbo). `pnpm dev:no-migrate` skips the migration step. |
 | API full gate | `cd apps/api && pnpm test` — runs check-types → lint → unit → integration (NOT just tests) |
 | API unit / integration only | `cd apps/api && pnpm test:unit` (jest) · `pnpm test:integration` |
 | Web full gate | `cd apps/web && pnpm test` — check-types → lint → unit → **build → e2e** (slow, CI-shaped) |
@@ -95,6 +95,7 @@ Project conventions live in `.claude/rules/*.md`. Index:
 - **A machine caller (`X-Api-Key`) shares the human rate-limit ceilings — it does not get a higher one.** It gets its own throttle *bucket* (keyed on `apiKeyId`, so one integration cannot burn another's budget), but the same `THROTTLE_*` limits apply: 3/s, 20/10s, and **100/min**, the last of which is the one that actually binds a real integration (e.g. an error tracker forwarding events continuously). If you point a high-volume integration at this API and it gets throttled, raise `THROTTLE_LONG_LIMIT` (see `.env.example`) — there is no separate machine-only limit, so raising it raises the ceiling for humans too. A dedicated per-key limit was deliberately not built: it would require overriding `@nestjs/throttler` internals whose signatures are version-coupled, and a subtly wrong override disables throttling silently, which is worse than a documented, shared ceiling.
 - Mailhog email templates (`apps/api/src/modules/mail/templates/*.hbs`) are read from disk at send time via `__dirname`. They are NOT TypeScript, so `nest build`/`nest start` only copies them to `dist` because of the `assets` entry in `nest-cli.json`. If you add a new template or that entry is dropped, sending mail throws `ENOENT` → a **500 on `/users/invite`** (and silent retry failures on notification emails). Keep `assets: ["modules/mail/templates/**/*.hbs"]` + `watchAssets` in `nest-cli.json`.
 - Public guest pages live under `app/(auth)/` and are wrapped by `GuestGuard`, which calls `/users/me`. A guest's 401 → refresh-fail would otherwise bounce them to `/login`; the axios interceptor's `PUBLIC_ROUTE_PREFIXES` allow-list (`/login`, `/accept-invite`) suppresses that. Add any new public guest route (e.g. password-reset) to that list, or it will redirect away before rendering.
+- `pnpm dev` runs `prisma migrate dev` **before** `turbo run dev`, not as a `predev` hook inside it. `migrate dev` is interactive — it prompts for a migration name on schema drift, and can propose a reset — and turbo's dev tasks are parallel and persistent, so a prompt raised from inside one risks never receiving stdin and hanging the whole start silently. Run ahead of turbo it owns the terminal, and a failed migration stops the start with a readable error instead of a restart loop. **A reset prompt wipes your seeded dev data — read it before answering `y`.** Use `pnpm dev:no-migrate` to start the stack without touching the database (e.g. frontend-only work, or Postgres not running).
 - Running a one-off `nest build` while `pnpm dev` (`nest start --watch`) is up wipes `dist` (`deleteOutDir`) out from under the watcher and breaks its incremental recompile — the running server then serves stale code. Restart `pnpm dev` after any standalone build.
 - `apps/web` does NOT use Next middleware — auth is React-side via `AuthGuard`/`GuestGuard`.
 - The project issue list is **OpenSearch-backed**: `apps/web/.../projects/[key]/issues` → `IssueList` uses `useSearch` → `GET /api/search`, NOT `GET /projects/:key/issues`. So the list reflects the search index, not Postgres directly. `pnpm seed:dev` writes only to Postgres and bypasses the indexer hooks, so **issues won't appear in the list until the index is rebuilt** (symptom: "issues don't load" with a populated DB). Reindex via admin `POST /api/search/reindex` (`IssueIndexerService.reindexAll()`); `seed-dev.ts` prints a banner with a ready-to-run curl. Both `/search` and `/projects/:key/issues` already use shared `@repo/shared` DTOs — this is a sync issue, not a contract issue.

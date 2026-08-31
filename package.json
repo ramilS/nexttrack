@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
-    "dev": "turbo run dev",
+    "dev": "pnpm --filter api prisma:migrate && turbo run dev",
     "lint": "turbo run lint",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
@@ -11,7 +11,8 @@
     "test:unit": "turbo run test:unit",
     "test:integration": "pnpm --filter api test:integration",
     "test:e2e": "pnpm --filter e2e test:e2e",
-    "prepare": "husky"
+    "prepare": "husky",
+    "dev:no-migrate": "turbo run dev"
   },
   "devDependencies": {
     "husky": "^9.1.7",
