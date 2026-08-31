@@ -21,8 +21,8 @@ import {
   migrationLinkResultSchema,
   migrationTimeLogsResultSchema,
   migrationEntityIdResultSchema,
+  migrationIdempotentEntityResultSchema,
   migrationSprintIssuesResultSchema,
-  migrationProjectResultSchema,
   migrationCustomFieldResultSchema,
   migrationActivitiesResultSchema,
   migrationRunResultSchema,
@@ -202,9 +202,9 @@ export class MigrationSetSprintStatusDto extends createZodDto(migrationSetSprint
 export class MigrationSetBoardColumnsDto extends createZodDto(updateColumnsSchema) {}
 export class MigrationSprintIssuesDto extends createZodDto(sprintIssuesSchema) {}
 export class MigrationEntityIdResultDto extends createZodDto(migrationEntityIdResultSchema) {}
+export class MigrationIdempotentEntityResultDto extends createZodDto(migrationIdempotentEntityResultSchema) {}
 export class MigrationSprintIssuesResultDto extends createZodDto(migrationSprintIssuesResultSchema) {}
 export class MigrationCreateProjectDto extends createZodDto(migrationCreateProjectSchema) {}
-export class MigrationProjectResultDto extends createZodDto(migrationProjectResultSchema) {}
 export class SetAttachmentMetadataDto extends createZodDto(setAttachmentMetadataSchema) {}
 export class MigrationAttachmentMetaDto extends createZodDto(migrationAttachmentMetaSchema) {}
 export class MigrationCreateCustomFieldDto extends createZodDto(createCustomFieldSchema) {}

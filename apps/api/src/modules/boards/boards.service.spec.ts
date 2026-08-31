@@ -123,6 +123,7 @@ describe("BoardsService", () => {
       setDefaultAtomic: jest.fn().mockResolvedValue(undefined),
       delete: jest.fn().mockResolvedValue(undefined),
       findSummariesByProjects: jest.fn().mockResolvedValue([]),
+      findEntityByNameInProject: jest.fn().mockResolvedValue(null),
     } as unknown as Mocked<BoardsRepository>;
 
     workflowsRepo = {
@@ -217,6 +218,53 @@ describe("BoardsService", () => {
       await service.create(project, { name: "First" } as never, userId);
 
       expect(boardsRepo.setIsDefault).toHaveBeenCalledWith(boardId, true);
+    });
+  });
+
+  describe("createForImport", () => {
+    it("creates the board when the project has none by that name", async () => {
+      boardsRepo.findEntityByNameInProject.mockResolvedValue(null);
+      boardsRepo.create.mockResolvedValue(buildBoard({ isDefault: false }));
+      boardsRepo.countByProject.mockResolvedValue(2);
+
+      const result = await service.createForImport(
+        project,
+        { name: "The Office" } as never,
+        userId,
+      );
+
+      expect(result.existed).toBe(false);
+      expect(boardsRepo.create).toHaveBeenCalled();
+    });
+
+    it("reuses the board a previous import attempt created", async () => {
+      boardsRepo.findEntityByNameInProject.mockResolvedValue(
+        buildBoard({ id: "existing-board" }),
+      );
+
+      const result = await service.createForImport(
+        project,
+        { name: "The Office" } as never,
+        userId,
+      );
+
+      expect(result).toEqual({
+        board: expect.objectContaining({ id: "existing-board" }),
+        existed: true,
+      });
+      // The whole point: a resumed run must not stack a second copy.
+      expect(boardsRepo.create).not.toHaveBeenCalled();
+    });
+
+    it("matches the existing board by name within the project", async () => {
+      boardsRepo.findEntityByNameInProject.mockResolvedValue(buildBoard());
+
+      await service.createForImport(project, { name: "The Office" } as never, userId);
+
+      expect(boardsRepo.findEntityByNameInProject).toHaveBeenCalledWith(
+        project.id,
+        "The Office",
+      );
     });
   });
 

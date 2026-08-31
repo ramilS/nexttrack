@@ -1296,3 +1296,92 @@ describe('true dry run', () => {
     expect(JSON.stringify(warn.mock.calls)).toContain('[redacted]');
   });
 });
+
+describe('board phase resume safety', () => {
+  function buildBoardsCommand(overrides: {
+    createBoard: ReturnType<typeof vi.fn>;
+    createSprint: ReturnType<typeof vi.fn>;
+    addSprintIssues: ReturnType<typeof vi.fn>;
+    setSprintStatus: ReturnType<typeof vi.fn>;
+  }) {
+    const command = new MigrateCommand();
+    const idMap = new IdMapService();
+    idMap.registerIssue('yt-issue-1', 'target-issue-1');
+
+    Reflect.set(command, 'idMap', idMap);
+    Reflect.set(command, 'boardsExtractor', {
+      extractForProject: vi.fn().mockResolvedValue([
+        {
+          id: 'agile-1',
+          name: 'The Office',
+          sprints: [
+            { id: 'sprint-1', name: 'Sprint 1', archived: true, finish: 1_700_000_000_000, issues: [{ id: 'yt-issue-1' }] },
+          ],
+        },
+      ]),
+    });
+    Reflect.set(command, 'api', {
+      setBoardColumns: vi.fn().mockResolvedValue(undefined),
+      ...overrides,
+    });
+    Reflect.set(command, 'reporter', {
+      log: vi.fn(), warn: vi.fn(), info: vi.fn(), done: vi.fn(),
+    });
+    Reflect.set(command, 'checkpointService', {
+      save: vi.fn(),
+      updateProgress: vi.fn().mockResolvedValue(undefined),
+    });
+
+    return command;
+  }
+
+  const checkpoint = () =>
+    ({
+      progress: { boards: {} },
+      errors: [],
+    }) as unknown as MigrationCheckpoint;
+
+  it('skips issue and status writes for a sprint a previous attempt created', async () => {
+    const addSprintIssues = vi.fn().mockResolvedValue(undefined);
+    const setSprintStatus = vi.fn().mockResolvedValue(undefined);
+    const command = buildBoardsCommand({
+      createBoard: vi.fn().mockResolvedValue({ id: 'board-1', existed: true }),
+      createSprint: vi.fn().mockResolvedValue({ id: 'sprint-1', existed: true }),
+      addSprintIssues,
+      setSprintStatus,
+    });
+
+    await Reflect.apply(Reflect.get(command, 'migrateBoards'), command, [
+      'APP', checkpoint(), options({ withBoards: true }),
+    ]);
+
+    // Re-adding issues to an already-CLOSED sprint is rejected outright, so a
+    // resumed run must leave a finished sprint untouched.
+    expect(addSprintIssues).not.toHaveBeenCalled();
+    expect(setSprintStatus).not.toHaveBeenCalled();
+  });
+
+  it('still populates a sprint it created in this run', async () => {
+    const addSprintIssues = vi.fn().mockResolvedValue(undefined);
+    const setSprintStatus = vi.fn().mockResolvedValue(undefined);
+    const command = buildBoardsCommand({
+      createBoard: vi.fn().mockResolvedValue({ id: 'board-1', existed: false }),
+      createSprint: vi.fn().mockResolvedValue({ id: 'sprint-1', existed: false }),
+      addSprintIssues,
+      setSprintStatus,
+    });
+
+    await Reflect.apply(Reflect.get(command, 'migrateBoards'), command, [
+      'APP', checkpoint(), options({ withBoards: true }),
+    ]);
+
+    expect(addSprintIssues).toHaveBeenCalledWith('board-1', 'sprint-1', [
+      'target-issue-1',
+    ]);
+    expect(setSprintStatus).toHaveBeenCalledWith(
+      'board-1',
+      'sprint-1',
+      expect.objectContaining({ status: 'CLOSED' }),
+    );
+  });
+});

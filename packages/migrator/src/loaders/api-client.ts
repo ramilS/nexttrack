@@ -26,6 +26,13 @@ export type MigrationEntityStatus =
   | 'FAILED'
   | 'EXCLUDED_APPROVED';
 
+/** Result of a find-or-create migration endpoint. */
+export interface MigratedEntity {
+  id: string;
+  /** True when a previous attempt had already created this row. */
+  existed: boolean;
+}
+
 export interface StartMigrationRun {
   sourceSystem: 'youtrack-cloud';
   sourceTenant: string;
@@ -413,29 +420,33 @@ export class OurApiClient {
     });
   }
 
+  // `existed` reports that a previous attempt already created this board, so a
+  // resumed run reuses it instead of stacking a duplicate.
   async createBoard(
     projectKey: string,
     dto: { name: string; type: 'KANBAN' | 'SCRUM' },
-  ): Promise<string> {
+  ): Promise<MigratedEntity> {
     return retry(async () => {
       const { data } = await this.http.post(
         `/admin/migration/projects/${projectKey}/boards`,
         dto,
       );
-      return unwrapEnvelope<{ data: { id: string } }>(data).data.id;
+      const body = unwrapEnvelope<{ data: { id: string }; existed: boolean }>(data);
+      return { id: body.data.id, existed: body.existed };
     });
   }
 
   async createSprint(
     boardId: string,
     dto: { name: string; goal?: string; startDate?: string; endDate?: string },
-  ): Promise<string> {
+  ): Promise<MigratedEntity> {
     return retry(async () => {
       const { data } = await this.http.post(
         `/admin/migration/boards/${boardId}/sprints`,
         dto,
       );
-      return unwrapEnvelope<{ data: { id: string } }>(data).data.id;
+      const body = unwrapEnvelope<{ data: { id: string }; existed: boolean }>(data);
+      return { id: body.data.id, existed: body.existed };
     });
   }
 

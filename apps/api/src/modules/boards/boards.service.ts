@@ -98,6 +98,29 @@ export class BoardsService {
     return toBoard(board);
   }
 
+  /**
+   * Find-or-create by board name, for the YouTrack importer only.
+   *
+   * The board phase is resumable per project, so a run that failed partway
+   * re-enters this path for boards it already created. Matching on the name
+   * makes the retry converge instead of stacking a second copy of every board
+   * (and, through it, of every sprint).
+   */
+  async createForImport(
+    project: ProjectEntity,
+    dto: CreateBoardParsed,
+    userId: string,
+  ): Promise<{ board: Board; existed: boolean }> {
+    const existing = await this.boardsRepo.findEntityByNameInProject(
+      project.id,
+      dto.name,
+    );
+    if (existing) {
+      return { board: toBoard(existing), existed: true };
+    }
+    return { board: await this.create(project, dto, userId), existed: false };
+  }
+
   async update(
     projectId: string,
     boardId: string,

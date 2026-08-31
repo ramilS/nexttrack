@@ -34,9 +34,12 @@ describe('MigrationService', () => {
   let issueLinksService: { create: jest.Mock };
   let timeLogsService: { importMany: jest.Mock };
   let projectsRepo: { findEntityByKey: jest.Mock; createWithWorkflow: jest.Mock };
-  let boardsService: { create: jest.Mock; setColumnsForImport: jest.Mock };
+  let boardsService: {
+    createForImport: jest.Mock;
+    setColumnsForImport: jest.Mock;
+  };
   let sprintsService: {
-    create: jest.Mock;
+    createForImport: jest.Mock;
     addIssues: jest.Mock;
     setStatusForImport: jest.Mock;
   };
@@ -107,9 +110,12 @@ describe('MigrationService', () => {
       findEntityByKey: jest.fn().mockResolvedValue(null),
       createWithWorkflow: jest.fn().mockResolvedValue({ id: 'new-proj' }),
     };
-    boardsService = { create: jest.fn(), setColumnsForImport: jest.fn() };
+    boardsService = {
+      createForImport: jest.fn(),
+      setColumnsForImport: jest.fn(),
+    };
     sprintsService = {
-      create: jest.fn(),
+      createForImport: jest.fn(),
       addIssues: jest.fn(),
       setStatusForImport: jest.fn(),
     };
@@ -735,7 +741,10 @@ describe('MigrationService', () => {
 
     it('createBoard delegates to BoardsService and returns the id', async () => {
       projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
-      boardsService.create.mockResolvedValue({ id: 'board-1' });
+      boardsService.createForImport.mockResolvedValue({
+        board: { id: 'board-1' },
+        existed: false,
+      });
 
       const result = await service.createBoard(
         'TEST',
@@ -743,21 +752,53 @@ describe('MigrationService', () => {
         'admin-1',
       );
 
-      expect(boardsService.create).toHaveBeenCalledWith(
+      expect(boardsService.createForImport).toHaveBeenCalledWith(
         { id: 'proj-1' },
         { name: 'Scrum', type: 'SCRUM' },
         'admin-1',
       );
-      expect(result).toEqual({ data: { id: 'board-1' } });
+      expect(result).toEqual({ data: { id: 'board-1' }, existed: false });
+    });
+
+    it('createBoard reports a board a previous attempt already created', async () => {
+      projectsRepo.findEntityByKey.mockResolvedValue({ id: 'proj-1' });
+      boardsService.createForImport.mockResolvedValue({
+        board: { id: 'board-1' },
+        existed: true,
+      });
+
+      const result = await service.createBoard(
+        'TEST',
+        { name: 'Scrum', type: 'SCRUM' } as never,
+        'admin-1',
+      );
+
+      expect(result).toEqual({ data: { id: 'board-1' }, existed: true });
     });
 
     it('createSprint delegates to SprintsService', async () => {
-      sprintsService.create.mockResolvedValue({ id: 'sprint-1' });
+      sprintsService.createForImport.mockResolvedValue({
+        sprint: { id: 'sprint-1' },
+        existed: false,
+      });
 
       const result = await service.createSprint('board-1', { name: 'S1' } as never);
 
-      expect(sprintsService.create).toHaveBeenCalledWith('board-1', { name: 'S1' });
-      expect(result).toEqual({ data: { id: 'sprint-1' } });
+      expect(sprintsService.createForImport).toHaveBeenCalledWith('board-1', {
+        name: 'S1',
+      });
+      expect(result).toEqual({ data: { id: 'sprint-1' }, existed: false });
+    });
+
+    it('createSprint reports a sprint a previous attempt already created', async () => {
+      sprintsService.createForImport.mockResolvedValue({
+        sprint: { id: 'sprint-1' },
+        existed: true,
+      });
+
+      const result = await service.createSprint('board-1', { name: 'S1' } as never);
+
+      expect(result).toEqual({ data: { id: 'sprint-1' }, existed: true });
     });
 
     it('addSprintIssues returns the added count', async () => {

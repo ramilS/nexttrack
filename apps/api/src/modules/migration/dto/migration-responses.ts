@@ -98,7 +98,12 @@ export const migrationEntityIdResultSchema = z.object({
   data: z.object({ id: z.guid() }),
 });
 
-export const migrationProjectResultSchema = z.object({
+/**
+ * Result of a find-or-create migration endpoint. `existed` lets the migrator
+ * tell a fresh insert from a row a previous (possibly failed) attempt already
+ * created, so a resumed run can skip the follow-up work instead of redoing it.
+ */
+export const migrationIdempotentEntityResultSchema = z.object({
   data: z.object({ id: z.guid() }),
   existed: z.boolean(),
 });

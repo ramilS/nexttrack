@@ -93,6 +93,22 @@ export class SprintsService {
     return sprint;
   }
 
+  /**
+   * Find-or-create by sprint name, for the YouTrack importer only. See
+   * `BoardsService.createForImport` — same reason: the board phase is
+   * resumable, and a retry must not stack duplicate sprints.
+   */
+  async createForImport(
+    boardId: string,
+    dto: CreateSprintInput,
+  ): Promise<{ sprint: Sprint; existed: boolean }> {
+    const existing = await this.sprintsRepo.findByNameOnBoard(boardId, dto.name);
+    if (existing) {
+      return { sprint: existing, existed: true };
+    }
+    return { sprint: await this.create(boardId, dto), existed: false };
+  }
+
   // Migration-only: set a sprint's final lifecycle status directly, bypassing
   // the start/close lifecycle guards. The importer MUST call this AFTER adding
   // issues, because addIssues rejects CLOSED sprints and repo.create always

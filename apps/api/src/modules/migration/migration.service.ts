@@ -494,18 +494,28 @@ export class MigrationService {
         `Project ${projectKey} not found`,
       );
     }
-    const board = await this.boardsService.create(project, dto, userId);
-    this.logger.log('Migrated board created', {
+    const { board, existed } = await this.boardsService.createForImport(
+      project,
+      dto,
+      userId,
+    );
+    this.logger.log(existed ? 'Migrated board reused' : 'Migrated board created', {
       boardId: board.id,
       projectId: project.id,
     });
-    return { data: { id: board.id } };
+    return { data: { id: board.id }, existed };
   }
 
   async createSprint(boardId: string, dto: CreateSprintInput) {
-    const sprint = await this.sprintsService.create(boardId, dto);
-    this.logger.log('Migrated sprint created', { sprintId: sprint.id, boardId });
-    return { data: { id: sprint.id } };
+    const { sprint, existed } = await this.sprintsService.createForImport(
+      boardId,
+      dto,
+    );
+    this.logger.log(
+      existed ? 'Migrated sprint reused' : 'Migrated sprint created',
+      { sprintId: sprint.id, boardId },
+    );
+    return { data: { id: sprint.id }, existed };
   }
 
   async addSprintIssues(

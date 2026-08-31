@@ -188,6 +188,22 @@ export class BoardsRepository {
     return row ? toEntity(row) : null;
   }
 
+  /**
+   * Board lookup by its natural key within a project. Board names are not
+   * unique in the schema — this exists so the importer can recognise a board a
+   * previous attempt already created, not to enforce uniqueness.
+   */
+  async findEntityByNameInProject(
+    projectId: string,
+    name: string,
+  ): Promise<BoardEntity | null> {
+    const row = await this.prisma.agileBoard.findFirst({
+      where: { projectId, name: { equals: name, mode: 'insensitive' } },
+      orderBy: { createdAt: 'asc' },
+    });
+    return row ? toEntity(row) : null;
+  }
+
   async countByProject(projectId: string): Promise<number> {
     return this.prisma.agileBoard.count({ where: { projectId } });
   }

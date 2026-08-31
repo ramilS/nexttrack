@@ -51,9 +51,9 @@ import {
   MigrationSetBoardColumnsDto,
   MigrationSprintIssuesDto,
   MigrationEntityIdResultDto,
+  MigrationIdempotentEntityResultDto,
   MigrationSprintIssuesResultDto,
   MigrationCreateProjectDto,
-  MigrationProjectResultDto,
   MigrationCreateCustomFieldDto,
   MigrationCustomFieldResultDto,
   MigrationAttachmentMetaDto,
@@ -310,7 +310,7 @@ export class MigrationController {
   }
 
   @Post('projects')
-  @ApiEnvelope(MigrationProjectResultDto, { status: HttpStatus.CREATED })
+  @ApiEnvelope(MigrationIdempotentEntityResultDto, { status: HttpStatus.CREATED })
   createProject(
     @Body() dto: MigrationCreateProjectDto,
     @CurrentUser('id') userId: string,
@@ -319,7 +319,7 @@ export class MigrationController {
   }
 
   @Post('projects/:projectKey/boards')
-  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  @ApiEnvelope(MigrationIdempotentEntityResultDto, { status: HttpStatus.CREATED })
   createBoard(
     @Param('projectKey') projectKey: string,
     @Body() dto: MigrationCreateBoardDto,
@@ -329,7 +329,7 @@ export class MigrationController {
   }
 
   @Post('boards/:boardId/sprints')
-  @ApiEnvelope(MigrationEntityIdResultDto, { status: HttpStatus.CREATED })
+  @ApiEnvelope(MigrationIdempotentEntityResultDto, { status: HttpStatus.CREATED })
   createSprint(
     @Param('boardId') boardId: string,
     @Body() dto: MigrationCreateSprintDto,

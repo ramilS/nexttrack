@@ -1617,6 +1617,7 @@ export class MigrateCommand {
     });
 
     let sprintsCreated = 0;
+    let sprintsReused = 0;
     let ytBoards;
     try {
       ytBoards = await this.boardsExtractor.extractForProject(projectKey);
@@ -1651,7 +1652,7 @@ export class MigrateCommand {
       }
 
       try {
-        const boardId = await this.api.createBoard(projectKey, {
+        const board = await this.api.createBoard(projectKey, {
           name: ytBoard.name,
           type: 'SCRUM',
         });
@@ -1660,7 +1661,7 @@ export class MigrateCommand {
           this.idMap.getStatusId(projectKey, stateName),
         );
         if (columns.length > 0) {
-          await this.api.setBoardColumns(projectKey, boardId, columns);
+          await this.api.setBoardColumns(projectKey, board.id, columns);
         }
 
         const sprints = ytBoard.sprints ?? [];
@@ -1671,7 +1672,7 @@ export class MigrateCommand {
         );
 
         for (const ytSprint of sprints) {
-          const sprintId = await this.api.createSprint(boardId, {
+          const sprint = await this.api.createSprint(board.id, {
             name: ytSprint.name,
             // YouTrack returns goal: null (not absent) → coerce, since the
             // target schema's goal is optional-but-not-nullable.
@@ -1679,18 +1680,26 @@ export class MigrateCommand {
             startDate: ytSprint.start ? new Date(ytSprint.start).toISOString() : undefined,
             endDate: ytSprint.finish ? new Date(ytSprint.finish).toISOString() : undefined,
           });
+
+          // A sprint a previous attempt already created is left alone: its
+          // issues are in place, and re-adding them would fail outright once
+          // the sprint carries its final CLOSED status.
+          if (sprint.existed) {
+            sprintsReused++;
+            continue;
+          }
           sprintsCreated++;
 
           const issueIds = (ytSprint.issues ?? [])
             .map((issue) => this.idMap.getIssueId(issue.id))
             .filter((id): id is string => id !== null);
           if (issueIds.length > 0) {
-            await this.api.addSprintIssues(boardId, sprintId, issueIds);
+            await this.api.addSprintIssues(board.id, sprint.id, issueIds);
           }
 
           const status = statuses.get(ytSprint.id);
           if (status && status !== 'PLANNING') {
-            await this.api.setSprintStatus(boardId, sprintId, {
+            await this.api.setSprintStatus(board.id, sprint.id, {
               status,
               startedAt:
                 status === 'ACTIVE' && ytSprint.start
@@ -1714,7 +1723,8 @@ export class MigrateCommand {
       total: sprintsCreated,
     });
     this.reporter.done(
-      `Boards [${projectKey}]: ${ytBoards.length} boards, ${sprintsCreated} sprints`,
+      `Boards [${projectKey}]: ${ytBoards.length} boards, ${sprintsCreated} sprints` +
+        (sprintsReused > 0 ? ` (${sprintsReused} already imported, reused)` : ''),
     );
   }
 }

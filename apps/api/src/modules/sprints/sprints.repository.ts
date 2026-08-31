@@ -208,6 +208,19 @@ export class SprintsRepository {
     });
   }
 
+  /**
+   * Sprint lookup by its natural key on a board — the importer's handle on
+   * "did a previous attempt already create this sprint?". Sprint names are not
+   * unique in the schema; this does not make them so.
+   */
+  async findByNameOnBoard(boardId: string, name: string): Promise<Sprint | null> {
+    const row = await this.prisma.sprint.findFirst({
+      where: { boardId, name: { equals: name, mode: 'insensitive' } },
+      orderBy: { ordinal: 'asc' },
+    });
+    return row ? toSprint(row) : null;
+  }
+
   async maxOrdinal(boardId: string): Promise<number> {
     const result = await this.prisma.sprint.aggregate({
       where: { boardId },
