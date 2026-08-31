@@ -91,7 +91,7 @@ async handleIssueCreated(event: IssueCreatedEvent & DomainEventMeta): Promise<vo
 
 ### Test implications
 
-- Listener side effects are eventually consistent. Integration tests that assert listener-produced rows (activities, notifications) right after a mutating call MUST `await ctx.pumpDomainEvents()` first.
+- Listener side effects are eventually consistent, and the integration harness has **no background timer** delivering events. A test that asserts listener-produced rows (activities, notifications, watchers, workflow-rule effects) right after a mutating call MUST `await ctx.settle()` first — it dispatches the pending outbox rows to the listeners and drains `BackgroundTasks`. Use `ctx.settleSearchIndex()` when the assertion needs the document to be searchable. Never sleep; see `nestjs-test-quality.md`.
 - e2e runs with `OUTBOX_POLLER_ENABLED=true` (the poller is otherwise off under `NODE_ENV=test`).
 - BullMQ custom `jobId` must not contain `:` — the poller uses `${eventId}#${attempts}` so each retry attempt gets a fresh job id (a constant id is silently deduplicated against completed/failed jobs and blocks retries entirely).
 
