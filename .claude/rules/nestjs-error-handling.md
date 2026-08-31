@@ -86,6 +86,33 @@ but would force every supertest URL to carry it — kept prod-only by design.
 When adding new request-pipeline middleware, add it to `configureApp` (not bare
 `app.use` in `main.ts`) unless it is genuinely deployment-specific.
 
+## Interpreters Fail Closed
+
+Code that interprets stored data it did not write — a condition tree, a rule
+DSL, a saved filter — must treat "I cannot read this" as **no match / no
+permission / no action**, never as a pass.
+
+`ConditionEvaluator` returned `true` for a condition whose field, operator or
+operand it could not read. A workflow rule the author wrote as a narrow filter
+therefore fired on every issue in the project, silently reassigning and blocking
+transitions. A rule that does not fire is a visible bug someone reports; a rule
+that fires on everything is not.
+
+```typescript
+// Wrong — an unreadable condition means "applies to everything"
+default:
+  return true;
+
+// Correct — say what could not be read, and do not act
+default:
+  this.logger.warn('Workflow condition not evaluated: unsupported operator', { field, op });
+  return false;
+```
+
+Distinguish *absence* from *unreadability*: an empty condition (`{}`, `null`)
+legitimately expresses "no filter" and may match. A condition that expresses
+something the interpreter does not implement must not.
+
 ## Error Codes
 
 - Use `ErrorCode` constants from `@repo/shared` for business errors, never raw strings

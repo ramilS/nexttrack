@@ -6,6 +6,7 @@ import { IssueHierarchyService } from './issue-hierarchy.service';
 import { IssuesRepository } from './issues.repository';
 import { WorkflowsReader } from '@/modules/workflows/workflows.reader';
 import { WorkflowEngine } from '@/modules/workflow-automation/workflow-engine';
+import { AutoAssignService } from '@/modules/auto-assign/auto-assign.service';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { TagsRepository } from '@/modules/tags/tags.repository';
 import { UsersReader } from '@/modules/users/users.reader';
@@ -34,6 +35,7 @@ describe('IssuesService', () => {
     findGuardRules: jest.Mock;
     evaluateGuardsForRules: jest.Mock;
   };
+  let autoAssign: { resolveForNewIssue: jest.Mock };
 
   const project: ProjectEntity = {
     id: 'proj-1',
@@ -168,6 +170,9 @@ describe('IssuesService', () => {
       findGuardRules: jest.fn().mockResolvedValue([]),
       evaluateGuardsForRules: jest.fn(),
     };
+    // No rule matches by default, so the existing create tests keep asserting
+    // the reporter-supplied assignee.
+    autoAssign = { resolveForNewIssue: jest.fn().mockResolvedValue(null) };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -181,6 +186,7 @@ describe('IssuesService', () => {
         { provide: CustomFieldValuesService, useValue: customFieldValues },
         { provide: DomainEventPublisher, useValue: domainEvents },
         { provide: WorkflowEngine, useValue: workflowEngine },
+        { provide: AutoAssignService, useValue: autoAssign },
         // Real hierarchy service — resolves with the mocked IssuesRepository, so
         // the existing parent/cycle tests exercise the delegated logic unchanged.
         IssueHierarchyService,

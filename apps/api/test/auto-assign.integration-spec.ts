@@ -2,6 +2,7 @@ import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { AssignStrategy, IssueType, Priority } from '@prisma/client';
+import { SYSTEM_ROLE_IDS } from '@repo/shared';
 import {
   E2eContext,
   createE2eApp,
@@ -185,6 +186,121 @@ describe('Auto-Assign Integration (full AppModule)', () => {
         assignee: null,
         rule: null,
       });
+    });
+  });
+
+  // ─── Applied on issue creation ────────────────────────────────────
+
+  describe('assignment on issue create', () => {
+    async function createBugRule(): Promise<void> {
+      await authReq()
+        .post(`/projects/${projectKey}/auto-assign`)
+        .send({
+          name: 'Bugs to admin',
+          conditions: { issueType: [IssueType.BUG] },
+          strategy: AssignStrategy.SPECIFIC_USER,
+          assigneeId: adminId,
+        })
+        .expect(201);
+    }
+
+    async function createIssue(body: Record<string, unknown>) {
+      const res = await authReq()
+        .post(`/projects/${projectKey}/issues`)
+        .send(body)
+        .expect(201);
+      return res.body.data;
+    }
+
+    it('assigns a new issue that matches a rule', async () => {
+      await createBugRule();
+
+      const issue = await createIssue({ title: 'A bug', type: IssueType.BUG });
+
+      // Assigned by the create itself, not by a follow-up update: the response
+      // already carries the assignee.
+      expect(issue.assignee?.id).toBe(adminId);
+      const stored = await ctx.prisma.issue.findUniqueOrThrow({
+        where: { id: issue.id },
+      });
+      expect(stored.assigneeId).toBe(adminId);
+    });
+
+    it('leaves an issue unassigned when no rule matches', async () => {
+      await createBugRule();
+
+      const issue = await createIssue({ title: 'A task', type: IssueType.TASK });
+
+      expect(issue.assignee).toBeNull();
+    });
+
+    it('leaves an issue unassigned when the project has no rules', async () => {
+      const issue = await createIssue({ title: 'A bug', type: IssueType.BUG });
+
+      expect(issue.assignee).toBeNull();
+    });
+
+    it('never overrides an assignee the reporter supplied', async () => {
+      const reporterHash = await bcrypt.hash('memberpass1', 4);
+      const member = await ctx.prisma.user.create({
+        data: {
+          email: 'member@test.local',
+          name: 'Member',
+          passwordHash: reporterHash,
+          hasPassword: true,
+          role: 'USER',
+        },
+      });
+      await authReq()
+        .post(`/projects/${projectKey}/members`)
+        .send({ userId: member.id, roleId: SYSTEM_ROLE_IDS.DEVELOPER })
+        .expect(201);
+
+      await createBugRule();
+
+      const issue = await createIssue({
+        title: 'A bug',
+        type: IssueType.BUG,
+        assigneeId: member.id,
+      });
+
+      expect(issue.assignee?.id).toBe(member.id);
+    });
+
+    it('skips a rule whose named assignee is no longer a project member', async () => {
+      const outsiderHash = await bcrypt.hash('outsiderpass1', 4);
+      const outsider = await ctx.prisma.user.create({
+        data: {
+          email: 'outsider@test.local',
+          name: 'Outsider',
+          passwordHash: outsiderHash,
+          hasPassword: true,
+          role: 'USER',
+        },
+      });
+      await authReq()
+        .post(`/projects/${projectKey}/members`)
+        .send({ userId: outsider.id, roleId: SYSTEM_ROLE_IDS.DEVELOPER })
+        .expect(201);
+
+      await authReq()
+        .post(`/projects/${projectKey}/auto-assign`)
+        .send({
+          name: 'Bugs to the outsider',
+          conditions: { issueType: [IssueType.BUG] },
+          strategy: AssignStrategy.SPECIFIC_USER,
+          assigneeId: outsider.id,
+        })
+        .expect(201);
+
+      // Removing a member does not prune rules pointing at them.
+      await authReq()
+        .delete(`/projects/${projectKey}/members/${outsider.id}`)
+        .expect(204);
+
+      const issue = await createIssue({ title: 'A bug', type: IssueType.BUG });
+
+      expect(issue.assignee).toBeNull();
     });
   });
 });

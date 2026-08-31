@@ -9,6 +9,7 @@ import { CustomFieldsModule } from '@/modules/custom-fields/custom-fields.module
 import { ActivitiesModule } from '@/modules/activities/activities.module';
 import { UsersModule } from '@/modules/users/users.module';
 import { WorkflowAutomationModule } from '@/modules/workflow-automation/workflow-automation.module';
+import { AutoAssignModule } from '@/modules/auto-assign/auto-assign.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { WorkflowAutomationModule } from '@/modules/workflow-automation/workflow
     ActivitiesModule,
     UsersModule,
     WorkflowAutomationModule,
+    AutoAssignModule,
     OutboxModule,
   ],
   controllers: [IssuesController],

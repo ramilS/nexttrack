@@ -1,6 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundError } from '@/common/errors/domain.errors';
-import { AssignStrategy, type AutoAssignRule } from '@prisma/client';
+import {
+  AssignStrategy,
+  IssueType,
+  Priority,
+  type AutoAssignRule,
+} from '@prisma/client';
 import type { PreviewAutoAssignInput } from '@repo/shared/schemas';
 import { AutoAssignService } from './auto-assign.service';
 import { AutoAssignRepository } from './auto-assign.repository';
@@ -45,6 +50,7 @@ describe('AutoAssignService', () => {
       delete: jest.fn().mockResolvedValue(undefined),
       findUserPublicRefById: jest.fn().mockResolvedValue(null),
       findProjectLeadUserId: jest.fn().mockResolvedValue(null),
+      isProjectMember: jest.fn().mockResolvedValue(true),
       findTeamMemberUserIds: jest.fn().mockResolvedValue([]),
       findDefaultWorkflowStatuses: jest.fn().mockResolvedValue(null),
       countOpenAssignments: jest.fn().mockResolvedValue(new Map()),
@@ -87,6 +93,55 @@ describe('AutoAssignService', () => {
       await service.remove('proj-1', 'rule-1');
 
       expect(repo.delete).toHaveBeenCalledWith('rule-1');
+    });
+  });
+
+  describe('resolveForNewIssue', () => {
+    const bugRule = {
+      id: 'rule-1',
+      name: 'Bugs',
+      isEnabled: true,
+      priority: 0,
+      conditions: { issueType: ['BUG'] },
+      strategy: AssignStrategy.SPECIFIC_USER,
+      assigneeId: 'user-1',
+      teamId: null,
+    };
+
+    it('returns the assignee a matching rule would pick', async () => {
+      repo.findEnabledForProject.mockResolvedValue([bugRule]);
+
+      await expect(
+        service.resolveForNewIssue('proj-1', {
+          type: IssueType.BUG,
+          priority: Priority.MEDIUM,
+        }),
+      ).resolves.toBe('user-1');
+    });
+
+    it('returns null when no rule matches the issue', async () => {
+      repo.findEnabledForProject.mockResolvedValue([bugRule]);
+
+      await expect(
+        service.resolveForNewIssue('proj-1', {
+          type: IssueType.TASK,
+          priority: Priority.MEDIUM,
+        }),
+      ).resolves.toBeNull();
+    });
+
+    it('skips a rule naming someone who is no longer a project member', async () => {
+      // Removing a member does not prune the auto-assign rules pointing at them,
+      // so the rule can outlive the membership.
+      repo.findEnabledForProject.mockResolvedValue([bugRule]);
+      repo.isProjectMember.mockResolvedValue(false);
+
+      await expect(
+        service.resolveForNewIssue('proj-1', {
+          type: IssueType.BUG,
+          priority: Priority.MEDIUM,
+        }),
+      ).resolves.toBeNull();
     });
   });
 

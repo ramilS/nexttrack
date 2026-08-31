@@ -84,6 +84,26 @@ async handleIssueCreated(event: IssueCreatedEvent & DomainEventMeta): Promise<vo
 }
 ```
 
+### Client-facing socket pushes go in ONE listener
+
+`RealtimeBroadcastListener` (`modules/realtime/events/`) is the only place a
+domain event becomes a socket event. It maps `issue.created` → `issue:created`
+and so on, and emits into `project:<projectId>` via
+`RealtimeGateway.sendToProject`.
+
+- Add a new client-facing event there, not in the owning module's listener: the
+  issues/comments/sprints modules stay unaware of the socket layer, and the whole
+  client vocabulary stays visible next to the gateway that owns the rooms.
+- It is the ONE listener that swallows its error instead of rethrowing. The emit
+  is synchronous and cannot hang, and by the time it runs the activity and
+  notification side effects for that event have already committed — propagating
+  would retry work that succeeded. Every handler on the client is a cache
+  invalidation, so a duplicate push is harmless and a lost one self-heals on the
+  next refetch.
+- An event a client needs must carry the ids needed to route and act on it.
+  `IssueDeletedEvent` gained `projectId` for exactly this: the row is already
+  soft-deleted when the listener runs, so a lookup is not available.
+
 ### Acceptable `EventEmitter2.emit` usages
 
 - `DomainEventsProcessor` and the integration-harness pump (re-emission layer)

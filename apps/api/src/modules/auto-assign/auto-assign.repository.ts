@@ -6,6 +6,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '@/prisma/prisma.service';
 import { asJson } from '@/prisma/json';
+import { SYSTEM_ROLE_IDS } from '@repo/shared';
 import type { AutoAssignConditions, WorkflowStatus } from '@repo/shared/schemas';
 
 const ruleInclude = {
@@ -122,10 +123,18 @@ export class AutoAssignRepository {
 
   async findProjectLeadUserId(projectId: string): Promise<string | null> {
     const row = await this.prisma.projectMember.findFirst({
-      where: { projectId, roleId: '00000000-0000-0000-0000-000000000001' },
+      where: { projectId, roleId: SYSTEM_ROLE_IDS.PROJECT_ADMIN },
       select: { userId: true },
     });
     return row?.userId ?? null;
+  }
+
+  async isProjectMember(userId: string, projectId: string): Promise<boolean> {
+    const row = await this.prisma.projectMember.findFirst({
+      where: { projectId, userId },
+      select: { userId: true },
+    });
+    return row !== null;
   }
 
   async findTeamMemberUserIds(teamId: string): Promise<string[]> {

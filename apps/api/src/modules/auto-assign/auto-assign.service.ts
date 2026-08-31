@@ -155,6 +155,20 @@ export class AutoAssignService {
 
   // ─── Private helpers ───────────────────────────────────────
 
+  /**
+   * The assignee an enabled rule would pick for an issue being created, or null
+   * when no rule matches. Separate from `preview` because the create path needs
+   * only the id and must never fail: an auto-assignment that cannot be resolved
+   * leaves the issue unassigned rather than blocking its creation.
+   */
+  async resolveForNewIssue(
+    projectId: string,
+    issueData: PreviewAutoAssignInput,
+  ): Promise<string | null> {
+    const match = await this.findMatchingRule(projectId, issueData);
+    return match?.assigneeId ?? null;
+  }
+
   private async findMatchingRule(
     projectId: string,
     issueData: PreviewAutoAssignInput,
@@ -204,8 +218,25 @@ export class AutoAssignService {
     projectId: string,
   ): Promise<string | null> {
     switch (rule.strategy) {
-      case PrismaAssignStrategy.SPECIFIC_USER:
+      case PrismaAssignStrategy.SPECIFIC_USER: {
+        // The named user may have been removed from the project since the rule
+        // was written — removing a member does not prune the rules that point at
+        // them. The other strategies resolve through project/team membership and
+        // cannot go stale this way.
+        if (!rule.assigneeId) return null;
+        const isMember = await this.repo.isProjectMember(
+          rule.assigneeId,
+          projectId,
+        );
+        if (!isMember) {
+          this.logger.warn('Auto-assign rule names a non-member; skipping', {
+            projectId,
+            assigneeId: rule.assigneeId,
+          });
+          return null;
+        }
         return rule.assigneeId;
+      }
 
       case PrismaAssignStrategy.PROJECT_LEAD:
         return this.repo.findProjectLeadUserId(projectId);

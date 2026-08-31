@@ -11,7 +11,7 @@ const { faker } = require('@faker-js/faker');
 import * as bcrypt from 'bcrypt';
 import { randomBytes, randomUUID } from 'crypto';
 import { SYSTEM_ROLES } from '@repo/shared';
-import { WEBHOOK_EVENT_TYPES } from '@repo/shared/schemas';
+import { WEBHOOK_EVENT_TYPES, type AutoAssignConditions } from '@repo/shared/schemas';
 import { generateDefaultWorkflow } from '@/modules/workflows/default-workflow';
 import type { WorkflowStatus } from '@repo/shared/schemas';
 import { BoardColumn } from '@repo/shared/schemas';
@@ -858,13 +858,24 @@ async function seedAutoAssignRules(projectData: ProjectData, templateKey: string
 
   const teams = await prisma.team.findMany({ where: { projectId }, take: 2 });
 
-  const rules: { name: string; conditions: any; strategy: AssignStrategy; teamId?: string; assigneeId?: string }[] = [
+  // Auto-assign has its own condition shape (`{ issueType?, priority?, tagIds? }`
+  // — see autoAssignConditionsSchema), NOT the workflow-rule `{field, op, …}`
+  // DSL. Seeding the latter here produced rules whose every condition key was
+  // absent, and `matchConditions` skips absent keys — so each of these
+  // "filtered" rules actually matched every issue.
+  const rules: {
+    name: string;
+    conditions: AutoAssignConditions;
+    strategy: AssignStrategy;
+    teamId?: string;
+    assigneeId?: string;
+  }[] = [
     {
       name: 'Critical bugs → Project Lead',
-      conditions: { and: [
-        { field: 'type', op: 'in', values: [IssueType.BUG] },
-        { field: 'priority', op: 'gte', value: Priority.CRITICAL },
-      ] },
+      conditions: {
+        issueType: [IssueType.BUG],
+        priority: [Priority.CRITICAL],
+      },
       strategy: AssignStrategy.PROJECT_LEAD,
     },
   ];
@@ -872,7 +883,7 @@ async function seedAutoAssignRules(projectData: ProjectData, templateKey: string
   if (teams.length > 0) {
     rules.push({
       name: 'Feature requests → Frontend team (round robin)',
-      conditions: { field: 'type', op: 'in', values: [IssueType.FEATURE] },
+      conditions: { issueType: [IssueType.FEATURE] },
       strategy: AssignStrategy.ROUND_ROBIN_TEAM,
       teamId: teams[0]!.id,
     });
@@ -881,7 +892,7 @@ async function seedAutoAssignRules(projectData: ProjectData, templateKey: string
   if (memberIds.length > 2) {
     rules.push({
       name: 'Tasks → Specific developer',
-      conditions: { field: 'type', op: 'in', values: [IssueType.TASK] },
+      conditions: { issueType: [IssueType.TASK] },
       strategy: AssignStrategy.SPECIFIC_USER,
       assigneeId: memberIds[1],
     });
@@ -893,7 +904,7 @@ async function seedAutoAssignRules(projectData: ProjectData, templateKey: string
       data: {
         projectId,
         name: rule.name,
-        conditions: rule.conditions as any,
+        conditions: rule.conditions as Prisma.InputJsonValue,
         strategy: rule.strategy,
         teamId: rule.teamId,
         assigneeId: rule.assigneeId,

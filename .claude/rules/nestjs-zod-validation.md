@@ -178,6 +178,54 @@ export class PaginationQueryDto extends createZodDto(paginationSchema) {}
 @Query() query: PaginationQueryDto,
 ```
 
+## A DSL Must Be Validated Against What Implements It
+
+When a schema describes a small language — a condition tree, a filter, an action
+list — accepting "any field × any operator" is not validation. Workflow rules
+did exactly that, and the evaluator failed OPEN on the combinations it did not
+implement: a rule stored as `{field:'type', op:'eq', value:'BUG'}` matched every
+issue in the project instead of only bugs.
+
+Keep ONE table of what is implemented, validate against it, and let the UI derive
+from it. `CONDITION_FIELD_OPS` in `@repo/shared` is the worked example: field →
+operator → which operand that operator needs.
+
+### Wrong
+
+```typescript
+// Any field with any operator, and both operands optional — so the schema
+// cannot tell a real filter from one nothing can evaluate.
+const conditionLeafSchema = z.object({
+  field: conditionFieldSchema,
+  op: conditionOpSchema,
+  value: z.string().optional(),
+  values: z.array(z.string()).optional(),
+});
+```
+
+### Correct
+
+```typescript
+const conditionLeafSchema = z
+  .object({ field: conditionFieldSchema, op: conditionOpSchema, value: z.string().optional(), values: z.array(z.string()).optional() })
+  .superRefine((leaf, ctx) => {
+    const operand = conditionOperandFor(leaf.field, leaf.op);
+    if (!operand) {
+      ctx.addIssue({ code: 'custom', path: ['op'],
+        message: `Operator "${leaf.op}" is not supported for field "${leaf.field}" (supported: ${conditionOpsFor(leaf.field).join(', ')})` });
+      return;
+    }
+    // …then assert the operand the operator needs is actually present.
+  });
+```
+
+The error message names the field and lists its supported operators: a 400 that
+only says "invalid" leaves the caller guessing which half of the pair was wrong.
+
+The interpreter on the other side must fail **closed** — see
+`nestjs-error-handling.md`. A validator at the boundary does not protect rows
+written before it existed.
+
 ## Cross-Field Validation
 
 Use `.refine()` or `.superRefine()` for business rules that span multiple fields:

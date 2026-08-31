@@ -28,6 +28,7 @@ import { ProjectEntity } from '@/modules/projects/projects.repository';
 import { buildActivities } from '@/modules/activities/activity-builder';
 import { CustomFieldValuesService } from '@/modules/custom-fields/custom-field-values.service';
 import { WorkflowEngine } from '@/modules/workflow-automation/workflow-engine';
+import { AutoAssignService } from '@/modules/auto-assign/auto-assign.service';
 import type { EvaluationContext } from '@/modules/workflow-automation/condition-evaluator';
 import {
   IssueCreatedEvent,
@@ -57,6 +58,7 @@ export class IssuesService {
     private domainEvents: DomainEventPublisher,
     private workflowEngine: WorkflowEngine,
     private hierarchy: IssueHierarchyService,
+    private autoAssign: AutoAssignService,
   ) {}
 
   private async assertNoBlockingRule(
@@ -117,6 +119,25 @@ export class IssuesService {
       await this.assertTagsBelongToProject(project.id, dto.tagIds);
     }
 
+    // Auto-assign fills a gap, it never overrides: an explicitly supplied
+    // assignee always wins. Resolved before the insert so the issue is created
+    // already assigned — assigning it afterwards would emit a second update and
+    // record an "assignee changed" activity for something the reporter never did.
+    const assigneeId =
+      dto.assigneeId ??
+      (await this.autoAssign.resolveForNewIssue(project.id, {
+        type: dto.type,
+        priority: dto.priority,
+        tagIds: dto.tagIds ?? [],
+      }));
+
+    if (assigneeId !== null && assigneeId !== dto.assigneeId) {
+      this.logger.log('Issue auto-assigned on create', {
+        projectId: project.id,
+        assigneeId,
+      });
+    }
+
     const number = await this.issuesRepo.getNextNumber(project.id);
     const status = workflow.statuses.find((s) => s.id === statusId)!;
 
@@ -133,7 +154,7 @@ export class IssuesService {
             priority: dto.priority,
             statusId,
             reporterId: userId,
-            assigneeId: dto.assigneeId ?? null,
+            assigneeId,
             parentId: dto.parentId ?? null,
             sprintId: dto.sprintId ?? null,
             dueDate: dto.dueDate ?? null,
@@ -160,7 +181,7 @@ export class IssuesService {
                 dto.title,
                 userId,
                 dto.description ?? undefined,
-                dto.assigneeId,
+                assigneeId,
                 created.reporter.name,
               ),
             },
@@ -205,7 +226,7 @@ export class IssuesService {
       type: dto.type,
       priority: dto.priority,
       statusId,
-      assigneeId: dto.assigneeId ?? null,
+      assigneeId,
       parentId: dto.parentId ?? null,
       tagCount: dto.tagIds?.length ?? 0,
       fieldValueCount: dto.fieldValues?.length ?? 0,
