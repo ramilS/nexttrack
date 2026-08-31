@@ -1,4 +1,4 @@
-import { Permission } from '@repo/shared';
+import { Permission, SYSTEM_ROLES } from '@repo/shared';
 import { INTEGRATION_ROLE, INTEGRATION_ROLE_ID } from './integration-role';
 
 describe('INTEGRATION_ROLE', () => {
@@ -13,7 +13,7 @@ describe('INTEGRATION_ROLE', () => {
     );
   });
 
-  it('is a system role so it cannot be edited or deleted from the UI', () => {
-    expect(INTEGRATION_ROLE.isSystem).toBe(true);
+  it('is one of the seeded system roles, so it cannot be edited or deleted from the UI', () => {
+    expect(SYSTEM_ROLES).toContain(INTEGRATION_ROLE);
   });
 });

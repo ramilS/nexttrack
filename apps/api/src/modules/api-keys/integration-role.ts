@@ -1,17 +1,21 @@
-import { Permission } from '@repo/shared';
+import { SYSTEM_ROLE_IDS, SYSTEM_ROLES, type SystemRoleDefinition } from '@repo/shared';
 
-export const INTEGRATION_ROLE_ID = '00000000-0000-0000-0000-000000000006';
+export const INTEGRATION_ROLE_ID = SYSTEM_ROLE_IDS.INTEGRATION;
+
+function resolveIntegrationRole(): SystemRoleDefinition {
+  const role = SYSTEM_ROLES.find((r) => r.id === INTEGRATION_ROLE_ID);
+  if (!role) {
+    throw new Error(
+      `SYSTEM_ROLES is missing the reserved Integration role (${INTEGRATION_ROLE_ID})`,
+    );
+  }
+  return role;
+}
 
 /**
- * Default role for API-key service principals. Deliberately excludes
- * ISSUE_UPDATE: granting it would let any integration rewrite every field of
- * every issue. A deployment that wants reopen-on-recurrence assigns its service
- * user a custom role instead.
+ * The seeded role every API-key service principal is given. Resolved from the
+ * shared system-role definitions rather than restated here, so the role this
+ * module hands out and the role the seed / test harness creates cannot drift.
+ * `integration-role.spec.ts` guards the permission set itself.
  */
-export const INTEGRATION_ROLE = {
-  id: INTEGRATION_ROLE_ID,
-  name: 'Integration',
-  description: 'Machine access: read issues, create issues, comment',
-  permissions: [Permission.ISSUE_READ, Permission.ISSUE_CREATE, Permission.COMMENT_CREATE],
-  isSystem: true,
-} as const;
+export const INTEGRATION_ROLE = resolveIntegrationRole();
