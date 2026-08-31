@@ -9,6 +9,7 @@ import { ProjectMembersRepository } from "@/modules/projects/project-members.rep
 import { TransactionService } from "@/common/repository/transaction.service";
 import { NotificationsDispatchService } from "@/modules/notifications/notifications-dispatch.service";
 import { BackgroundTasks } from "@/common/background/background-tasks.service";
+import { DomainEventPublisher } from "@/modules/outbox/domain-event-publisher";
 import type { Sprint } from "@repo/shared/schemas";
 import type { Tx } from "@/common/repository/tx.types";
 
@@ -19,6 +20,7 @@ describe("SprintsService", () => {
   let boardsReader: jest.Mocked<BoardsReader>;
   let txService: { run: jest.Mock };
   let notificationsDispatch: { dispatch: jest.Mock };
+  let domainEvents: { publish: jest.Mock };
 
   const baseSprint = (overrides?: Partial<Sprint>): Sprint => ({
     id: "sprint-1",
@@ -42,6 +44,7 @@ describe("SprintsService", () => {
     notificationsDispatch = {
       dispatch: jest.fn().mockResolvedValue(undefined),
     };
+    domainEvents = { publish: jest.fn().mockResolvedValue(undefined) };
     txService = {
       run: jest
         .fn()
@@ -97,6 +100,7 @@ describe("SprintsService", () => {
           useValue: notificationsDispatch,
         },
         BackgroundTasks,
+        { provide: DomainEventPublisher, useValue: domainEvents },
       ],
     }).compile();
 
@@ -276,12 +280,23 @@ describe("SprintsService", () => {
       const result = await service.start("board-1", "sprint-1", "user-1");
 
       expect(result.status).toBe(SprintStatus.ACTIVE);
+      // The status change now runs inside a transaction, so the repository
+      // receives the tx handle as its third argument.
       expect(sprintsRepo.update).toHaveBeenCalledWith(
         "sprint-1",
         expect.objectContaining({
           status: SprintStatus.ACTIVE,
           totalIssues: 5,
         }),
+        expect.anything(),
+      );
+      expect(domainEvents.publish).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: "sprint.started",
+          aggregateType: "Sprint",
+          aggregateId: "sprint-1",
+        }),
+        expect.anything(),
       );
     });
 

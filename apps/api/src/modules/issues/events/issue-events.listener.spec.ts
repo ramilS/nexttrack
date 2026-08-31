@@ -280,7 +280,7 @@ describe('IssueEventsListener', () => {
 
   describe('handleIssueDeleted', () => {
     it('should record activity and trigger indexer deletion', async () => {
-      const event = new IssueDeletedEvent('issue-1', 'user-1');
+      const event = new IssueDeletedEvent('issue-1', 'project-1', 'user-1');
 
       await listener.handleIssueDeleted(withMeta(event));
 
@@ -294,7 +294,7 @@ describe('IssueEventsListener', () => {
 
   describe('handleIssueRestored', () => {
     it('should record activity and trigger indexer', async () => {
-      const event = new IssueRestoredEvent('issue-1', 'user-1');
+      const event = new IssueRestoredEvent('issue-1', 'project-1', 'user-1');
 
       await listener.handleIssueRestored(withMeta(event));
 

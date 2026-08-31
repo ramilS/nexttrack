@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { ListChecks, Columns3, CalendarRange, GanttChart, Clock, BookOpen, Settings } from 'lucide-react';
 import { useProject } from '@/lib/hooks/use-projects';
+import { useRealtimeUpdates } from '@/lib/hooks/use-realtime';
 import { ProjectContext } from '@/lib/contexts/project.context';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -29,6 +30,12 @@ export default function ProjectLayout({
   const { key } = use(params);
   const { data: project, isLoading } = useProject(key);
   const pathname = usePathname();
+
+  // Mounted here, above the early returns, so every project tab (issues,
+  // board, backlog, gantt) shares one subscription to the project's room.
+  // `undefined` while the project loads — the hook joins nothing until it has
+  // an id.
+  useRealtimeUpdates(project?.id);
 
   if (isLoading) {
     return (

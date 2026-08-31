@@ -413,7 +413,7 @@ export class IssuesService {
           eventType: 'issue.deleted',
           aggregateType: 'Issue',
           aggregateId: issue.id,
-          payload: { ...new IssueDeletedEvent(issue.id, userId) },
+          payload: { ...new IssueDeletedEvent(issue.id, project.id, userId) },
         },
         tx,
       );
@@ -443,7 +443,7 @@ export class IssuesService {
           eventType: 'issue.restored',
           aggregateType: 'Issue',
           aggregateId: issue.id,
-          payload: { ...new IssueRestoredEvent(issue.id, userId) },
+          payload: { ...new IssueRestoredEvent(issue.id, project.id, userId) },
         },
         tx,
       );

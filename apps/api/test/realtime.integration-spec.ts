@@ -362,6 +362,129 @@ describe('Realtime/WebSocket Integration', () => {
     });
   });
 
+  // ─── Domain-event broadcasts ──────────────────────────────
+
+  /**
+   * The seam nothing covered before: a mutation over HTTP has to reach an open
+   * client's project room. Every layer had a green test of its own — the
+   * gateway, the dispatch service, the web hook against a mocked socket — while
+   * the wiring between them did not exist, so no event was ever emitted.
+   */
+  describe('Domain-event broadcasts', () => {
+    interface BroadcastPayload {
+      payload: { issueId: string };
+      actorId: string;
+    }
+
+    async function joinedProjectClient(): Promise<ClientSocket> {
+      // Drain the fixture's own events (beforeEach creates a project and an
+      // issue) BEFORE joining, or the first `issue:created` a test observes is
+      // the fixture's rather than the one it just made.
+      await ctx.settle();
+
+      const client = await connectClient(adminToken);
+      client.emit('join:project', { projectId });
+      // Doubles as the barrier: the window that proves the join was not
+      // rejected is also the window in which the server processes it.
+      await expectNoException(client);
+      return client;
+    }
+
+    it('pushes issue:created to the project room', async () => {
+      const client = await joinedProjectClient();
+      const received = waitForEvent<BroadcastPayload>(client, 'issue:created');
+
+      const created = await request(ctx.app.getHttpServer())
+        .post('/projects/TEST/issues')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Broadcast me' })
+        .expect(201);
+
+      await ctx.settle();
+
+      const event = await received;
+      expect(event.payload.issueId).toBe(created.body.data.id);
+      expect(event.actorId).toBe(adminId);
+    });
+
+    it('pushes issue:updated to the project room', async () => {
+      const client = await joinedProjectClient();
+      const received = waitForEvent<BroadcastPayload>(client, 'issue:updated');
+
+      await request(ctx.app.getHttpServer())
+        .patch('/projects/TEST/issues/1')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Renamed' })
+        .expect(200);
+
+      await ctx.settle();
+
+      const event = await received;
+      expect(event.payload.issueId).toBe(issueId);
+    });
+
+    it('pushes comment:created carrying the issue the comment belongs to', async () => {
+      const client = await joinedProjectClient();
+      const received = waitForEvent<BroadcastPayload>(client, 'comment:created');
+
+      await request(ctx.app.getHttpServer())
+        .post(`/issues/${issueId}/comments`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({
+          body: {
+            type: 'doc',
+            content: [
+              { type: 'paragraph', content: [{ type: 'text', text: 'hi' }] },
+            ],
+          },
+        })
+        .expect(201);
+
+      await ctx.settle();
+
+      const event = await received;
+      expect(event.payload.issueId).toBe(issueId);
+    });
+
+    it('does not push a project\'s events to a non-member', async () => {
+      const hash = await bcrypt.hash('Outsider3pass!', 4);
+      await ctx.prisma.user.create({
+        data: { email: 'outsider3@test.local', name: 'O3', passwordHash: hash, hasPassword: true, role: 'USER' },
+      });
+      const loginRes = await request(ctx.app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: 'outsider3@test.local', password: 'Outsider3pass!' })
+        .expect(200);
+      const outsider = await connectClient(
+        extractAccessTokenFromCookies(loginRes.headers['set-cookie']),
+      );
+
+      // The join is rejected, so the outsider never enters the room.
+      const rejection = new Promise<ExceptionPayload | null>((resolve) => {
+        outsider.once('exception', (data: ExceptionPayload) => resolve(data));
+        outsider.emit('join:project', { projectId });
+        setTimeout(() => resolve(null), 2_000);
+      });
+      expect((await rejection)?.message).toContain('NOT_PROJECT_MEMBER');
+
+      let leaked: unknown = null;
+      outsider.once('issue:created', (data: unknown) => {
+        leaked = data;
+      });
+
+      await request(ctx.app.getHttpServer())
+        .post('/projects/TEST/issues')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .send({ title: 'Members only' })
+        .expect(201);
+
+      await ctx.settle();
+      await new Promise((r) => setTimeout(r, ROOM_JOIN_SETTLE_MS));
+
+      expect(leaked).toBeNull();
+    });
+  });
+
   // ─── Connection auth (regression) ─────────────────────────
   describe('Connection auth', () => {
     it('should disconnect a blocked user even with a valid token', async () => {

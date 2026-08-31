@@ -45,6 +45,9 @@ export class IssueUpdatedEvent {
 export class IssueDeletedEvent {
   constructor(
     public readonly issueId: string,
+    // Carried so a listener can address the issue's project room without a
+    // second lookup — the row is already soft-deleted by the time it runs.
+    public readonly projectId: string,
     public readonly userId: string,
   ) {}
 }
@@ -52,6 +55,7 @@ export class IssueDeletedEvent {
 export class IssueRestoredEvent {
   constructor(
     public readonly issueId: string,
+    public readonly projectId: string,
     public readonly userId: string,
   ) {}
 }

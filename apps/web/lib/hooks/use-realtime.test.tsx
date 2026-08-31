@@ -26,7 +26,9 @@ vi.mock('sonner', () => ({ toast: { info: vi.fn(), success: vi.fn(), error: vi.f
 
 import { useRealtimeUpdates } from './use-realtime';
 
-function setup(projectKey = 'PROJ') {
+const PROJECT_ID = '11111111-1111-1111-1111-111111111111';
+
+function setup(projectId?: string) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -34,7 +36,7 @@ function setup(projectKey = 'PROJ') {
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
-  renderHook(() => useRealtimeUpdates(projectKey), { wrapper });
+  renderHook(() => useRealtimeUpdates(projectId), { wrapper });
   return invalidate;
 }
 
@@ -49,7 +51,7 @@ describe('useRealtimeUpdates', () => {
   });
 
   it('invalidates the ES-backed search list and the board on issue:created', () => {
-    const invalidate = setup();
+    const invalidate = setup(PROJECT_ID);
     handlers.get('issue:created')!();
 
     const keys = invalidatedKeys(invalidate as unknown as Mock);
@@ -58,7 +60,7 @@ describe('useRealtimeUpdates', () => {
   });
 
   it('invalidates issue, search and board caches on issue:updated', () => {
-    const invalidate = setup();
+    const invalidate = setup(PROJECT_ID);
     handlers.get('issue:updated')!();
 
     const keys = invalidatedKeys(invalidate as unknown as Mock);
@@ -68,22 +70,32 @@ describe('useRealtimeUpdates', () => {
   });
 
   it('invalidates the comment list for the event issue on comment:created', () => {
-    const invalidate = setup();
+    const invalidate = setup(PROJECT_ID);
     handlers.get('comment:created')!({ payload: { issueId: 'issue-1' }, actorId: 'u1' });
 
     const keys = invalidatedKeys(invalidate as unknown as Mock);
     expect(keys).toContainEqual(commentKeys.list('issue-1'));
   });
 
-  it('invalidates the board on board:issue-moved', () => {
-    const invalidate = setup();
-    handlers.get('board:issue-moved')!();
+  it('joins the project room by id — the gateway validates it as a UUID', () => {
+    setup(PROJECT_ID);
 
-    expect(invalidatedKeys(invalidate as unknown as Mock)).toContainEqual(boardKeys.all);
+    expect(socketMock.emit).toHaveBeenCalledWith('join:project', {
+      projectId: PROJECT_ID,
+    });
+  });
+
+  it('joins no room until the project id is known', () => {
+    setup(undefined);
+
+    expect(socketMock.emit).not.toHaveBeenCalledWith(
+      'join:project',
+      expect.anything(),
+    );
   });
 
   it('invalidates sprints on sprint:started and sprint:closed', () => {
-    const invalidate = setup();
+    const invalidate = setup(PROJECT_ID);
     handlers.get('sprint:started')!({ payload: { name: 'S1' }, actorId: 'u1' });
     handlers.get('sprint:closed')!({ payload: { name: 'S1' }, actorId: 'u1' });
 

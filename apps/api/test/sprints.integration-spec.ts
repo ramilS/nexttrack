@@ -1,7 +1,7 @@
 import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
-import { SprintStatus } from '@prisma/client';
+import { DeliveryChannel, SprintStatus } from '@prisma/client';
 import {
   E2eContext,
   createE2eApp,
@@ -253,6 +253,29 @@ describe('Sprints Integration', () => {
       expect(res.body.data.totalIssues).toBe(1);
     });
 
+    it('publishes sprint.started so open boards learn about it', async () => {
+      const sprint = await createSprint('Sprint 1');
+      const issue = await createIssue('Task 1');
+      await addIssuesToSprint(sprint.id, [issue.id]);
+
+      await startSprint(sprint.id).expect(200);
+
+      // Published inside the status-change transaction: a committed start must
+      // reach clients even if the process dies right after.
+      const events = await ctx.prisma.outboxEvent.findMany({
+        where: {
+          eventType: 'sprint.started',
+          channel: DeliveryChannel.INTERNAL,
+        },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0].aggregateId).toBe(sprint.id);
+      expect(events[0].payload).toMatchObject({
+        sprintId: sprint.id,
+        name: 'Sprint 1',
+      });
+    });
+
     it('should reject starting an empty sprint', async () => {
       const sprint = await createSprint('Empty Sprint');
 
@@ -354,6 +377,17 @@ describe('Sprints Integration', () => {
         where: { id: { in: issueIds.slice(1) }, sprintId: null },
       });
       expect(backlogIssues).toHaveLength(2);
+
+      // Closing reshuffles issues across sprints, so the change has to reach
+      // open boards — published in the same transaction as the status change.
+      const events = await ctx.prisma.outboxEvent.findMany({
+        where: {
+          eventType: 'sprint.closed',
+          channel: DeliveryChannel.INTERNAL,
+        },
+      });
+      expect(events).toHaveLength(1);
+      expect(events[0].aggregateId).toBe(activeSprint.id);
     });
 
     it('should close and move incomplete issues to next sprint', async () => {

@@ -20,15 +20,23 @@ interface SprintEvent {
   actorId: string;
 }
 
-export function useRealtimeUpdates(projectKey?: string) {
+/**
+ * Subscribes the open page to its project's realtime room so mutations made by
+ * anyone (including this user in another tab) invalidate the affected caches.
+ *
+ * Takes the project **id**: the gateway addresses rooms by id and validates the
+ * payload as a UUID, so passing the human-readable project key made every join
+ * fail validation and silently disabled all of this.
+ */
+export function useRealtimeUpdates(projectId?: string) {
   const socket = useSocket();
   const qc = useQueryClient();
 
   useEffect(() => {
     if (!socket) return;
 
-    if (projectKey) {
-      socket.emit('join:project', { projectId: projectKey });
+    if (projectId) {
+      socket.emit('join:project', { projectId });
     }
 
     // Always invalidate via the exported key-factory roots: hand-written keys
@@ -53,10 +61,6 @@ export function useRealtimeUpdates(projectKey?: string) {
       });
     });
 
-    socket.on('board:issue-moved', () => {
-      void qc.invalidateQueries({ queryKey: boardKeys.all });
-    });
-
     socket.on('sprint:started', (event: SprintEvent) => {
       void qc.invalidateQueries({ queryKey: sprintKeys.all });
       toast.info(`Sprint "${event.payload.name}" started`);
@@ -68,16 +72,15 @@ export function useRealtimeUpdates(projectKey?: string) {
     });
 
     return () => {
-      if (projectKey) {
-        socket.emit('leave:project', { projectId: projectKey });
+      if (projectId) {
+        socket.emit('leave:project', { projectId });
       }
       socket.off('issue:created');
       socket.off('issue:updated');
       socket.off('issue:deleted');
       socket.off('comment:created');
-      socket.off('board:issue-moved');
       socket.off('sprint:started');
       socket.off('sprint:closed');
     };
-  }, [socket, projectKey, qc]);
+  }, [socket, projectId, qc]);
 }

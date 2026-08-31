@@ -26,6 +26,8 @@ import { SprintsRepository } from "./sprints.repository";
 import { IssuesRepository } from "@/modules/issues/issues.repository";
 import { BoardsReader } from "@/modules/boards/boards.reader";
 import { ProjectMembersRepository } from "@/modules/projects/project-members.repository";
+import { DomainEventPublisher } from "@/modules/outbox/domain-event-publisher";
+import { SprintClosedEvent, SprintStartedEvent } from "./events/sprint.events";
 
 @Injectable()
 export class SprintsService {
@@ -39,6 +41,7 @@ export class SprintsService {
     private txService: TransactionService,
     private notificationsDispatch: NotificationsDispatchService,
     private background: BackgroundTasks,
+    private domainEvents: DomainEventPublisher,
   ) {}
 
   async findAll(
@@ -186,13 +189,45 @@ export class SprintsService {
       );
     }
 
+    const board = await this.boardsReader.findRefWithProjectName(boardId);
+
     const now = new Date();
-    const updated = await this.sprintsRepo.update(sprintId, {
-      status: SprintStatus.ACTIVE,
-      startedAt: now.toISOString(),
-      startDate: body?.startDate ?? sprint.startDate ?? now.toISOString(),
-      endDate: body?.endDate ?? sprint.endDate,
-      totalIssues: issueCount,
+    const updated = await this.txService.run(async (tx) => {
+      const row = await this.sprintsRepo.update(
+        sprintId,
+        {
+          status: SprintStatus.ACTIVE,
+          startedAt: now.toISOString(),
+          startDate: body?.startDate ?? sprint.startDate ?? now.toISOString(),
+          endDate: body?.endDate ?? sprint.endDate,
+          totalIssues: issueCount,
+        },
+        tx,
+      );
+
+      // Published in the same transaction as the status change: a start that
+      // committed must reach open boards even if this process dies next.
+      if (board) {
+        await this.domainEvents.publish(
+          {
+            eventType: 'sprint.started',
+            aggregateType: 'Sprint',
+            aggregateId: sprintId,
+            payload: {
+              ...new SprintStartedEvent(
+                sprintId,
+                boardId,
+                board.projectId,
+                row.name,
+                userId,
+              ),
+            },
+          },
+          tx,
+        );
+      }
+
+      return row;
     });
 
     this.logger.log('Sprint started', {
@@ -201,7 +236,6 @@ export class SprintsService {
       totalIssues: issueCount,
     });
 
-    const board = await this.boardsReader.findRefWithProjectName(boardId);
     if (board) {
       const memberIds = await this.projectMembersRepo.findMemberIds(
         board.projectId,
@@ -303,6 +337,30 @@ export class SprintsService {
         },
         tx,
       );
+
+      // Same transaction as the status change — closing moves issues between
+      // sprints, so every open board and backlog in the project is stale until
+      // this reaches it.
+      const board = await this.boardsReader.findRefWithProjectName(boardId);
+      if (board) {
+        await this.domainEvents.publish(
+          {
+            eventType: 'sprint.closed',
+            aggregateType: 'Sprint',
+            aggregateId: sprintId,
+            payload: {
+              ...new SprintClosedEvent(
+                sprintId,
+                boardId,
+                board.projectId,
+                closedSprint.name,
+                userId ?? null,
+              ),
+            },
+          },
+          tx,
+        );
+      }
 
       const velocityPoints = completed.reduce(
         (sum, i) => sum + (i.estimate ?? 0),
