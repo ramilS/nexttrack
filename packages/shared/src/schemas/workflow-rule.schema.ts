@@ -45,12 +45,108 @@ export const CONDITION_OPS = [
 export const conditionOpSchema = z.enum(CONDITION_OPS);
 export type ConditionOp = z.infer<typeof conditionOpSchema>;
 
-const conditionLeafSchema = z.object({
-  field: conditionFieldSchema,
-  op: conditionOpSchema,
-  value: z.string().optional(),
-  values: z.array(z.string()).optional(),
-});
+/** Which operand an operator needs: a single `value`, a `values` list, or none. */
+export type ConditionOperand = 'value' | 'values' | 'none';
+
+/**
+ * The condition DSL, in one table.
+ *
+ * This is the contract three places used to restate independently — the leaf
+ * schema (which accepted any field × any op), `ConditionEvaluator`, and the
+ * rule-form UI's own op list — and they had drifted apart in five ways. Every
+ * mismatch failed OPEN: the evaluator returned "matches" for a combination it
+ * could not read, so a rule the author wrote as a narrow filter quietly applied
+ * to every issue in the project.
+ *
+ * Adding an operator therefore means adding it here, and implementing it in the
+ * evaluator; the schema and the UI both derive from this table.
+ */
+export const CONDITION_FIELD_OPS = {
+  type: { in: 'values', not_in: 'values' },
+  priority: { eq: 'value', neq: 'value', gte: 'value', lte: 'value' },
+  status: { eq: 'value', neq: 'value' },
+  'status.category': { eq: 'value', neq: 'value' },
+  // The only field that can legitimately be absent on an issue.
+  assignee: { eq: 'value', neq: 'value', is_empty: 'none', is_not_empty: 'none' },
+  tag: { contains: 'value', not_contains: 'value' },
+  oldStatus: { eq: 'value', neq: 'value' },
+  newStatus: { eq: 'value', neq: 'value' },
+} as const satisfies Record<
+  ConditionField,
+  Partial<Record<ConditionOp, ConditionOperand>>
+>;
+
+type FieldOps = Partial<Record<ConditionOp, ConditionOperand>>;
+
+/**
+ * Both lookups tolerate values outside the enums: the evaluator calls them with
+ * whatever JSON is stored on the rule, and a `TypeError` there would propagate
+ * out of an event listener and retry the whole event rather than skipping one
+ * unreadable condition.
+ */
+function fieldOps(field: string): FieldOps | undefined {
+  return (CONDITION_FIELD_OPS as Record<string, FieldOps>)[field];
+}
+
+export function conditionOpsFor(field: string): ConditionOp[] {
+  return Object.keys(fieldOps(field) ?? {}) as ConditionOp[];
+}
+
+export function conditionOperandFor(
+  field: string,
+  op: string,
+): ConditionOperand | undefined {
+  return fieldOps(field)?.[op as ConditionOp];
+}
+
+/**
+ * The operator a UI should preselect when the user picks a field. Every field in
+ * the table has at least one, so an empty list is a broken table, not a case to
+ * fall back from — falling back to `eq` would offer `type eq …`, which is
+ * exactly the unevaluatable combination this table exists to prevent.
+ */
+export function defaultConditionOpFor(field: ConditionField): ConditionOp {
+  const [first] = conditionOpsFor(field);
+  if (!first) {
+    throw new Error(`CONDITION_FIELD_OPS has no operators for field "${field}"`);
+  }
+  return first;
+}
+
+const conditionLeafSchema = z
+  .object({
+    field: conditionFieldSchema,
+    op: conditionOpSchema,
+    value: z.string().optional(),
+    values: z.array(z.string()).optional(),
+  })
+  .superRefine((leaf, ctx) => {
+    const operand = conditionOperandFor(leaf.field, leaf.op);
+    if (!operand) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['op'],
+        message: `Operator "${leaf.op}" is not supported for field "${leaf.field}" (supported: ${conditionOpsFor(leaf.field).join(', ')})`,
+      });
+      return;
+    }
+
+    if (operand === 'value' && (leaf.value === undefined || leaf.value === '')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['value'],
+        message: `Operator "${leaf.op}" requires a value`,
+      });
+    }
+
+    if (operand === 'values' && (leaf.values === undefined || leaf.values.length === 0)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['values'],
+        message: `Operator "${leaf.op}" requires a non-empty values list`,
+      });
+    }
+  });
 export type ConditionLeaf = z.infer<typeof conditionLeafSchema>;
 
 export type WorkflowCondition =

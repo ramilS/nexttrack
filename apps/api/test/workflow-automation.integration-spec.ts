@@ -2,6 +2,7 @@ import { extractAccessTokenFromCookies } from '@test/support/auth-helper';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import { IssueType, Priority } from '@prisma/client';
+import { ErrorCode } from '@repo/shared/error-codes';
 import {
   E2eContext,
   createE2eApp,
@@ -248,6 +249,43 @@ describe('Workflow Automation Integration (full AppModule)', () => {
         .expect(200);
 
       expect(notMatching.body.data).toEqual({ matches: false, actions: [] });
+    });
+  });
+
+  describe('condition validation', () => {
+    // The gate that keeps the fail-open regression from coming back: a rule the
+    // evaluator cannot read must not be storable in the first place.
+    it.each([
+      ['an operator the field does not support', { field: 'type', op: 'eq', value: 'BUG' }],
+      ['is_empty on a field that is never empty', { field: 'status', op: 'is_empty' }],
+      ['a required value left blank', { field: 'status', op: 'eq', value: '' }],
+      ['an empty values list', { field: 'type', op: 'in', values: [] }],
+    ])('rejects %s with 400', async (_name, conditions) => {
+      const res = await authReq()
+        .post(`/projects/${projectKey}/workflow-rules`)
+        .send(makeRule({ conditions }))
+        .expect(400);
+
+      expect(res.body.error.code).toBe(ErrorCode.VALIDATION_ERROR);
+    });
+
+    it('rejects an unevaluatable leaf nested in an and/or tree', async () => {
+      await authReq()
+        .post(`/projects/${projectKey}/workflow-rules`)
+        .send(
+          makeRule({
+            conditions: {
+              and: [
+                {
+                  field: 'assignee',
+                  op: 'gte',
+                  value: '00000000-0000-0000-0000-0000000000aa',
+                },
+              ],
+            },
+          }),
+        )
+        .expect(400);
     });
   });
 

@@ -19,9 +19,47 @@ describe('ConditionEvaluator', () => {
     evaluator = new ConditionEvaluator();
   });
 
-  it('should return true for empty condition', () => {
+  it('matches when no filter is expressed at all', () => {
     expect(evaluator.evaluate({}, makeContext())).toBe(true);
     expect(evaluator.evaluate(null, makeContext())).toBe(true);
+    expect(evaluator.evaluate({ and: [] }, makeContext())).toBe(true);
+  });
+
+  // The regression these guard: every one of these conditions used to evaluate
+  // to TRUE, so a rule the author wrote as a narrow filter fired on every issue
+  // in the project. "Cannot read it" must never mean "matches".
+  describe('fails closed on a condition it cannot evaluate', () => {
+    it.each([
+      ['an operator the field does not support', { field: 'type', op: 'eq', value: 'BUG' }],
+      ['is_empty on a field that is never empty', { field: 'status', op: 'is_empty' }],
+      ['a missing single value', { field: 'status', op: 'eq' }],
+      ['an empty values list', { field: 'type', op: 'in', values: [] }],
+      ['a values list where a value is required', { field: 'status', op: 'eq', values: ['st-open'] }],
+      ['an unknown field', { field: 'nope', op: 'eq', value: 'x' }],
+      ['a leaf with no field', { op: 'eq', value: 'x' }],
+      ['a priority outside the known ranks', { field: 'priority', op: 'gte', value: 'URGENT' }],
+      ['a non-object condition', 'always'],
+    ])('%s', (_name, condition) => {
+      expect(evaluator.evaluate(condition, makeContext())).toBe(false);
+    });
+
+    it('does not let an unreadable branch satisfy an OR', () => {
+      expect(
+        evaluator.evaluate(
+          { or: [{ field: 'type', op: 'eq', value: 'BUG' }] },
+          makeContext(),
+        ),
+      ).toBe(false);
+    });
+  });
+
+  it('supports neq on every field that offers it', () => {
+    const ctx = makeContext();
+    expect(evaluator.evaluate({ field: 'priority', op: 'neq', value: 'LOW' }, ctx)).toBe(true);
+    expect(evaluator.evaluate({ field: 'priority', op: 'neq', value: 'HIGH' }, ctx)).toBe(false);
+    expect(evaluator.evaluate({ field: 'status', op: 'neq', value: 'st-done' }, ctx)).toBe(true);
+    expect(evaluator.evaluate({ field: 'assignee', op: 'neq', value: 'user-2' }, ctx)).toBe(true);
+    expect(evaluator.evaluate({ field: 'assignee', op: 'neq', value: 'user-1' }, ctx)).toBe(false);
   });
 
   it('should match type in list', () => {

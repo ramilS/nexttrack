@@ -13,6 +13,9 @@ import {
 import { Plus, X, FolderPlus } from 'lucide-react';
 import {
   CONDITION_FIELDS,
+  conditionOperandFor,
+  conditionOpsFor,
+  defaultConditionOpFor,
   type ConditionField,
   type ConditionOp,
   type WorkflowCondition,
@@ -54,12 +57,7 @@ const OP_LABELS: Record<ConditionOp, string> = {
   is_not_empty: 'is not empty',
 };
 
-const OPS_BY_KIND: Record<FieldKind, ConditionOp[]> = {
-  enum_priority: ['eq', 'neq', 'gte', 'lte'],
-  enum_type: ['in', 'not_in'],
-  string: ['eq', 'neq', 'is_empty', 'is_not_empty'],
-  array: ['contains', 'not_contains'],
-};
+
 
 function isAnd(c: WorkflowCondition): c is { and: WorkflowCondition[] } {
   return typeof c === 'object' && c !== null && 'and' in c && Array.isArray((c as { and: unknown }).and);
@@ -87,15 +85,23 @@ function LeafEditor({
   onRemove: () => void;
 }) {
   const kind = FIELD_META[node.field].kind;
-  const ops = OPS_BY_KIND[kind];
-  const showValue = node.op !== 'is_empty' && node.op !== 'is_not_empty';
-  const isMulti = node.op === 'in' || node.op === 'not_in';
+  // Derived from the shared DSL table rather than a second list kept here: the
+  // local copy offered operators the evaluator does not implement (priority
+  // neq, is_empty on a status), and those silently matched every issue.
+  const ops = conditionOpsFor(node.field);
+  const operand = conditionOperandFor(node.field, node.op);
+  const showValue = operand !== 'none';
+  const isMulti = operand === 'values';
 
   const handleFieldChange = (raw: string | null) => {
     if (!raw) return;
     const field = raw as ConditionField;
-    const newOps = OPS_BY_KIND[FIELD_META[field].kind];
-    onChange({ field, op: newOps[0]!, value: '', values: [] });
+    onChange({
+      field,
+      op: defaultConditionOpFor(field),
+      value: '',
+      values: [],
+    });
   };
 
   const renderValueInput = () => {
