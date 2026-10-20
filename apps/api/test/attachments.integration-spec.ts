@@ -110,6 +110,47 @@ describe('Attachments Integration (full AppModule)', () => {
     });
   });
 
+  // ─── Download ─────────────────────────────────────────────────────
+
+  describe('GET /issues/:issueId/attachments/:id/download', () => {
+    async function uploadText(filename: string): Promise<string> {
+      const res = await authReq()
+        .post(`/issues/${issueId}/attachments`)
+        .attach('files', Buffer.from('hello world'), filename)
+        .expect(201);
+      return res.body.data[0].id;
+    }
+
+    it('streams the object through the API instead of redirecting to the object store', async () => {
+      const attachmentId = await uploadText('notes.txt');
+
+      const res = await authReq()
+        .get(`/issues/${issueId}/attachments/${attachmentId}/download`)
+        .buffer(true)
+        .expect(200);
+
+      expect(res.headers.location).toBeUndefined();
+      expect(res.headers['content-type']).toMatch(/^text\/plain/);
+      expect(res.headers['content-disposition']).toBe(
+        'attachment; filename="notes.txt"; filename*=UTF-8\'\'notes.txt',
+      );
+      // helmet sets its own CSP earlier in the pipeline; the handler's must win.
+      expect(res.headers['content-security-policy']).toBe("sandbox; default-src 'none'");
+      expect(res.headers['cache-control']).toBe('private, max-age=60');
+      expect(res.text).toBe('mock-object');
+    });
+
+    it('404s for an attachment that was deleted', async () => {
+      const attachmentId = await uploadText('gone.txt');
+      await authReq().delete(`/issues/${issueId}/attachments/${attachmentId}`).expect(204);
+
+      const res = await authReq()
+        .get(`/issues/${issueId}/attachments/${attachmentId}/download`)
+        .expect(404);
+      expect(res.body.error.code).toBe(ErrorCode.ATTACHMENT_NOT_FOUND);
+    });
+  });
+
   // ─── Access Control ───────────────────────────────────────────────
 
   describe('Access control', () => {

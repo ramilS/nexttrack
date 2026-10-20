@@ -1,3 +1,4 @@
+import { Readable } from 'stream';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
   NotFoundError,
@@ -11,6 +12,7 @@ import { ActivitiesService } from '@/modules/activities/activities.service';
 import { IssuesReader } from '@/modules/issues/issues.reader';
 import { ProjectMembersRepository } from '@/modules/projects/project-members.repository';
 import { storageConfig } from '@/config';
+import { ErrorCode } from '@repo/shared/error-codes';
 
 describe('AttachmentsService', () => {
   let service: AttachmentsService;
@@ -19,7 +21,7 @@ describe('AttachmentsService', () => {
   let projectMembersRepo: jest.Mocked<ProjectMembersRepository>;
   let storage: {
     uploadBuffer: jest.Mock;
-    getPresignedUrl: jest.Mock;
+    getObject: jest.Mock;
     deleteFile: jest.Mock;
   };
   let activitiesService: { recordOne: jest.Mock };
@@ -46,7 +48,11 @@ describe('AttachmentsService', () => {
   beforeEach(async () => {
     storage = {
       uploadBuffer: jest.fn().mockResolvedValue(undefined),
-      getPresignedUrl: jest.fn().mockResolvedValue('https://s3/presigned'),
+      getObject: jest.fn().mockImplementation(async () => ({
+        body: Readable.from([]),
+        contentType: 'application/octet-stream',
+        contentLength: 1024,
+      })),
       deleteFile: jest.fn().mockResolvedValue(undefined),
     };
     activitiesService = { recordOne: jest.fn().mockResolvedValue(undefined) };
@@ -181,19 +187,20 @@ describe('AttachmentsService', () => {
     });
   });
 
-  describe('getDownloadUrl', () => {
-    it('should return presigned URL for project member', async () => {
+  describe('openDownload', () => {
+    it('opens the stored file under its upload-validated type and original name', async () => {
       attachmentsRepo.findActiveById.mockResolvedValue(baseRaw);
       attachmentsRepo.findIssueProjectId.mockResolvedValue('proj-1');
       projectMembersRepo.isMember.mockResolvedValue(true);
 
-      const result = await service.getDownloadUrl('issue-1', 'att-1', 'user-1');
+      const result = await service.openDownload('issue-1', 'att-1', 'user-1');
 
-      expect(result).toBe('https://s3/presigned');
-      expect(storage.getPresignedUrl).toHaveBeenCalledWith(
-        'attachments/issue-1/att-1.png',
-        { downloadFilename: 'test.png' },
-      );
+      expect(storage.getObject).toHaveBeenCalledWith('attachments/issue-1/att-1.png');
+      expect(result).toMatchObject({
+        contentType: 'image/png',
+        contentLength: 1024,
+        downloadFilename: 'test.png',
+      });
     });
 
     it('should throw PermissionDeniedError for non-member', async () => {
@@ -201,7 +208,8 @@ describe('AttachmentsService', () => {
       attachmentsRepo.findIssueProjectId.mockResolvedValue('proj-1');
       projectMembersRepo.isMember.mockResolvedValue(false);
 
-      await expect(service.getDownloadUrl('issue-1', 'att-1', 'non-member')).rejects.toThrow(PermissionDeniedError);
+      await expect(service.openDownload('issue-1', 'att-1', 'non-member')).rejects.toThrow(PermissionDeniedError);
+      expect(storage.getObject).not.toHaveBeenCalled();
     });
 
     it('lets a global admin download without project membership (bypasses the member check)', async () => {
@@ -209,25 +217,52 @@ describe('AttachmentsService', () => {
       attachmentsRepo.findIssueProjectId.mockResolvedValue('proj-1');
       projectMembersRepo.isMember.mockResolvedValue(false);
 
-      const result = await service.getDownloadUrl('issue-1', 'att-1', 'admin', true);
+      const result = await service.openDownload('issue-1', 'att-1', 'admin', true);
 
-      expect(result).toBe('https://s3/presigned');
+      expect(result.downloadFilename).toBe('test.png');
       expect(projectMembersRepo.isMember).not.toHaveBeenCalled();
     });
 
     it('should throw NotFoundError for missing attachment', async () => {
       attachmentsRepo.findActiveById.mockResolvedValue(null);
 
-      await expect(service.getDownloadUrl('issue-1', 'missing', 'user-1')).rejects.toThrow(NotFoundError);
+      await expect(service.openDownload('issue-1', 'missing', 'user-1')).rejects.toThrow(NotFoundError);
     });
 
     it('should throw NotFoundError when the attachment belongs to another issue (IDOR)', async () => {
       attachmentsRepo.findActiveById.mockResolvedValue(baseRaw); // issueId: 'issue-1'
 
       await expect(
-        service.getDownloadUrl('other-issue', 'att-1', 'user-1'),
+        service.openDownload('other-issue', 'att-1', 'user-1'),
       ).rejects.toThrow(NotFoundError);
       expect(attachmentsRepo.findIssueProjectId).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('openThumbnail', () => {
+    it('opens the thumbnail object, served inline', async () => {
+      attachmentsRepo.findActiveById.mockResolvedValue({
+        ...baseRaw,
+        thumbnailPath: 'attachments/issue-1/att-1.thumb.webp',
+      });
+      attachmentsRepo.findIssueProjectId.mockResolvedValue('proj-1');
+      projectMembersRepo.isMember.mockResolvedValue(true);
+
+      const result = await service.openThumbnail('issue-1', 'att-1', 'user-1');
+
+      expect(storage.getObject).toHaveBeenCalledWith('attachments/issue-1/att-1.thumb.webp');
+      expect(result.downloadFilename).toBeUndefined();
+    });
+
+    it('404s with a dedicated code when no thumbnail was generated', async () => {
+      attachmentsRepo.findActiveById.mockResolvedValue(baseRaw); // thumbnailPath: null
+      attachmentsRepo.findIssueProjectId.mockResolvedValue('proj-1');
+      projectMembersRepo.isMember.mockResolvedValue(true);
+
+      await expect(service.openThumbnail('issue-1', 'att-1', 'user-1')).rejects.toMatchObject({
+        code: ErrorCode.ATTACHMENT_THUMBNAIL_NOT_AVAILABLE,
+      });
+      expect(storage.getObject).not.toHaveBeenCalled();
     });
   });
 

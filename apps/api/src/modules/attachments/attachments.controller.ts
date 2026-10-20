@@ -1,5 +1,6 @@
 import {
   Controller,
+  Inject,
   Get,
   Post,
   Delete,
@@ -12,10 +13,15 @@ import {
   UploadedFiles,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
-import { Response } from 'express';
+import { ConfigType } from '@nestjs/config';
+import { ServerResponse } from 'http';
+import { pipeline } from 'stream/promises';
 import { GlobalRole } from '@prisma/client';
 import { Permission } from '@repo/shared';
-import { AttachmentsService } from './attachments.service';
+import { AttachmentsService, type AttachmentContent } from './attachments.service';
+import { buildAttachmentDisposition } from './content-disposition';
+import { storageConfig } from '@/config';
+import { AppLogger } from '@/common/logging/app-logger';
 import { IssueAuth } from '@/common/decorators/issue-auth.decorator';
 import { RequirePermission } from '@/common/decorators/require-permission.decorator';
 import { CurrentUser, RequestUser } from '@/common/decorators/current-user.decorator';
@@ -27,10 +33,22 @@ import { ApiEnvelope } from '@/common/decorators/api-envelope.decorator';
 import { SkipTimeout } from '@/common/interceptors/skip-timeout.decorator';
 import { DownloadQueryDto, AttachmentDto } from './attachments.dto';
 
+// User-uploaded bytes are served from the app's own origin, so a file must never
+// run as a document here — not even one whose stored type a browser would render.
+const ATTACHMENT_CSP = "sandbox; default-src 'none'";
+// Browsers cancel image loads on every navigation; that is not an incident.
+const CLIENT_WENT_AWAY = 'ERR_STREAM_PREMATURE_CLOSE';
+
 @Controller('issues/:issueId/attachments')
 @IssueAuth()
 export class AttachmentsController {
-  constructor(private attachmentsService: AttachmentsService) {}
+  private readonly logger = new AppLogger(AttachmentsController.name);
+
+  constructor(
+    private attachmentsService: AttachmentsService,
+    @Inject(storageConfig.KEY)
+    private storage: ConfigType<typeof storageConfig>,
+  ) {}
 
   @Post()
   @RequirePermission(Permission.ISSUE_UPDATE)
@@ -72,37 +90,39 @@ export class AttachmentsController {
 
   @Get(':attachmentId/download')
   @RequirePermission(Permission.ISSUE_READ)
+  @SkipTimeout()
   async download(
     @Param('issueId') issueId: string,
     @Param('attachmentId') attachmentId: string,
     @Query() _query: DownloadQueryDto,
     @CurrentUser() user: RequestUser,
-    @Res() res: Response,
+    @Res() res: ServerResponse,
   ) {
-    const url = await this.attachmentsService.getDownloadUrl(
+    const content = await this.attachmentsService.openDownload(
       issueId,
       attachmentId,
       user.id,
       user.role === GlobalRole.ADMIN,
     );
-    res.redirect(url);
+    await this.streamAttachment(res, content, attachmentId);
   }
 
   @Get(':attachmentId/thumbnail')
   @RequirePermission(Permission.ISSUE_READ)
+  @SkipTimeout()
   async thumbnail(
     @Param('issueId') issueId: string,
     @Param('attachmentId') attachmentId: string,
     @CurrentUser() user: RequestUser,
-    @Res() res: Response,
+    @Res() res: ServerResponse,
   ) {
-    const url = await this.attachmentsService.getThumbnailUrl(
+    const content = await this.attachmentsService.openThumbnail(
       issueId,
       attachmentId,
       user.id,
       user.role === GlobalRole.ADMIN,
     );
-    res.redirect(url);
+    await this.streamAttachment(res, content, attachmentId);
   }
 
   @Delete(':attachmentId')
@@ -119,5 +139,34 @@ export class AttachmentsController {
       user.id,
       user.role === GlobalRole.ADMIN,
     );
+  }
+
+  private async streamAttachment(
+    res: ServerResponse,
+    content: AttachmentContent,
+    attachmentId: string,
+  ): Promise<void> {
+    res.setHeader('Content-Type', content.contentType);
+    res.setHeader('Cache-Control', `private, max-age=${this.storage.cacheMaxAgeSeconds}`);
+    res.setHeader('Content-Security-Policy', ATTACHMENT_CSP);
+    if (content.contentLength !== undefined) {
+      res.setHeader('Content-Length', content.contentLength);
+    }
+    if (content.downloadFilename !== undefined) {
+      res.setHeader('Content-Disposition', buildAttachmentDisposition(content.downloadFilename));
+    }
+
+    try {
+      await pipeline(content.body, res);
+    } catch (err) {
+      // The response may already be partly sent and pipeline has destroyed it,
+      // so the exception filter cannot answer; the client sees a failed transfer.
+      const code = err instanceof Error && 'code' in err ? err.code : undefined;
+      if (code === CLIENT_WENT_AWAY) {
+        this.logger.debug('Attachment stream closed by the client', { attachmentId });
+        return;
+      }
+      this.logger.warn('Attachment stream interrupted', { attachmentId, code });
+    }
   }
 }

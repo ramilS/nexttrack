@@ -1,26 +1,26 @@
+import { AddressInfo, createServer, Server, Socket } from 'net';
 import { ConfigType } from '@nestjs/config';
-import { GetObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { GetObjectCommand, NoSuchKey, S3Client } from '@aws-sdk/client-s3';
+import { Readable } from 'stream';
+import { ErrorCode } from '@repo/shared';
 import { storageConfig } from '@/config';
+import { NotFoundError } from '@/common/errors/domain.errors';
 import { AttachmentsStorageService } from './attachments-storage.service';
-
-jest.mock('@aws-sdk/s3-request-presigner', () => ({
-  getSignedUrl: jest.fn(),
-}));
-
-const mockedGetSignedUrl = jest.mocked(getSignedUrl);
 
 describe('AttachmentsStorageService', () => {
   let service: AttachmentsStorageService;
+  let send: jest.SpyInstance;
 
   const config: ConfigType<typeof storageConfig> = {
-    endpoint: 'http://localhost:9000',
-    region: 'us-east-1',
+    endpoint: 'http://localhost:3900',
+    region: 'garage',
     accessKey: 'test-access',
     secretKey: 'test-secret',
     bucket: 'test-bucket',
     forcePathStyle: true,
-    presignedUrlTtl: 60,
+    connectionTimeoutMs: 5_000,
+    socketTimeoutMs: 30_000,
+    cacheMaxAgeSeconds: 60,
     maxFileSizeBytes: 50 * 1024 * 1024,
     maxFilesPerUpload: 10,
     maxTotalPerIssue: 100,
@@ -30,63 +30,78 @@ describe('AttachmentsStorageService', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
-    mockedGetSignedUrl.mockResolvedValue('https://s3/presigned');
+    send = jest.spyOn(S3Client.prototype, 'send');
     service = new AttachmentsStorageService(config);
   });
 
-  const lastCommand = (): GetObjectCommand => {
-    const [, command] = mockedGetSignedUrl.mock.calls[0];
-    return command as GetObjectCommand;
-  };
+  afterEach(() => {
+    send.mockRestore();
+  });
 
-  describe('getPresignedUrl', () => {
-    it('forces attachment disposition with the sanitized filename', async () => {
-      const url = await service.getPresignedUrl('attachments/i-1/a-1.pdf', {
-        downloadFilename: 'My Report.pdf',
+  describe('getObject', () => {
+    it('returns the object stream with its stored type and length', async () => {
+      const body = Readable.from([Buffer.from('bytes')]);
+      send.mockResolvedValue({ Body: body, ContentType: 'image/png', ContentLength: 5 });
+
+      const object = await service.getObject('attachments/i-1/a-1.png');
+
+      expect(object).toEqual({ body, contentType: 'image/png', contentLength: 5 });
+      const [command] = send.mock.calls[0];
+      expect(command).toBeInstanceOf(GetObjectCommand);
+      expect(command.input).toEqual({ Bucket: 'test-bucket', Key: 'attachments/i-1/a-1.png' });
+    });
+
+    it('falls back to a non-renderable type when the bucket stored none', async () => {
+      send.mockResolvedValue({ Body: Readable.from([]) });
+
+      const object = await service.getObject('attachments/i-1/a-1');
+
+      expect(object.contentType).toBe('application/octet-stream');
+    });
+
+    it('turns a missing key into an attachment 404, not a 500', async () => {
+      send.mockRejectedValue(new NoSuchKey({ message: 'gone', $metadata: {} }));
+
+      const result = service.getObject('attachments/i-1/a-1.png');
+
+      await expect(result).rejects.toBeInstanceOf(NotFoundError);
+      await expect(result).rejects.toMatchObject({ code: ErrorCode.ATTACHMENT_NOT_FOUND });
+    });
+
+    it('rethrows any other storage failure unchanged', async () => {
+      const outage = new Error('connect ECONNREFUSED');
+      send.mockRejectedValue(outage);
+
+      await expect(service.getObject('attachments/i-1/a-1.png')).rejects.toBe(outage);
+    });
+  });
+
+  describe('against an object store that accepts and then stalls', () => {
+    let blackHole: Server;
+    const sockets: Socket[] = [];
+
+    beforeEach(async () => {
+      send.mockRestore();
+      blackHole = createServer((socket) => sockets.push(socket));
+      await new Promise<void>((resolve) => blackHole.listen(0, '127.0.0.1', resolve));
+    });
+
+    afterEach(async () => {
+      sockets.forEach((socket) => socket.destroy());
+      await new Promise((resolve) => blackHole.close(resolve));
+    });
+
+    it('gives up after the configured idle time instead of hanging the download', async () => {
+      const { port } = blackHole.address() as AddressInfo;
+      const stalled = new AttachmentsStorageService({
+        ...config,
+        endpoint: `http://127.0.0.1:${port}`,
+        socketTimeoutMs: 200,
       });
 
-      expect(url).toBe('https://s3/presigned');
-      expect(lastCommand().input).toMatchObject({
-        Bucket: 'test-bucket',
-        Key: 'attachments/i-1/a-1.pdf',
-        ResponseContentDisposition:
-          'attachment; filename="My Report.pdf"; filename*=UTF-8\'\'My%20Report.pdf',
+      await expect(stalled.getObject('attachments/i-1/a-1.png')).rejects.toMatchObject({
+        name: 'TimeoutError',
       });
-    });
-
-    it('sanitizes CR/LF and quotes out of the filename', async () => {
-      await service.getPresignedUrl('attachments/i-1/a-1.pdf', {
-        downloadFilename: 'bad"\r\nname.pdf',
-      });
-
-      const disposition = lastCommand().input
-        .ResponseContentDisposition as string;
-      expect(disposition).not.toContain('\r');
-      expect(disposition).not.toContain('\n');
-      expect(disposition).toContain('filename="bad_name.pdf"');
-    });
-
-    it('omits the disposition when no download filename is given', async () => {
-      await service.getPresignedUrl('attachments/i-1/thumb.png');
-
-      expect(lastCommand().input.ResponseContentDisposition).toBeUndefined();
-    });
-
-    it('uses the configured TTL by default and an override when given', async () => {
-      await service.getPresignedUrl('path');
-      expect(mockedGetSignedUrl).toHaveBeenLastCalledWith(
-        expect.anything(),
-        expect.anything(),
-        { expiresIn: 60 },
-      );
-
-      await service.getPresignedUrl('path', { ttlSeconds: 300 });
-      expect(mockedGetSignedUrl).toHaveBeenLastCalledWith(
-        expect.anything(),
-        expect.anything(),
-        { expiresIn: 300 },
-      );
-    });
+    }, 10_000);
   });
 });

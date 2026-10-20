@@ -19,7 +19,7 @@
 - **Time Tracking** -- log work, view time reports with Recharts
 - **Real-Time Updates** -- Socket.IO with Valkey adapter for live collaboration
 - **SSO** -- Google and Microsoft OAuth, plus invite-only email registration
-- **File Attachments** -- upload to S3-compatible storage (Garage in dev/prod) with presigned URLs
+- **File Attachments** -- upload to S3-compatible storage (Garage in dev/prod), downloads streamed through the API with a per-request permission check
 - **Notifications** -- in-app + email notifications via BullMQ background jobs
 - **Activity Feed** -- full audit trail of issue changes, comments, and status transitions
 - **Dark/Light Theme** -- oklch-based design tokens with `next-themes`
@@ -345,11 +345,13 @@ All variables are documented in `.env.example`. Key groups:
 |---|---|---|
 | `VALKEY_URL` | Yes | Valkey connection string |
 | `SEARCH_ENGINE_URL` | Yes | OpenSearch endpoint |
-| `S3_ENDPOINT` | Yes | S3 endpoint URL (dev: `http://localhost:3900`). The browser is redirected to presigned URLs on it, so it must be browser-reachable |
+| `S3_ENDPOINT` | Yes | S3 endpoint URL, used by the API only (dev: `http://localhost:3900`, prod: `http://garage:3900`). Downloads stream through the API, so it never needs to be browser-reachable or exposed through nginx |
 | `S3_REGION` | Yes | Must equal the server's region (`garage` for the bundled Garage, see `infra/garage/garage.toml`) |
 | `S3_ACCESS_KEY` | Yes | S3 access key |
 | `S3_SECRET_KEY` | Yes | S3 secret key |
 | `S3_BUCKET` | Yes | S3 bucket name (created by the API on startup if missing) |
+| `S3_CONNECTION_TIMEOUT_MS` / `S3_SOCKET_TIMEOUT_MS` | No | Connect timeout (default `5000`) and idle-socket timeout (default `30000`) for S3 calls, so a stalled object store fails a download instead of hanging it |
+| `ATTACHMENT_CACHE_MAX_AGE_SECONDS` | No | `Cache-Control: private` max-age of served attachments (default `60`, `0`–`86400`) |
 
 ### Mail
 

@@ -9,7 +9,10 @@ import {
 import { ConfigType } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
-import { AttachmentsStorageService } from './attachments-storage.service';
+import {
+  AttachmentsStorageService,
+  type StoredObject,
+} from './attachments-storage.service';
 import { ActivitiesService } from '@/modules/activities/activities.service';
 import { AttachmentsRepository, buildAttachmentDto } from './attachments.repository';
 import { IssuesReader } from '@/modules/issues/issues.reader';
@@ -24,6 +27,11 @@ import {
   isImageMimeType,
   sniffImageType,
 } from './attachment-limits';
+
+export interface AttachmentContent extends StoredObject {
+  /** Set for the original file: the response must force a download under this name. */
+  downloadFilename?: string;
+}
 
 interface UploadedFile {
   originalname: string;
@@ -113,29 +121,29 @@ export class AttachmentsService {
     return raws.map((r) => buildAttachmentDto(r, userId, isAdmin));
   }
 
-  async getDownloadUrl(
+  async openDownload(
     issueId: string,
     attachmentId: string,
     userId: string,
     isAdmin = false,
-  ): Promise<string> {
+  ): Promise<AttachmentContent> {
     const raw = await this.findAttachmentWithAccessCheck(
       issueId,
       attachmentId,
       userId,
       isAdmin,
     );
-    return this.storage.getPresignedUrl(raw.storagePath, {
-      downloadFilename: raw.filename,
-    });
+    const object = await this.storage.getObject(raw.storagePath);
+    // The upload-validated MIME type, not whatever the bucket echoes back.
+    return { ...object, contentType: raw.mimeType, downloadFilename: raw.filename };
   }
 
-  async getThumbnailUrl(
+  async openThumbnail(
     issueId: string,
     attachmentId: string,
     userId: string,
     isAdmin = false,
-  ): Promise<string> {
+  ): Promise<AttachmentContent> {
     const raw = await this.findAttachmentWithAccessCheck(
       issueId,
       attachmentId,
@@ -145,7 +153,7 @@ export class AttachmentsService {
     if (!raw.thumbnailPath) {
       throw new NotFoundError(ErrorCode.ATTACHMENT_THUMBNAIL_NOT_AVAILABLE);
     }
-    return this.storage.getPresignedUrl(raw.thumbnailPath);
+    return this.storage.getObject(raw.thumbnailPath);
   }
 
   async softDelete(

@@ -8,18 +8,21 @@ import {
   HeadObjectCommand,
   CreateBucketCommand,
   HeadBucketCommand,
+  NoSuchKey,
 } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { Readable } from 'stream';
+import { ErrorCode } from '@repo/shared';
 import { storageConfig } from '@/config';
-import { buildAttachmentDisposition } from './content-disposition';
+import { NotFoundError } from '@/common/errors/domain.errors';
 import { AppLogger } from '@/common/logging/app-logger';
 
-export interface PresignedUrlOptions {
-  ttlSeconds?: number;
-  /** When set, forces `Content-Disposition: attachment` with this filename. */
-  downloadFilename?: string;
+export interface StoredObject {
+  body: Readable;
+  contentType: string;
+  contentLength?: number;
 }
+
+const FALLBACK_CONTENT_TYPE = 'application/octet-stream';
 
 @Injectable()
 export class AttachmentsStorageService implements OnModuleInit {
@@ -39,6 +42,10 @@ export class AttachmentsStorageService implements OnModuleInit {
         secretAccessKey: config.secretKey,
       },
       forcePathStyle: config.forcePathStyle,
+      requestHandler: {
+        connectionTimeout: config.connectionTimeoutMs,
+        socketTimeout: config.socketTimeoutMs,
+      },
     });
     this.bucket = config.bucket;
   }
@@ -78,27 +85,6 @@ export class AttachmentsStorageService implements OnModuleInit {
     }
   }
 
-  async getPresignedUrl(
-    storagePath: string,
-    options: PresignedUrlOptions = {},
-  ): Promise<string> {
-    const command = new GetObjectCommand({
-      Bucket: this.bucket,
-      Key: storagePath,
-      ...(options.downloadFilename
-        ? {
-            ResponseContentDisposition: buildAttachmentDisposition(
-              options.downloadFilename,
-            ),
-          }
-        : {}),
-    });
-
-    return getSignedUrl(this.client, command, {
-      expiresIn: options.ttlSeconds ?? this.config.presignedUrlTtl,
-    });
-  }
-
   async deleteFile(storagePath: string): Promise<void> {
     try {
       await this.client.send(
@@ -114,15 +100,29 @@ export class AttachmentsStorageService implements OnModuleInit {
     }
   }
 
-  async getObject(storagePath: string): Promise<Readable> {
-    const response = await this.client.send(
-      new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: storagePath,
-      }),
-    );
-
-    return response.Body as Readable;
+  async getObject(storagePath: string): Promise<StoredObject> {
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: storagePath }),
+      );
+      if (!(response.Body instanceof Readable)) {
+        throw new Error('S3 GetObject returned a non-stream body');
+      }
+      return {
+        body: response.Body,
+        contentType: response.ContentType ?? FALLBACK_CONTENT_TYPE,
+        contentLength: response.ContentLength,
+      };
+    } catch (err) {
+      if (err instanceof NoSuchKey) {
+        this.logger.warn('S3 object missing for an active attachment', {
+          key: storagePath,
+        });
+        throw new NotFoundError(ErrorCode.ATTACHMENT_NOT_FOUND);
+      }
+      this.logger.error('S3 get failed', err, { key: storagePath });
+      throw err;
+    }
   }
 
   async exists(storagePath: string): Promise<boolean> {

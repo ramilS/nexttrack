@@ -1,3 +1,4 @@
+import { Readable } from 'stream';
 import { INestApplication } from '@nestjs/common';
 import { Test, TestingModuleBuilder } from '@nestjs/testing';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -282,13 +283,13 @@ async function closeAppWithin(
  */
 type MockOf<T> = Partial<Record<keyof T, unknown>>;
 
-// The names here matter: `getSignedDownloadUrl` and `fileExists` used to be
-// mocked, but the service calls them `getPresignedUrl` and `exists` — so the
-// download and existence paths were hitting `undefined`, not a mock.
 const mockStorageService: MockOf<AttachmentsStorageService> = {
   onModuleInit: async () => {},
   uploadBuffer: async () => {},
-  getPresignedUrl: async () => 'https://mock-s3/file',
+  getObject: async () => ({
+    body: Readable.from([Buffer.from('mock-object')]),
+    contentType: 'application/octet-stream',
+  }),
   deleteFile: async () => {},
   exists: async () => false,
 };
