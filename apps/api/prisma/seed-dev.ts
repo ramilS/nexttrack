@@ -1360,7 +1360,7 @@ function generateFieldValue(type: CustomFieldType, config: any): unknown {
   }
 }
 
-// ─── Attachments (DB-only — no MinIO upload) ────────────────────────────────
+// ─── Attachments (DB-only — no S3 upload) ────────────────────────────────
 
 const ATTACHMENT_FIXTURES: { filename: string; mimeType: string; sizeRange: [number, number] }[] = [
   { filename: 'screenshot.png', mimeType: 'image/png', sizeRange: [80_000, 800_000] },

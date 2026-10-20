@@ -34,7 +34,7 @@ export class AttachmentsController {
 
   @Post()
   @RequirePermission(Permission.ISSUE_UPDATE)
-  // Streaming multipart upload (to S3/MinIO) legitimately exceeds the global
+  // Streaming multipart upload (to S3) legitimately exceeds the global
   // JSON request timeout — exempt it so large files aren't aborted with a 408.
   @SkipTimeout()
   @ApiEnvelope([AttachmentDto], { status: HttpStatus.CREATED })

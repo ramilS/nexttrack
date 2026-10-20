@@ -10,7 +10,7 @@ export interface E2eProcessState {
   pgContainer: StartedPostgreSqlContainer;
   redisContainer: StartedRedisContainer;
   searchEngineContainer: StartedOpenSearchContainer;
-  minioContainer: StartedTestContainer;
+  objectStorageContainer: StartedTestContainer;
   apiProcess: ChildProcess;
   webProcess: ChildProcess;
 }

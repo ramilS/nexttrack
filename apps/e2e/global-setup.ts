@@ -2,7 +2,9 @@ import { FullConfig } from '@playwright/test';
 import { TEST_SECRETS } from '@repo/test-support';
 import {
   startSearchEngine,
-  startMinio,
+  startObjectStorage,
+  OBJECT_STORAGE_REGION,
+  OBJECT_STORAGE_S3_PORT,
   startPostgres,
   startRedis,
   type StartedPostgreSqlContainer,
@@ -86,7 +88,7 @@ function spawnProcess(
 let pgContainer: StartedPostgreSqlContainer;
 let redisContainer: StartedRedisContainer;
 let searchEngineContainer: StartedOpenSearchContainer;
-let minioContainer: StartedTestContainer;
+let objectStorageContainer: StartedTestContainer;
 
 export default async function globalSetup(_config: FullConfig): Promise<void> {
   // E2E runs built artifacts (api/dist, web/.next) — rebuild so tests never
@@ -100,21 +102,21 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   console.log('\n[e2e] Starting infrastructure...');
 
   // 1. Start containers in parallel
-  [pgContainer, redisContainer, searchEngineContainer, minioContainer] = await Promise.all([
+  [pgContainer, redisContainer, searchEngineContainer, objectStorageContainer] = await Promise.all([
     startPostgres(),
     startRedis(),
     startSearchEngine(),
-    startMinio(),
+    startObjectStorage(),
   ]);
 
   const dbUrl = pgContainer.getConnectionUri();
   const redisUrl = redisContainer.getConnectionUrl();
   const searchEngineUrl = `http://${searchEngineContainer.getHost()}:${searchEngineContainer.getMappedPort(9200)}`;
-  const minioUrl = `http://${minioContainer.getHost()}:${minioContainer.getMappedPort(9000)}`;
+  const objectStorageUrl = `http://${objectStorageContainer.getHost()}:${objectStorageContainer.getMappedPort(OBJECT_STORAGE_S3_PORT)}`;
   console.log(`[e2e] PostgreSQL: ${dbUrl}`);
   console.log(`[e2e] Redis: ${redisUrl}`);
   console.log(`[e2e] OpenSearch: ${searchEngineUrl}`);
-  console.log(`[e2e] MinIO: ${minioUrl}`);
+  console.log(`[e2e] Garage S3: ${objectStorageUrl}`);
 
   // 2. Push Prisma schema
   console.log('[e2e] Pushing Prisma schema...');
@@ -157,7 +159,8 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
     JWT_ACCESS_SECRET: TEST_SECRETS.jwtAccessSecret,
     JWT_REFRESH_SECRET: TEST_SECRETS.jwtRefreshSecret,
     ENCRYPTION_KEY: TEST_SECRETS.encryptionKey,
-    S3_ENDPOINT: minioUrl,
+    S3_ENDPOINT: objectStorageUrl,
+    S3_REGION: OBJECT_STORAGE_REGION,
     S3_ACCESS_KEY: TEST_SECRETS.s3AccessKey,
     S3_SECRET_KEY: TEST_SECRETS.s3SecretKey,
     S3_BUCKET: 'test-bucket',
@@ -273,5 +276,5 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
 
   // Store references for teardown (same-process)
-  setProcessState({ pgContainer, redisContainer, searchEngineContainer, minioContainer, apiProcess, webProcess });
+  setProcessState({ pgContainer, redisContainer, searchEngineContainer, objectStorageContainer, apiProcess, webProcess });
 }

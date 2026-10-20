@@ -12,7 +12,7 @@ import {
 
 /**
  * Attachments integration tests.
- * Storage is mocked (MinIO not available in test), but we test:
+ * Storage is mocked (no object storage in the integration stack), but we test:
  * - Upload flow (multipart, validation, DB records)
  * - Listing and deletion
  * - Access control

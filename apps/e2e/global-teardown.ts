@@ -35,8 +35,8 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
     await refs.searchEngineContainer.stop();
     console.log('[e2e] Stopped OpenSearch container');
 
-    await refs.minioContainer.stop();
-    console.log('[e2e] Stopped MinIO container');
+    await refs.objectStorageContainer.stop();
+    console.log('[e2e] Stopped Garage container');
   } else if (fs.existsSync(STATE_FILE)) {
     // Fallback: read saved PIDs
     const state: E2eFileState = JSON.parse(

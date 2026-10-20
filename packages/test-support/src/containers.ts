@@ -7,7 +7,7 @@ import {
   OpenSearchContainer,
   StartedOpenSearchContainer,
 } from '@testcontainers/opensearch';
-import { GenericContainer, type StartedTestContainer } from 'testcontainers';
+import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
 import { TEST_SECRETS } from './index';
 
 export type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
@@ -20,7 +20,7 @@ const TEST_IMAGES = {
   // Must stay org-prefixed (`valkey/valkey:...`) or testcontainers can't pull it.
   redis: 'valkey/valkey:9.1.0-alpine',
   searchEngine: 'opensearchproject/opensearch:3.6.0',
-  minio: 'minio/minio:latest',
+  objectStorage: 'dxflrs/garage:v2.4.1',
 } as const;
 
 export function startPostgres(): Promise<StartedPostgreSqlContainer> {
@@ -88,13 +88,42 @@ async function waitForClusterReady(baseUrl: string): Promise<void> {
   throw new Error(`OpenSearch at ${baseUrl} never reached yellow status`);
 }
 
-export function startMinio(): Promise<StartedTestContainer> {
-  return new GenericContainer(TEST_IMAGES.minio)
+export const OBJECT_STORAGE_REGION = 'garage';
+export const OBJECT_STORAGE_S3_PORT = 3900;
+const OBJECT_STORAGE_ADMIN_PORT = 3903;
+
+// Mirrors infra/garage/garage.toml minus persistence: the container is thrown
+// away after the run, so metadata and data live in its own filesystem.
+const GARAGE_TEST_CONFIG = `
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+replication_factor = 1
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region = "${OBJECT_STORAGE_REGION}"
+api_bind_addr = "[::]:${OBJECT_STORAGE_S3_PORT}"
+
+[admin]
+api_bind_addr = "[::]:${OBJECT_STORAGE_ADMIN_PORT}"
+`;
+
+export function startObjectStorage(): Promise<StartedTestContainer> {
+  return new GenericContainer(TEST_IMAGES.objectStorage)
+    .withCopyContentToContainer([
+      { content: GARAGE_TEST_CONFIG, target: '/etc/garage.toml' },
+    ])
     .withEnvironment({
-      MINIO_ROOT_USER: TEST_SECRETS.s3AccessKey,
-      MINIO_ROOT_PASSWORD: TEST_SECRETS.s3SecretKey,
+      GARAGE_RPC_SECRET: '0'.repeat(64),
+      GARAGE_DEFAULT_ACCESS_KEY: TEST_SECRETS.s3AccessKey,
+      GARAGE_DEFAULT_SECRET_KEY: TEST_SECRETS.s3SecretKey,
     })
-    .withExposedPorts(9000)
-    .withCommand(['server', '/data'])
+    .withCommand(['/garage', 'server', '--single-node', '--default-access-key'])
+    .withExposedPorts(OBJECT_STORAGE_S3_PORT, OBJECT_STORAGE_ADMIN_PORT)
+    // The layout and the access key are written before the S3 and admin
+    // servers start listening, so a healthy node is ready to serve the API.
+    .withWaitStrategy(Wait.forHttp('/health', OBJECT_STORAGE_ADMIN_PORT))
     .start();
 }

@@ -1,0 +1,25 @@
+# Single-node Garage, shared by docker-compose.yml and docker-compose.prod.yml.
+# Started with `server --single-node --default-access-key`: the node assigns its
+# own layout on first boot, and the S3 key comes from GARAGE_DEFAULT_ACCESS_KEY /
+# GARAGE_DEFAULT_SECRET_KEY. The API creates its bucket on startup.
+# rpc_secret is supplied as GARAGE_RPC_SECRET (64 hex chars).
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+# LMDB corrupts on unclean shutdown, and a single node has no replica to
+# rebuild metadata from — sqlite is the safe engine here.
+db_engine = "sqlite"
+
+replication_factor = 1
+
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+# Part of every SigV4 signature: the API's S3_REGION must equal this exactly.
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+
+[admin]
+# Serves the unauthenticated GET /health only — no admin_token is configured.
+api_bind_addr = "[::]:3903"

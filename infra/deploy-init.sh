@@ -18,7 +18,7 @@ if [ ! -f "../.env.prod" ]; then
 fi
 
 echo "==> Starting infrastructure services..."
-$COMPOSE up -d postgres valkey opensearch minio
+$COMPOSE up -d postgres valkey opensearch garage
 
 echo "==> Waiting for services to be healthy..."
 $COMPOSE exec postgres sh -c 'until pg_isready -U $POSTGRES_USER; do sleep 1; done'

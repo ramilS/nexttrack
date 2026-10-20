@@ -21,9 +21,9 @@ const schema = z.object({
 export type StorageConfig = z.infer<typeof schema>;
 
 export const storageConfig = registerAs('storage', (): StorageConfig => {
-  const endpoint = process.env.S3_ENDPOINT ?? process.env.MINIO_ENDPOINT;
-  const port = process.env.S3_PORT ?? process.env.MINIO_PORT;
-  const useSSL = process.env.S3_USE_SSL ?? process.env.MINIO_USE_SSL;
+  const endpoint = process.env.S3_ENDPOINT;
+  const port = process.env.S3_PORT;
+  const useSSL = process.env.S3_USE_SSL;
   const protocol = useSSL === 'true' ? 'https' : 'http';
   const fullEndpoint = endpoint?.startsWith('http')
     ? endpoint
@@ -32,9 +32,9 @@ export const storageConfig = registerAs('storage', (): StorageConfig => {
   return schema.parse({
     endpoint: fullEndpoint,
     region: process.env.S3_REGION,
-    accessKey: process.env.S3_ACCESS_KEY ?? process.env.MINIO_ACCESS_KEY,
-    secretKey: process.env.S3_SECRET_KEY ?? process.env.MINIO_SECRET_KEY,
-    bucket: process.env.S3_BUCKET ?? process.env.MINIO_BUCKET,
+    accessKey: process.env.S3_ACCESS_KEY,
+    secretKey: process.env.S3_SECRET_KEY,
+    bucket: process.env.S3_BUCKET,
     forcePathStyle: process.env.S3_FORCE_PATH_STYLE,
     presignedUrlTtl: process.env.PRESIGNED_URL_TTL_SECONDS,
     maxFileSizeBytes: process.env.ATTACHMENT_MAX_FILE_SIZE_MB

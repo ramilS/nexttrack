@@ -6,7 +6,7 @@ Issue tracking & project management platform (YouTrack-style). Turborepo monorep
 
 ```bash
 pnpm install
-cd infra && docker compose up -d postgres valkey minio opensearch
+cd infra && docker compose up -d postgres valkey garage opensearch
 cd ../apps/api && pnpm prisma migrate deploy   # first run only — `pnpm dev` migrates from here on
 pnpm seed:dev          # demo data (Postgres only — see reindex note below)
 cd ../.. && pnpm dev   # applies pending migrations, then web :3000, api :3001
@@ -25,7 +25,7 @@ Admin seed creds are defined at the top of `apps/api/prisma/seed-dev.ts` (`ADMIN
 - `packages/migrator` — YouTrack → NextTrack import CLI (`@repo/migrator`: extractors/transformers/loaders)
 - `packages/test-support` — Testcontainers helpers (`@repo/test-support`) for API integration tests
 - `packages/ui` — shared React primitives (`@repo/ui`) — NOT the web app's UI (that's `apps/web/components/ui`)
-- `infra` — docker-compose for local stack (Postgres, Valkey, MinIO/S3, OpenSearch, Mailhog)
+- `infra` — docker-compose for local stack (Postgres, Valkey, Garage/S3, OpenSearch, Mailhog)
 
 ## Common Commands
 

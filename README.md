@@ -19,7 +19,7 @@
 - **Time Tracking** -- log work, view time reports with Recharts
 - **Real-Time Updates** -- Socket.IO with Valkey adapter for live collaboration
 - **SSO** -- Google and Microsoft OAuth, plus invite-only email registration
-- **File Attachments** -- upload to MinIO/S3 with presigned URLs
+- **File Attachments** -- upload to S3-compatible storage (Garage in dev/prod) with presigned URLs
 - **Notifications** -- in-app + email notifications via BullMQ background jobs
 - **Activity Feed** -- full audit trail of issue changes, comments, and status transitions
 - **Dark/Light Theme** -- oklch-based design tokens with `next-themes`
@@ -42,7 +42,7 @@
 | PostgreSQL 16 (Prisma 7 ORM) | React 19 |
 | Valkey 9 (ioredis)           | TanStack Query 5 |
 | OpenSearch 3                 | Zustand 5 |
-| MinIO / S3                   | Tiptap 3 (rich text) |
+| Garage (S3-compatible)       | Tiptap 3 (rich text) |
 | BullMQ (job queues)          | shadcn/ui (base-nova) |
 | Socket.IO (real-time)        | dnd-kit (drag & drop) |
 | Passport + JWT               | Recharts 3 |
@@ -73,7 +73,7 @@ pnpm install
 cd infra && docker compose up -d
 ```
 
-This starts PostgreSQL, Valkey, OpenSearch, MinIO, and Mailhog.
+This starts PostgreSQL, Valkey, OpenSearch, Garage (S3), and Mailhog.
 
 ### 3. Configure environment
 
@@ -195,7 +195,7 @@ next_track/
 │   ├── eslint-config/        Shared ESLint configuration
 │   └── typescript-config/    Shared TypeScript config presets
 ├── infra/
-│   ├── docker-compose.yml    Dev services (postgres, valkey, es, minio, mailhog)
+│   ├── docker-compose.yml    Dev services (postgres, valkey, opensearch, garage, mailhog)
 │   ├── docker-compose.prod.yml   Production stack with nginx
 │   ├── nginx/                Reverse proxy config + SSL params
 │   ├── deploy-init.sh        First-time deployment bootstrap
@@ -345,10 +345,11 @@ All variables are documented in `.env.example`. Key groups:
 |---|---|---|
 | `VALKEY_URL` | Yes | Valkey connection string |
 | `SEARCH_ENGINE_URL` | Yes | OpenSearch endpoint |
-| `MINIO_ENDPOINT` | Yes | MinIO/S3 host |
-| `MINIO_ACCESS_KEY` | Yes | S3 access key |
-| `MINIO_SECRET_KEY` | Yes | S3 secret key |
-| `MINIO_BUCKET` | Yes | S3 bucket name |
+| `S3_ENDPOINT` | Yes | S3 endpoint URL (dev: `http://localhost:3900`). The browser is redirected to presigned URLs on it, so it must be browser-reachable |
+| `S3_REGION` | Yes | Must equal the server's region (`garage` for the bundled Garage, see `infra/garage/garage.toml`) |
+| `S3_ACCESS_KEY` | Yes | S3 access key |
+| `S3_SECRET_KEY` | Yes | S3 secret key |
+| `S3_BUCKET` | Yes | S3 bucket name (created by the API on startup if missing) |
 
 ### Mail
 

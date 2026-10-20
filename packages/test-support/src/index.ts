@@ -6,7 +6,8 @@ export const TEST_SECRETS = {
   jwtRefreshSecret: 'e2e-test-refresh-secret-32-chars-ok',
   encryptionKey: 'a'.repeat(64),
   migrationApiSecret: 'e2e-migration-secret-that-is-32-chars-long',
-  // Same pair is the MinIO container's root creds and the API's S3 creds — must match.
-  s3AccessKey: 'minioadmin',
-  s3SecretKey: 'minioadmin',
+  // Same pair is the Garage container's default key and the API's S3 creds.
+  // Garage requires a key id of >=8 chars and a secret of >=16.
+  s3AccessKey: 'nexttrack-test',
+  s3SecretKey: 'nexttrack-test-secret',
 } as const;

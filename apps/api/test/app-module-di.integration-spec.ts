@@ -23,7 +23,7 @@ describe('AppModule dependency graph', () => {
     // every ZodDto through nestjs-zod's JSON-schema converter, so an
     // OpenAPI-incompatible schema fails here instead of at /docs in prod.
     // No app.init(): document generation scans decorator metadata only,
-    // and init() would open real MinIO/ES connections this harness lacks.
+    // and init() would open real S3/OpenSearch connections this harness lacks.
     const app = moduleRef.createNestApplication();
     app.setGlobalPrefix('api');
 

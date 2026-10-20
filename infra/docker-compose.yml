@@ -42,17 +42,27 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
-    image: minio/minio:latest
+  # S3-compatible object storage. Config and bootstrap: garage/garage.toml.
+  garage:
+    image: dxflrs/garage:v2.4.1
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command: ["/garage", "server", "--single-node", "--default-access-key"]
     environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin_secret
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes: [.docker/volumes/minio:/data]
+      # Quoted: unquoted, YAML reads an all-digit hex string as the integer 0.
+      GARAGE_RPC_SECRET: "0000000000000000000000000000000000000000000000000000000000000000"
+      # Must match S3_ACCESS_KEY / S3_SECRET_KEY in the root .env.
+      GARAGE_DEFAULT_ACCESS_KEY: nexttrack-dev
+      GARAGE_DEFAULT_SECRET_KEY: nexttrack-dev-secret
+    ports: ["3900:3900"]
+    volumes:
+      - ./garage/garage.toml:/etc/garage.toml:ro
+      - .docker/volumes/garage:/var/lib/garage
+    healthcheck:
+      # The image is FROM scratch — no shell or curl, only the garage binary.
+      test: ["CMD", "/garage", "health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mailhog:
     image: mailhog/mailhog:latest
